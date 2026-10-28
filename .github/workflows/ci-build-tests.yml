@@ -2,9 +2,11 @@ name: build-tests
 
 on:
   push:
-    branches: [ "develop", "main" ]
+    branches: [ "develop", "main", "ci/ubuntu-only-prs" ]
   pull_request:
-    branches: [ "develop", "main" ]
+    branches: [ "develop", "main", "ci/skip-docs-only", "ci/ubuntu-only-prs" ]
+    # labeled: adding the full-ci label reruns the workflow on every OS.
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -82,7 +84,9 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        # Pull requests test on Ubuntu only. The merge commit on develop or
+        # main, and a pull request carrying the full-ci label, test on all three.
+        os: ${{ (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && fromJSON('["ubuntu-24.04", "macos-latest", "windows-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       # 1) Check out repository
