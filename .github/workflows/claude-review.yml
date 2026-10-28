@@ -36,6 +36,10 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
+            Start by reading REVIEW.md with the Read tool; it is in the
+            checked-out repository root. Get the diff with `gh pr diff` and
+            the PR description with `gh pr view`.
+
             Review this pull request following REVIEW.md in the repository root:
             its "What failure looks like here", "Ignore", "How to review" and
             "How to report" sections. Check the diff against the PR's Testing,
