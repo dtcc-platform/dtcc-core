@@ -90,5 +90,3 @@ def _timed_run(statement: str, runs: int = 3) -> float:
         timings.append(time.perf_counter() - start)
         assert result.returncode == 0, f"`{statement}` failed"
     return min(timings)
-
-# Scratch probe for the docs-only CI skip; not for merge.
