@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run still going for its last push;
+# every other run has a group of its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   # Ruff runs standalone: style and lint checks do not need the compiled
   # extension, so this job gives feedback in seconds.
@@ -32,7 +38,48 @@ jobs:
       - name: Check formatting
         run: uvx ruff@0.16.8 format --check .
 
+  # Pull requests that only touch the process documents listed in the filter
+  # step skip the test jobs below.
+  # They skip through `if:`, which GitHub counts as a passing required check;
+  # a `paths` filter on the workflow would leave those checks pending instead.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Look for changes outside documentation
+        id: filter
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ -z "$BASE" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --depth=1 origin "$BASE"
+          changed=$(git diff --name-status --no-renames FETCH_HEAD HEAD)
+          echo "$changed"
+          # Added or modified files on this list are the only ones that skip
+          # the tests: docs/ and DESIGN.md are read by tests, and a deleted
+          # file can break packaging or tests.
+          if echo "$changed" | grep -v \
+              -e '^[AM][[:space:]]AGENTS\.md$' -e '^[AM][[:space:]]REVIEW\.md$' \
+              -e '^[AM][[:space:]]CONTRIBUTING\.md$' -e '^[AM][[:space:]]README\.md$' \
+              -e '^[AM][[:space:]]\.github/CODEOWNERS$' \
+              -e '^[AM][[:space:]]\.github/pull_request_template\.md$' \
+              -e '^[AM][[:space:]]\.github/workflows/claude'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-test:
+    needs: changes
+    # Runs unless the changes job said no, so a failed changes job still tests.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
       matrix:
         os: [ubuntu-24.04, macos-latest, windows-latest]
@@ -93,6 +140,8 @@ jobs:
         shell: bash
 
   python-compatibility:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
       fail-fast: false
       matrix:
@@ -121,6 +170,20 @@ jobs:
       - name: Run tests
         run: |
           cd tests && uv run --locked pytest
+
+  # One required check for the ruleset in place of the six matrix legs: a
+  # skipped matrix job reports under its plain name, so leg names required
+  # by the ruleset would stay pending on documentation-only pull requests.
+  tests:
+    needs: [changes, build-and-test, python-compatibility]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail when a test job failed, was cancelled, or skipped although code changed
+        if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') ||
+          (needs.changes.outputs.code != 'false' && contains(needs.*.result, 'skipped'))
+        run: exit 1
 
   notify:
     needs: [build-and-test, python-compatibility]
