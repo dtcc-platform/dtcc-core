@@ -201,6 +201,24 @@ def source_roofs(
                     result.diagnostics.setdefault("transfer_rejections", []).append(
                         str(exc)
                     )
+                    try:  # scratch diagnostics for the intermittent CI failure
+                        result.diagnostics["transfer_debug"] = dict(
+                            target=target.wkt,
+                            target_type=target.geom_type,
+                            origin=result.model.origin.tolist(),
+                            parameters=result.model.parameters.tolist(),
+                            planes=result.model.planes.tolist(),
+                            patches=[
+                                dict(
+                                    patch_id=p.patch_id,
+                                    area=p.polygon.area,
+                                    wkt=p.polygon.wkt,
+                                )
+                                for p in result.model.patches(target, block_id=output)
+                            ],
+                        )
+                    except Exception as debug_exc:  # noqa: BLE001
+                        result.diagnostics["transfer_debug"] = repr(debug_exc)
                     for row in rows:
                         if row.get("source_key") == key:
                             row["outcome"] = "lod1_fallback"
