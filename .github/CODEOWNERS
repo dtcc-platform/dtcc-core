@@ -6,5 +6,5 @@
 /CMakeLists.txt               @anderslogg @vbassn @dwastberg @Georspai
 /dtcc_core/CMakeLists.txt     @anderslogg @vbassn @dwastberg @Georspai
 /dtcc_core/cpp/               @anderslogg @vbassn @dwastberg @Georspai
-/dtcc_core/proto/             @anderslogg @vbassn @dwastberg @Georspai
+/dtcc_core/schemas/           @anderslogg @vbassn @dwastberg @Georspai
 /dtcc_core/model/dtcc_pb2.py  @anderslogg @vbassn @dwastberg @Georspai

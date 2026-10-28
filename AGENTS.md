@@ -49,7 +49,7 @@ Edits under `dtcc_core/builder/meshing/` also run the volume-meshing tests:
 
 Run every automated check for every change. A change to a sensitive path adds
 the manual check. Sensitive paths: `.github/workflows/`, `pyproject.toml` with
-`uv.lock`, `CMakeLists.txt` with `dtcc_core/cpp/`, and `dtcc_core/proto/` with
+`uv.lock`, `CMakeLists.txt` with `dtcc_core/cpp/`, and `dtcc_core/schemas/` with
 `dtcc_core/model/dtcc_pb2.py`.
 
 ## Before opening a pull request (PR)
