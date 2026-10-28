@@ -1,43 +1,82 @@
 # Demos
 
-Run scripts from the repository root, for example:
+Run from the repository root in the installed environment:
 
-```sh
+```bash
 python demos/build_lod1_buildings.py
 ```
 
-For footprint cleaning and building meshing, follow this short tour:
+Follow the [demo guidelines](../docs/demo-guidelines.md) when adding or revising
+examples. See [CONTRIBUTING.md](../CONTRIBUTING.md#demos) for verification.
+Plots and viewers open directly; close each window to continue. `.view()` needs
+`dtcc-viewer` and a graphical display. Generated files go under `output/`.
 
-1. [Original footprints](dataset_building_footprints.py) — a dataset call and plot.
-2. [Footprint cleaning](clean_building_footprints.py) — inspect isolated cleaning, then joint cleaning, in two explicit calls on the original city.
-3. [Buildings and shell](build_lod1_buildings.py) — three heights in one merged block: LOD1 geometry, then a triangulated exterior shell; runs offline.
-4. [City dataset](dataset_city.py) — terrain and catalogue LOD2 buildings in one high-level call.
-5. [Flat mesh](dataset_city_flat_mesh.py) — a 2D mesh with footprint subdomains.
-6. [Surface mesh dataset](dataset_city_surface_mesh.py) — inspect isolated and joint LOD2 surface meshes through two dataset calls; exports `output/city_surface_mesh_isolated.vtu` and `output/city_surface_mesh_merged.vtu` for ParaView.
-7. [Explicit surface pipeline](build_city_surface_mesh.py) — download and estimate heights, then clean and mesh isolated and joint LOD2 buildings using explicit calls.
+## Dataset examples
 
-Compare LOD2 methods and point-cloud sources with the
-[Höganäs sandbox script](../sandbox/compare_lod2.py). It exports reference models
-and six reconstructions (catalogue, RANSAC, and standalone Roofer with two point clouds), for ParaView; see [setup and interpretation](../sandbox/compare_lod2.md).
-LOD1 remains the API default; `lod="lod2"` selects catalogue reconstruction,
-and `lod2_method="ransac"` selects RANSAC. Both methods support isolated and joint surface meshing. Rejected roof fits fall back to LOD1. See [LOD2 reconstruction](../docs/roof_catalogue.md).
+Examples request a model, inspect it, then plot or view it. Most use the
+`gbg_500m_2026_07` table-model bounds; sparse station and vehicle examples use
+a larger Gothenburg region. Service examples require network access.
 
-For terrain alone, compare [the dataset call](dataset_terrain_surface_mesh.py)
-with [explicit construction](build_terrain_surface_mesh.py), then try
-[footprint-conforming terrain](build_terrain_with_footprints.py).
-For CityJSON, [view the detailed source](view_cityjson.py) before
-[triangulating twelve supplied LOD2 buildings](build_cityjson_surface_mesh.py), retaining their roofs and exporting `output/cityjson_lod2_surface_mesh.vtu`.
+| Demo | Dataset story | Preview |
+|---|---|---|
+| [dataset_calibration_grid.py](dataset_calibration_grid.py) | Synthetic table alignment grid | `grid.plot()` |
+| [dataset_smoke.py](dataset_smoke.py) | Synthetic smoke slice and streamlines | `smoke_slice.plot()` / `smoke_streamlines.plot()` |
+| [dataset_building_footprints.py](dataset_building_footprints.py) | Building footprint context | `footprints.plot()` |
+| [dataset_roads.py](dataset_roads.py) | OpenStreetMap road network | `roads.plot(column="highway")` |
+| [dataset_space_syntax.py](dataset_space_syntax.py) | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
+| [dataset_deso.py](dataset_deso.py) | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
+| [dataset_weather.py](dataset_weather.py) | SMHI weather stations | `weather.plot("air_temperature")` |
+| [dataset_air_quality.py](dataset_air_quality.py) | SMHI air-quality stations | `air_quality.plot("NO2")` |
+| [dataset_hydrology.py](dataset_hydrology.py) | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |
+| [dataset_ocean.py](dataset_ocean.py) | SMHI ocean stations | `ocean.plot("sea_level")` |
+| [dataset_buses.py](dataset_buses.py) | Live buses over streets in a 2 km area around Poseidon | `LiveVehiclePlot.run()` |
+| [dataset_transit_vehicles.py](dataset_transit_vehicles.py) | Live bus positions | `vehicles.plot()` |
+| [dataset_trees.py](dataset_trees.py) | Point-cloud-derived trees | `trees.plot()` |
+| [dataset_terrain_surface_mesh.py](dataset_terrain_surface_mesh.py) | Terrain surface mesh | `terrain.plot()` / `.view()` |
+| [dataset_city_surface_mesh.py](dataset_city_surface_mesh.py) | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
+| [dataset_city_flat_mesh.py](dataset_city_flat_mesh.py) | Flat mesh with footprint subdomains | `flat_mesh.plot()` / `.view()` |
+| [dataset_city_volume_mesh.py](dataset_city_volume_mesh.py) | Air-volume mesh; see limitations below | `volume_mesh.plot()` / `.view()` |
+| [dataset_city.py](dataset_city.py) | Terrain and catalogue LOD2 city model | `city.plot()` / `.view()` |
 
-Finally, [volume meshing](dataset_city_volume_mesh.py) builds the air volume around
-LOD2 buildings and exports `output/city_volume_mesh.vtu` for ParaView. It reuses
-the joint surface pipeline and requires TetGen;
-the [catalog](../docs/datasets/demo-catalog.md) describes the known quality limitations.
+## Workflow examples
 
-Close each plot or viewer to continue. `.view()` requires `dtcc-viewer` and a graphical display.
-Generated files go in `output/` relative to the working directory; dtcc-core creates it automatically.
-Cleaning and surface-mesh demos show both modes sequentially, without mode loops.
-Each comparison starts from the original input.
+| Demo | Workflow | Data |
+|---|---|---|
+| [clean_building_footprints.py](clean_building_footprints.py) | Compare isolated and joint footprint cleaning | DTCC service |
+| [build_lod1_buildings.py](build_lod1_buildings.py) | Clean three neighbours, build LOD1 geometry and mesh the block's exterior shell | synthetic, offline |
+| [build_city_surface_mesh.py](build_city_surface_mesh.py) | Estimate heights → clean footprints → mesh terrain and buildings | DTCC service |
+| [build_terrain_with_footprints.py](build_terrain_with_footprints.py) | Terrain-only mesh conforming to cleaned footprint subdomains | DTCC service |
+| [build_terrain_raster.py](build_terrain_raster.py) | Ground points → terrain raster | DTCC service |
+| [build_terrain_surface_mesh.py](build_terrain_surface_mesh.py) | Ground points → terrain mesh | DTCC service |
+| [build_cityjson_surface_mesh.py](build_cityjson_surface_mesh.py) | Twelve supplied LOD2 CityJSON buildings → triangulated building surfaces; roofs are retained | bundled, offline |
+| [view_cityjson.py](view_cityjson.py) | Inspect the original detailed LOD2 model | bundled, offline |
+| [create_cityjson.py](create_cityjson.py) | Catalogue LOD2 city dataset → CityJSON export | DTCC service |
+| [view_pointcloud.py](view_pointcloud.py) | Inspect raw LiDAR points | DTCC service |
 
-All `dataset_*.py` examples follow the same request → inspect → plot pattern.
-See the [complete catalog](../docs/datasets/demo-catalog.md) for other examples,
-data requirements, isolation semantics and the outstanding volume-meshing limitations.
+## Suggested tour and limitations
+
+Start with `dataset_building_footprints.py`, `clean_building_footprints.py` and
+the offline `build_lod1_buildings.py`. Then try `dataset_city.py`,
+`dataset_city_flat_mesh.py`, `dataset_city_surface_mesh.py` and the explicit
+`build_city_surface_mesh.py` pipeline.
+
+Cleaning and surface examples compare two explicit calls on the original input.
+`isolated=True` keeps separate buildings whose surfaces may intersect; these
+are for visualization, not volume boundaries. `isolated=False` merges neighbours
+into blocks while retaining part heights. Use consistent detail and isolation
+settings for cleaning and meshing.
+
+LOD1 is the default; `lod="lod2"` selects catalogue reconstruction and
+`lod2_method="ransac"` selects RANSAC. Rejected roof fits can fall back to LOD1.
+See [LOD2 reconstruction](../docs/roof_catalogue.md) and the
+[Höganäs comparison](../sandbox/compare_lod2.md) for alternatives.
+CityJSON examples read bundled files relative to the repository root.
+
+Volume meshing requires TetGen and the joint surface pipeline. It exports
+`output/city_volume_mesh.vtu`; nearly collinear walls and near-flat tetrahedra
+remain known limitations in [issue #156](https://github.com/dtcc-platform/dtcc-core/issues/156).
+Keep reported failures visible rather than relaxing tolerances.
+
+`dataset_buses.py` needs `VASTTRAFIK_AUTHENTICATION_KEY` and an interactive
+Matplotlib display. It uses `strict_live=True`; missing credentials or provider
+failures raise errors. Close the window or press Ctrl+C to stop.

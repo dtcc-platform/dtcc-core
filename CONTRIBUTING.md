@@ -3,6 +3,8 @@
 Questions, bug reports and pull requests are welcome. Include a small reproducer
 when reporting a bug and describe the user-visible behavior of a proposed change.
 
+See [DESIGN.md](DESIGN.md) for architecture and contracts.
+
 ## Development environment
 
 Follow the [installation instructions](README.md#installation), then run commands
@@ -61,25 +63,24 @@ executable body line to be verifiable; docstring-only functions and native
 functions without Python source cannot be checked this way. This check does not
 measure native C++ coverage, all model methods or call counts.
 
-### Running demos
+## Demos
 
-The [demo catalog](docs/datasets/demo-catalog.md) lists dataset examples and
-complete workflows. Run individual demos from the repository root:
+Follow the [demo guidelines](docs/demo-guidelines.md); the
+[demo catalog](demos/README.md) lists purposes and requirements. Run from the
+repository root, for example `uv run python demos/dataset_city.py`.
+Plots and viewers open directly; close them to continue.
 
-```bash
-uv run python demos/dataset_city.py
-```
-
-Workflow demos that support `--view` open a viewer until its window is closed.
-Many demos download data and run meshing. Normal demo tests perform static
-checks; opt in to workflow execution with:
+Run static checks and the small offline example with `uv run pytest tests/demos`.
+Opt in to workflow execution with:
 
 ```bash
-DTCC_RUN_DEMOS=1 uv run --extra volume pytest tests/demos/test_demo_execution.py
+uv run --extra volume pytest tests/demos --run-demos
 ```
 
-These execution tests need network access and the
+Live workflows need network access and the
 [volume-meshing dependencies](docs/installation.md#volume-meshing-with-tetgen).
+The test harness suppresses windows and redirects exports, while retaining real
+plot construction and meshing.
 
 ## Import conventions
 
@@ -117,5 +118,4 @@ Run these from the repository root:
 | `make verify-public-api-strict` | Run coverage and the strict public-function check |
 | `make measure-import-time PYTHON="uv run python"` | Measure import cost |
 
-See [DESIGN.md](DESIGN.md) for architecture and
-[the native code map](docs/native-code.md) for C++ kernels and their Python callers.
+See [the native code map](docs/native-code.md) for C++ kernels and their Python callers.
