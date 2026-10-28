@@ -161,6 +161,18 @@ jobs:
         run: |
           cd tests && uv run --locked pytest
 
+  # One required check for the ruleset in place of the six matrix legs: a
+  # skipped matrix job reports under its plain name, so leg names required
+  # by the ruleset would stay pending on documentation-only pull requests.
+  tests:
+    needs: [build-and-test, python-compatibility]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail when a test job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+
   notify:
     needs: [build-and-test, python-compatibility]
     runs-on: ubuntu-24.04
