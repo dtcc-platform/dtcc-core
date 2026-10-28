@@ -26,6 +26,51 @@ def sample(group=False):
     return city_of(buildings)
 
 
+def _roof_diag(method, group, *catalogues):
+    """Scratch diagnostics for the intermittent catalogue fit; CI uploads them."""
+    import json
+    import os
+    import platform
+    import sys
+    from pathlib import Path
+
+    import scipy
+
+    diag = dict(
+        method=method,
+        group=group,
+        platform=platform.platform(),
+        processor=platform.processor(),
+        cpu_count=os.cpu_count(),
+        python=sys.version,
+        numpy=np.__version__,
+        scipy=scipy.__version__,
+        catalogues=[
+            dict(
+                retained_fits=c.get("retained_fits"),
+                retained_nonflat_fits=c.get("retained_nonflat_fits"),
+                block_fallbacks=c.get("block_fallbacks"),
+                sources=c.get("sources"),
+            )
+            for c in catalogues
+        ],
+    )
+    try:
+        with open("/proc/cpuinfo") as f:
+            diag["cpu_model"] = next(
+                line.split(":", 1)[1].strip()
+                for line in f
+                if line.startswith("model name")
+            )
+    except (OSError, StopIteration):
+        pass
+    text = json.dumps(diag, default=str, indent=1)
+    out = Path(__file__).resolve().parents[1] / "roof_diag"
+    out.mkdir(exist_ok=True)
+    (out / f"{method}-{group}-{os.getpid()}.json").write_text(text)
+    return text
+
+
 def triangle_areas(vertices, faces):
     xyz = vertices[faces]
     return (
@@ -128,12 +173,13 @@ def test_lod2_volume_reuses_joint_shell_and_preserves_boundary(
         )
     assert not has_volume_veto(captured["mesh"])
     cat = audit["roof_catalogue"]
+    diag = _roof_diag(method, group, cat, surface.stage_audit["roof_catalogue"])
     assert (
         cat["retained_nonflat_fits"]
         == surface.stage_audit["roof_catalogue"]["retained_nonflat_fits"]
-    )
+    ), diag
     if method == "catalogue" or group:
-        assert cat["retained_nonflat_fits"] > 0
+        assert cat["retained_nonflat_fits"] > 0, diag
     assert not cat["block_fallbacks"]
     assert len(cat["blocks"]) == 1
     assert_volume_boundary(volume, surface, captured["prebuilt_plc"], cat)

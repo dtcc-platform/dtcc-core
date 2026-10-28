@@ -34,6 +34,7 @@ jobs:
 
   build-and-test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -91,6 +92,25 @@ jobs:
             builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \
             datasets/test_city_volume_mesh_dataset.py
         shell: bash
+
+      - name: Repeat the flaky roof catalogue test
+        if: always()
+        continue-on-error: true
+        run: |
+          cd tests
+          for i in 1 2 3 4 5; do
+            uv run --locked --extra volume pytest -q -p no:cacheprovider \
+              'builder/test_lod2_volume.py::test_lod2_volume_reuses_joint_shell_and_preserves_boundary[catalogue-False]' || true
+          done
+        shell: bash
+
+      - name: Upload roof catalogue diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roof-diag-${{ matrix.os }}
+          path: tests/roof_diag/
+          if-no-files-found: warn
 
   python-compatibility:
     strategy:
