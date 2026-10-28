@@ -2,9 +2,9 @@ name: build-tests
 
 on:
   push:
-    branches: [ "develop", "main", "ci/ubuntu-only-prs" ]
+    branches: [ "develop", "main" ]
   pull_request:
-    branches: [ "develop", "main", "ci/skip-docs-only", "ci/ubuntu-only-prs" ]
+    branches: [ "develop", "main" ]
     # labeled: adding the full-ci label reruns the workflow on every OS.
     types: [opened, synchronize, reopened, labeled]
 
