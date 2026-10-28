@@ -5,7 +5,8 @@ on:
     branches: [ "develop", "main" ]
   pull_request:
     branches: [ "develop", "main" ]
-    # labeled: adding the full-ci label reruns the workflow on every OS.
+    # labeled: adding the full-ci label reruns the workflow on every OS; any
+    # other label reruns it unchanged, which keeps the checks on a commit honest.
     types: [opened, synchronize, reopened, labeled]
 
 permissions:
@@ -83,6 +84,9 @@ jobs:
     # Runs unless the changes job said no, so a failed changes job still tests.
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
+      # The merge run is the only place macOS and Windows run, so a failure
+      # on one must not cancel the other.
+      fail-fast: false
       matrix:
         # Pull requests test on Ubuntu only. The merge commit on develop or
         # main, and a pull request carrying the full-ci label, test on all three.
