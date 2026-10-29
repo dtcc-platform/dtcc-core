@@ -3,6 +3,9 @@
 Questions, bug reports and pull requests are welcome. Include a small reproducer
 when reporting a bug and describe the user-visible behavior of a proposed change.
 
+Name development branches `dev/<short-description>`, unless there is a specific
+reason to use another convention.
+
 ## Development environment
 
 Follow the [installation instructions](README.md#installation), then run commands

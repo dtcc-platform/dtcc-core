@@ -6,7 +6,7 @@ from pydantic import Field, model_validator
 
 import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
-from dtcc_core.model import City
+from dtcc_core.model import City, VolumeMesh
 
 from ._city_mesh_common import prepare_city_from_bounds
 from .dataset import DatasetBaseArgs, DatasetDescriptor
@@ -57,6 +57,11 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
             "(-1 ground, -2 top, -3 west/xmin, -4 east/xmax, "
             "-5 south/ymin, -6 north/ymax)"
         ),
+    )
+    repair_boundary_corners: bool = Field(
+        False,
+        strict=True,
+        description="Subdivide geometric singleton boundary corners before final quality reporting",
     )
     min_building_detail: float = Field(
         0.5, description="Minimum building feature size to resolve in meters"
@@ -211,6 +216,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         "Build intermediate ground, shell, and top-cap surfaces using max_mesh_size, top_cap_max_mesh_size, min_mesh_angle, smoothing, and mesher",
         "Run TetGen with max_volume and tetgen_switches/tetgen_extra to produce tetrahedra",
         "Optionally attach boundary face markers (-1 ground, -2 top, -3 west, -4 east, -5 south, -6 north)",
+        "Optionally subdivide singleton boundary corners with repair_boundary_corners=True",
         "Return the native VolumeMesh object or serialize VTU/XDMF output",
     ]
     derived_from = [
@@ -322,7 +328,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             else _regular_tet_volume(args.max_mesh_size)
         )
         stage_audit = {} if args.stage_audit_enabled else None
-        return dtcc_core.builder.build_city_volume_mesh(
+        mesh = dtcc_core.builder.build_city_volume_mesh(
             city,
             lod=args.lod,
             lod2_method=args.lod2_method,
@@ -334,6 +340,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             min_building_area=args.min_building_area,
             smoothing=args.smoothing,
             boundary_face_markers=args.boundary_face_markers,
+            repair_boundary_corners=args.repair_boundary_corners,
             tetgen_switches=self._tetgen_switch_payload(args),
             report_mesh_quality=args.report_mesh_quality,
             show_footprints=args.show_footprints,
@@ -347,6 +354,31 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             pipeline_mode=args.pipeline_mode,
             max_volume=max_vol,
         )
+
+        if isinstance(mesh, VolumeMesh):
+            mesh.dataset_context = self._mesh_context(mesh, args)
+        return mesh
+
+    def _mesh_context(self, mesh, args):
+        context = self.create_context(args)
+        record = getattr(mesh, "boundary_corner_repair", None)
+        if record is not None:
+            context.provenance.processing_steps.append(dict(record))
+        return context
+
+    def __call__(self, **kwargs):
+        args = self.validate(kwargs)
+        result = self.build(args)
+        return self.prepare_result(result, args)
+
+    def _export_payload(self, args):
+        """Build once and include final mesh processing in the export sidecar."""
+        mesh = self.build(args.model_copy(update={"format": None}))
+        context = self._mesh_context(mesh, args)
+        mesh.dataset_context = context
+        return self.export_to_bytes(mesh, args.format), {
+            "dataset_context": context.model_dump(mode="json")
+        }
 
     def build_from_city(self, city: City, **kwargs):
         args = self.validate(kwargs)
