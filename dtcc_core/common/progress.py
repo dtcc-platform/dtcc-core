@@ -34,7 +34,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional
@@ -109,6 +109,24 @@ class ProgressMode(Enum):
 _current_progress: contextvars.ContextVar[Optional["ProgressTracker"]] = (
     contextvars.ContextVar("dtcc_progress", default=None)
 )
+
+
+_phase_timer = contextvars.ContextVar("dtcc_phase_timer", default=None)
+
+
+@contextmanager
+def phase_timing(factory):
+    """Observe progress phases with a context-manager factory accepting a name.
+
+    The observer runs even in silent mode. It is local to the current context;
+    nested registrations restore the enclosing observer on exit. Exceptions
+    propagate through the observer so it can record failed operations.
+    """
+    token = _phase_timer.set(factory)
+    try:
+        yield
+    finally:
+        _phase_timer.reset(token)
 
 
 def get_progress() -> Optional["ProgressTracker"]:
@@ -432,8 +450,10 @@ class ProgressTracker:
 
         self._render()
 
+        factory = _phase_timer.get()
         try:
-            yield
+            with factory(name) if factory is not None else nullcontext():
+                yield
         finally:
             phase_info.progress = 1.0
             phase_info.completed = True
