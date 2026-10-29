@@ -1,0 +1,10 @@
+# Sensitive paths need a second human (AGENTS.md, "Approval and merge").
+/.github/workflows/           @anderslogg @vbassn @dwastberg @Georspai
+/.github/CODEOWNERS           @anderslogg @vbassn @dwastberg @Georspai
+/pyproject.toml               @anderslogg @vbassn @dwastberg @Georspai
+/uv.lock                      @anderslogg @vbassn @dwastberg @Georspai
+/CMakeLists.txt               @anderslogg @vbassn @dwastberg @Georspai
+/dtcc_core/CMakeLists.txt     @anderslogg @vbassn @dwastberg @Georspai
+/dtcc_core/cpp/               @anderslogg @vbassn @dwastberg @Georspai
+/dtcc_core/schemas/           @anderslogg @vbassn @dwastberg @Georspai
+/dtcc_core/model/dtcc_pb2.py  @anderslogg @vbassn @dwastberg @Georspai

@@ -252,6 +252,57 @@ def _field(value, owner=None):
             )
 
 
+def _volume_boundary_arrays(value):
+    """Normalize and validate tagged triangular facets without changing the mesh."""
+    markers = value.boundary_markers
+    if isinstance(markers, dict):
+
+        def integer(item):
+            return isinstance(item, (int, np.integer)) and not isinstance(
+                item, (bool, np.bool_)
+            )
+
+        if any(
+            not isinstance(face, tuple)
+            or len(face) != 3
+            or not all(integer(index) for index in face)
+            or not integer(label)
+            for face, label in markers.items()
+        ):
+            raise ValueError(
+                "VolumeMesh boundary mapping requires three integer vertices and an integer label"
+            )
+        faces = (
+            np.asarray(list(markers)) if markers else np.empty((0, 3), dtype=np.int64)
+        )
+        markers = (
+            np.asarray(list(markers.values()))
+            if markers
+            else np.empty(0, dtype=np.int64)
+        )
+    else:
+        faces = value.boundary_faces
+    _indices(faces, "VolumeMesh.boundary_faces", len(value.vertices), 3)
+    _array(markers, "VolumeMesh.boundary_markers")
+    if (
+        markers.ndim != 1
+        or markers.dtype.kind not in "iu"
+        or len(markers) != len(faces)
+    ):
+        raise ValueError(
+            "VolumeMesh.boundary_markers must be one integer per boundary face"
+        )
+    if faces.size:
+        ordered = np.sort(faces, axis=1)
+        if np.any(np.diff(ordered, axis=1) == 0):
+            raise ValueError(
+                "VolumeMesh.boundary_faces must have three distinct vertices"
+            )
+        if len(np.unique(ordered, axis=0)) != len(faces):
+            raise ValueError("VolumeMesh.boundary_faces must not repeat a facet")
+    return faces, markers
+
+
 def _geometry(value, *, root=False, depth=0):
     if type(value) not in GEOMETRIES:
         raise NotImplementedError(
@@ -325,6 +376,7 @@ def _geometry(value, *, root=False, depth=0):
             or value.markers.dtype.kind not in "iu"
         ):
             raise ValueError("VolumeMesh.markers must be one integer per cell")
+        _volume_boundary_arrays(value)
     elif type(value) is PointCloud:
         _coordinates(value.points, "PointCloud.points", 3)
         for name in ("classification", "intensity", "return_number", "num_returns"):
@@ -778,6 +830,11 @@ def _encode_geometry(value, pb):
             getattr(getattr(pb, kind), name).CopyFrom(
                 _encode_array(getattr(value, name))
             )
+        if type(value) is VolumeMesh:
+            faces, markers = _volume_boundary_arrays(value)
+            if len(faces):
+                pb.volume_mesh.boundary_faces.CopyFrom(_encode_array(faces))
+                pb.volume_mesh.boundary_markers.CopyFrom(_encode_array(markers))
     elif type(value) is MultiLineString:
         pb.multi_line_string.SetInParent()
         for line in value.linestrings:
@@ -889,6 +946,15 @@ def _decode_geometry(pb, strings, depth=0):
             **metadata,
             **{name: _decode_array(getattr(getattr(pb, kind), name)) for name in names},
         )
+        if kind == "volume_mesh":
+            target = pb.volume_mesh
+            if target.HasField("boundary_faces") != target.HasField("boundary_markers"):
+                raise ValueError(
+                    "VolumeMesh boundary faces and markers must be present together"
+                )
+            if target.HasField("boundary_faces"):
+                value.boundary_faces = _decode_array(target.boundary_faces)
+                value.boundary_markers = _decode_array(target.boundary_markers)
     elif kind == "multi_line_string":
         value = MultiLineString(
             **metadata,
