@@ -1,10 +1,15 @@
 # Sensitive paths need a second human (AGENTS.md, "Approval and merge").
-/.github/workflows/           @anderslogg @vbassn @dwastberg @Georspai
-/.github/CODEOWNERS           @anderslogg @vbassn @dwastberg @Georspai
-/pyproject.toml               @anderslogg @vbassn @dwastberg @Georspai
-/uv.lock                      @anderslogg @vbassn @dwastberg @Georspai
-/CMakeLists.txt               @anderslogg @vbassn @dwastberg @Georspai
-/dtcc_core/CMakeLists.txt     @anderslogg @vbassn @dwastberg @Georspai
-/dtcc_core/cpp/               @anderslogg @vbassn @dwastberg @Georspai
-/dtcc_core/schemas/           @anderslogg @vbassn @dwastberg @Georspai
-/dtcc_core/model/dtcc_pb2.py  @anderslogg @vbassn @dwastberg @Georspai
+/.github/workflows/           @dtcc-platform/core-maintainers
+/.github/CODEOWNERS           @dtcc-platform/core-maintainers
+/pyproject.toml               @dtcc-platform/core-maintainers
+/uv.lock                      @dtcc-platform/core-maintainers
+/CMakeLists.txt               @dtcc-platform/core-maintainers
+/dtcc_core/CMakeLists.txt     @dtcc-platform/core-maintainers
+/dtcc_core/cpp/               @dtcc-platform/core-maintainers
+/dtcc_core/schemas/           @dtcc-platform/core-maintainers
+/dtcc_core/model/dtcc_pb2.py  @dtcc-platform/core-maintainers
+
+# The documents that steer the agents need the same review.
+/CLAUDE.md                    @dtcc-platform/core-maintainers
+/REVIEW.md                    @dtcc-platform/core-maintainers
+/AGENTS.md                    @dtcc-platform/core-maintainers
