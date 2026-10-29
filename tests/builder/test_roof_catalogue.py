@@ -754,3 +754,33 @@ def test_optional_native_failure_is_explicit_and_never_flattens(
     assert not audit["roof_catalogue"]["block_fallbacks"]
     assert audit["roof_catalogue"]["sources"][0]["outcome"] == "accepted_fit"
     np.testing.assert_array_equal(city.buildings[0].point_cloud.points, observations)
+
+
+def test_partition_check_tolerates_floating_vertex_mismatch():
+    """Cells clipped independently place a shared vertex a few ulps apart.
+
+    A floating overlay of such patches can drop a whole hip end (observed on
+    CI runners); the coverage check must use the XY precision model.
+    """
+    target = Polygon([(-10, 5), (10, 5), (10, -5), (-10, -5)])
+    parameters = np.array(
+        [
+            -0.0016540718347306748,
+            7.990274835573727,
+            0.6011601176002437,
+            0.605178764482669,
+        ]
+    )
+    planes = np.array(
+        [
+            [0.0009943615652646088, 0.6011592952273269, 11.006014927363008],
+            [-0.0009943615652646088, -0.6011592952273269, 11.006014927363008],
+            [0.6051779366123378, -0.001001008692855517, 14.047059245161382],
+            [-0.6051779366123378, 0.001001008692855517, 14.047059245161382],
+        ]
+    )
+    roof = RoofModel("hip", "hip", parameters, np.zeros(2), planes)
+    patches = roof.patches(target)
+    assert len(patches) == 4
+    report = validate_partition(patches, target)
+    assert report["coverage_error_m2"] <= report["coverage_tolerance_m2"]

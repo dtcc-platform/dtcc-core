@@ -37,8 +37,8 @@ def validate_partition(patches, target):
     polygons = [p.polygon for p in patches]
     if any(not p.is_valid or p.is_empty or p.area <= 0 for p in polygons):
         raise RoofAssemblyError("Invalid or empty roof patch")
-    union = unary_union(polygons)
-    missing = target.symmetric_difference(union).area
+    union = shapely.union_all(polygons, grid_size=XY_PRECISION)
+    missing = shapely.symmetric_difference(target, union, grid_size=XY_PRECISION).area
     overlap = sum(p.area for p in polygons) - union.area
     tolerance = max(1e-7, target.area * 1e-9)
     report = dict(coverage_error_m2=float(missing), overlap_m2=float(max(0.0, overlap)))

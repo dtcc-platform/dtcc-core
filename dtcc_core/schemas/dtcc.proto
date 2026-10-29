@@ -184,6 +184,8 @@ message VolumeMesh {
   Array vertices = 1;
   Array cells = 2;
   Array markers = 3;
+  Array boundary_faces = 4;
+  Array boundary_markers = 5;
 }
 message PointCloud {
   Array points = 1;
