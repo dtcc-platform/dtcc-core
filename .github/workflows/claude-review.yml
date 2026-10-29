@@ -9,6 +9,12 @@ on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
+# Reviews of one pull request run one at a time: a running review finishes, so
+# the next one can start from its comment; a push replaces a run still waiting.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   review:
     if: >-
@@ -32,6 +38,10 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
+          # Comments the action puts in the prompt come only from these accounts;
+          # the title, body and anything read with gh are not filtered. Same list
+          # as in claude.yml.
+          include_comments_by_actor: "anderslogg,vbassn,dwastberg,Georspai,AlexKaridas,claude[bot]"
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
