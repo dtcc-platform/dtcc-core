@@ -411,6 +411,8 @@ def _geometry(value, *, root=False, depth=0):
         _validate_dimensions(**dimensions)
         if any(n >= 2**32 for n in dimensions.values()):
             raise ValueError("Grid dimensions must fit uint32")
+        if type(value) is VolumeGrid:
+            value._validate_z_levels()
         _bounds(value.bounds)
     else:
         for coordinate in (value.x, value.y, value.z):
@@ -844,6 +846,8 @@ def _encode_geometry(value, pb):
         target.width, target.height = value.width, value.height
         if type(value) is VolumeGrid:
             target.depth = value.depth
+            if value.z_levels is not None:
+                target.z_levels.extend(value.z_levels)
         target.bounds.CopyFrom(_encode_bounds(value.bounds))
     else:
         pb.point.CopyFrom(wire.Point(x=value.x, y=value.y, z=value.z))
@@ -971,6 +975,10 @@ def _decode_geometry(pb, strings, depth=0):
         dimensions = dict(width=target.width, height=target.height)
         if kind == "volume_grid":
             dimensions["depth"] = target.depth
+            if target.z_levels:
+                if len(target.z_levels) != target.depth + 1:
+                    raise ValueError("VolumeGrid z_levels must have depth + 1 entries.")
+                dimensions["z_levels"] = np.array(target.z_levels)
         value = (Grid if kind == "grid" else VolumeGrid)(**metadata, **dimensions)
     else:
         value = Point(**metadata, x=pb.point.x, y=pb.point.y, z=pb.point.z)
