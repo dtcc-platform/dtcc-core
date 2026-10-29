@@ -246,7 +246,11 @@ def repair_boundary_corners(
 
     report = find_boundary_corners(mesh, boundary_markers=boundary_markers)
     if not report.num_corners:
-        return deepcopy(mesh)
+        result = deepcopy(mesh)
+        result.boundary_corner_repair = _repair_record(
+            result, report, boundary_markers=boundary_markers
+        )
+        return result
     if mesh.fields or mesh.regions:
         raise ValueError(
             "Repair boundary corners before attaching fields or semantic regions"

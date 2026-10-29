@@ -60,6 +60,10 @@ def test_low_level_generation_flag(backend, monkeypatch, enabled, output):
     )
     repair = Mock(wraps=volume_corners.repair_boundary_corners)
     monkeypatch.setattr(volume_corners, "repair_boundary_corners", repair)
+    detect = Mock(wraps=volume_corners.find_boundary_corners)
+    record = Mock(wraps=volume_corners._repair_record)
+    monkeypatch.setattr(volume_corners, "find_boundary_corners", detect)
+    monkeypatch.setattr(volume_corners, "_repair_record", record)
     result = tetgen.build_volume_mesh(
         surface,
         prebuilt_plc=plc,
@@ -67,6 +71,8 @@ def test_low_level_generation_flag(backend, monkeypatch, enabled, output):
         repair_boundary_corners=enabled,
         switches_params={"max_volume": 3.5},
     )
+    assert detect.call_count == (2 if enabled else 0)
+    assert record.call_count == int(enabled)
     assert result.num_cells == (8 if enabled else 2)
     assert result.find_boundary_corners().num_corners == (0 if enabled else 2)
     assert len(result.boundary_faces) == (6 if output else 0)
@@ -163,6 +169,8 @@ def test_actual_city_generation_removes_corners(output):
 
 
 def test_suitable_generation_is_unchanged_with_flag(backend, monkeypatch):
+    from dtcc_core.builder.meshing import volume_corners
+
     source, _ = backend
     suitable = source.repair_boundary_corners()
     source.vertices, source.cells = suitable.vertices, suitable.cells
@@ -181,9 +189,15 @@ def test_suitable_generation_is_unchanged_with_flag(backend, monkeypatch):
     monkeypatch.setattr(
         tetgen.tetgen_utils, "format_tetgen_plc_diagnostics", lambda _: ""
     )
+    detect = Mock(wraps=volume_corners.find_boundary_corners)
+    record = Mock(wraps=volume_corners._repair_record)
+    monkeypatch.setattr(volume_corners, "find_boundary_corners", detect)
+    monkeypatch.setattr(volume_corners, "_repair_record", record)
     result = tetgen.build_volume_mesh(
         surface, prebuilt_plc=plc, repair_boundary_corners=True
     )
+    detect.assert_called_once()
+    record.assert_called_once()
     np.testing.assert_array_equal(result.vertices, source.vertices)
     np.testing.assert_array_equal(result.cells, source.cells)
     assert result.boundary_corner_repair["detected_corners"] == 0

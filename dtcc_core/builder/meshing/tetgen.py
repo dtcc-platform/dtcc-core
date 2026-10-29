@@ -307,10 +307,7 @@ def build_volume_mesh(
         volume_mesh.boundary_markers = boundary_markers
 
     if repair_boundary_corners:
-        from .volume_corners import _repair_record, find_boundary_corners
         from .volume_corners import repair_boundary_corners as repair_corners
 
-        report = find_boundary_corners(volume_mesh)
         volume_mesh = repair_corners(volume_mesh)
-        volume_mesh.boundary_corner_repair = _repair_record(volume_mesh, report)
     return volume_mesh

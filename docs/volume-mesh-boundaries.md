@@ -84,11 +84,13 @@ Detection counts vertex incidence in a linear scan without constructing all mesh
 faces or finite-element spaces.
 
 Input arrays remain unchanged on success and failure. A no-op returns an
-independent equivalent mesh. Repair preserves original coordinates, boundary
-face order/orientation/labels, bounds, CRS, transform, ordinary model metadata,
-and cell markers (copied from each parent to every child). Empty cell markers
-stay empty. Signed child volumes must have the parent's orientation and sum to
-its volume; negative parent orientation is preserved. Checks use local coordinate
+independent equivalent mesh with a zero-count repair record; attached context,
+health and processing history remain unchanged. Repair preserves original
+coordinates, boundary face order/orientation/labels, bounds, CRS, transform,
+ordinary model metadata, and cell markers (copied from each parent to every
+child). Empty cell markers stay empty. Signed child volumes must have the
+parent's orientation and sum to its volume; negative parent orientation is
+preserved. Checks use local coordinate
 scales and reject degenerate, nonfinite, unresolved, collapsed, or unrepresentable
 volumes. Large coordinate offsets can make a barycenter unrepresentable and
 cause an explicit failure.

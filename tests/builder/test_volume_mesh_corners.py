@@ -250,6 +250,28 @@ def test_attached_data_rejection_and_noop_preservation(data):
     assert getattr(result, data) is not getattr(mesh, data)
 
 
+def test_noop_refreshes_record_without_changing_context_or_history():
+    from dtcc_core.datasets.city_volume_mesh import CityVolumeMeshDataset
+
+    mesh = tag(two_cells()).repair_boundary_corners()
+    dataset = CityVolumeMeshDataset()
+    mesh.dataset_context = dataset.create_context(
+        dataset.validate(dict(bounds=[0, 0, 10, 10]))
+    )
+    mesh.dataset_context.health = {"num_cells": mesh.num_cells}
+    mesh.stage_audit = {"processing_steps": [dict(mesh.boundary_corner_repair)]}
+    snapshot = deepcopy(mesh)
+    result = mesh.repair_boundary_corners()
+    assert result.boundary_corner_repair["detected_corners"] == 0
+    assert result.boundary_corner_repair["repaired_parent_cells"] == 0
+    assert result.boundary_corner_repair["num_cells"] == mesh.num_cells
+    assert result.dataset_context == snapshot.dataset_context
+    assert result.dataset_context is not mesh.dataset_context
+    assert result.stage_audit == snapshot.stage_audit
+    assert mesh.boundary_corner_repair == snapshot.boundary_corner_repair
+    assert mesh.boundary_corner_repair["repaired_parent_cells"] == 2
+
+
 @pytest.mark.parametrize("scale,offset", [(1e-6, 0), (1e6, 0), (1, 6.4e6), (1, 1e14)])
 def test_coordinate_scales(scale, offset):
     mesh = two_cells()
