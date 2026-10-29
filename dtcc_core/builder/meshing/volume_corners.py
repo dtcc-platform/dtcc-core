@@ -200,18 +200,18 @@ def _subdivide(mesh, parents):
     return vertices, cells, child_to_parent
 
 
-def _repair_record(mesh, report, *, requested=True, boundary_markers=None):
+def _repair_record(mesh, report, *, boundary_markers=None):
     parent_count = int(len(np.unique(report.cell_indices)))
     return {
         "operation": "repair_boundary_corners",
-        "requested": requested,
+        "requested": True,
         "boundary_markers": None
         if boundary_markers is None
         else sorted(map(int, boundary_markers)),
         "detected_corners": report.num_corners,
         "detected_parent_cells": parent_count,
-        "repaired_corners": report.num_corners if requested else 0,
-        "repaired_parent_cells": parent_count if requested else 0,
+        "repaired_corners": report.num_corners,
+        "repaired_parent_cells": parent_count,
         "num_vertices": mesh.num_vertices,
         "num_cells": mesh.num_cells,
     }

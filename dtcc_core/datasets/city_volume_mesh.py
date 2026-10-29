@@ -9,6 +9,7 @@ from dtcc_core.common.progress import ProgressTracker
 from dtcc_core.model import City, VolumeMesh
 
 from ._city_mesh_common import prepare_city_from_bounds
+from .context import attach_dataset_context
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
@@ -328,7 +329,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             else _regular_tet_volume(args.max_mesh_size)
         )
         stage_audit = {} if args.stage_audit_enabled else None
-        mesh = dtcc_core.builder.build_city_volume_mesh(
+        return dtcc_core.builder.build_city_volume_mesh(
             city,
             lod=args.lod,
             lod2_method=args.lod2_method,
@@ -355,27 +356,19 @@ class CityVolumeMeshDataset(DatasetDescriptor):
             max_volume=max_vol,
         )
 
-        if isinstance(mesh, VolumeMesh):
-            mesh.dataset_context = self._mesh_context(mesh, args)
-        return mesh
-
-    def _mesh_context(self, mesh, args):
-        context = self.create_context(args)
-        record = getattr(mesh, "boundary_corner_repair", None)
-        if record is not None:
-            context.provenance.processing_steps.append(dict(record))
+    def _context_for_result(self, result, args):
+        context = super()._context_for_result(result, args)
+        if isinstance(result, VolumeMesh):
+            record = getattr(result, "boundary_corner_repair", None)
+            if record is not None:
+                context.provenance.processing_steps.append(dict(record))
         return context
-
-    def __call__(self, **kwargs):
-        args = self.validate(kwargs)
-        result = self.build(args)
-        return self.prepare_result(result, args)
 
     def _export_payload(self, args):
         """Build once and include final mesh processing in the export sidecar."""
         mesh = self.build(args.model_copy(update={"format": None}))
-        context = self._mesh_context(mesh, args)
-        mesh.dataset_context = context
+        context = self._context_for_result(mesh, args)
+        attach_dataset_context(mesh, context)
         return self.export_to_bytes(mesh, args.format), {
             "dataset_context": context.model_dump(mode="json")
         }
@@ -383,6 +376,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
     def build_from_city(self, city: City, **kwargs):
         args = self.validate(kwargs)
         volume_mesh = self._build_mesh_from_city(city, args)
+        attach_dataset_context(volume_mesh, self._context_for_result(volume_mesh, args))
         if args.format is not None:
             return self.export_to_bytes(volume_mesh, args.format)
         return volume_mesh

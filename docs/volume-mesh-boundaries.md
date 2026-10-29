@@ -123,11 +123,13 @@ mesh = builder.build_city_volume_mesh(
 
 The city builder forwards the flag to the low-level builder, which applies
 repair once after tetrahedralization and before final quality summaries, stage
-audit completion, Dataset Context, and export. The mesh's `boundary_corner_repair`
-record contains the request flag, detected corner/parent counts, repaired counts,
-and final vertex/cell counts. City stage audits and dataset processing history
-include these results. Validated request serialization includes the flag, so
-true and false requests remain distinct. City volume generation requires
+audit completion, Dataset Context, and export. When repair is requested, the mesh's
+`boundary_corner_repair` record contains the request flag, detected corner/parent
+counts, repaired counts, and final vertex/cell counts. City stage audits and
+dataset processing history include these execution results. With the default
+false flag, generation skips corner inspection and adds no repair execution
+record. The flag remains in the city audit configuration and validated dataset
+request, so true and false requests remain distinct. City volume generation requires
 `isolated=False`; independently cleaned building shells are unsupported.
 Structured `BoxMesh` has no generation flag and can use the repair operation.
 

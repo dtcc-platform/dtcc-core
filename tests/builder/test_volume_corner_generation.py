@@ -70,11 +70,12 @@ def test_low_level_generation_flag(backend, monkeypatch, enabled, output):
     assert result.num_cells == (8 if enabled else 2)
     assert result.find_boundary_corners().num_corners == (0 if enabled else 2)
     assert len(result.boundary_faces) == (6 if output else 0)
-    assert result.boundary_corner_repair["detected_corners"] == 2
-    assert result.boundary_corner_repair["detected_parent_cells"] == 2
-    assert result.boundary_corner_repair["repaired_parent_cells"] == (
-        2 if enabled else 0
-    )
+    if enabled:
+        assert result.boundary_corner_repair["detected_corners"] == 2
+        assert result.boundary_corner_repair["detected_parent_cells"] == 2
+        assert result.boundary_corner_repair["repaired_parent_cells"] == 2
+    else:
+        assert not hasattr(result, "boundary_corner_repair")
     assert repair.call_count == int(enabled)
     assert call.call_args.kwargs["switches_params"]["max_volume"] == 3.5
     np.testing.assert_array_equal(source.cells, two_cells().cells)
@@ -111,7 +112,13 @@ def test_city_forwards_once_and_audits_final_mesh(backend, monkeypatch, enabled)
         == mesh.num_cells
         == (8 if enabled else 2)
     )
-    assert attempt["stages"]["boundary_corner_repair"] == mesh.boundary_corner_repair
+    if enabled:
+        assert (
+            attempt["stages"]["boundary_corner_repair"] == mesh.boundary_corner_repair
+        )
+    else:
+        assert "boundary_corner_repair" not in attempt["stages"]
+        assert not hasattr(mesh, "boundary_corner_repair")
     assert mesh.quality()["num_cells"] == mesh.num_cells
     assert attempt["result"]["status"] == "success"
 
@@ -181,3 +188,35 @@ def test_suitable_generation_is_unchanged_with_flag(backend, monkeypatch):
     np.testing.assert_array_equal(result.cells, source.cells)
     assert result.boundary_corner_repair["detected_corners"] == 0
     assert result.boundary_corner_repair["repaired_parent_cells"] == 0
+
+
+def test_default_generation_skips_corner_validation(backend, monkeypatch):
+    from dtcc_core.builder.meshing import volume_corners
+
+    source, _ = backend
+    surface = Mesh(
+        vertices=source.vertices,
+        faces=source.boundary_faces,
+        markers=source.boundary_markers,
+    )
+    plc = SimpleNamespace(
+        vertices=surface.vertices,
+        shell_faces=surface.faces,
+        boundary_facets=[[0, 1, 2]],
+        boundary_facet_markers=[-2],
+        diagnostics=SimpleNamespace(errors=[], warnings=[]),
+    )
+    source.boundary_markers = source.boundary_markers.astype(float)
+    monkeypatch.setattr(
+        tetgen.tetgen_utils, "format_tetgen_plc_diagnostics", lambda _: ""
+    )
+    detect = Mock(side_effect=AssertionError("Unrequested corner scan"))
+    repair = Mock(side_effect=AssertionError("Unrequested corner repair"))
+    monkeypatch.setattr(volume_corners, "find_boundary_corners", detect)
+    monkeypatch.setattr(volume_corners, "repair_boundary_corners", repair)
+    result = tetgen.build_volume_mesh(surface, prebuilt_plc=plc)
+    detect.assert_not_called()
+    repair.assert_not_called()
+    assert result.num_cells == source.num_cells
+    np.testing.assert_array_equal(result.boundary_markers, source.boundary_markers)
+    assert not hasattr(result, "boundary_corner_repair")
