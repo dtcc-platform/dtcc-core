@@ -150,13 +150,24 @@ class VolumeMesh(VolumeMeshProcessingMixin, Geometry):
     cells : np.ndarray
         An array of tetrahedral cells defined by vertex indices.
     markers : np.ndarray
-        An array of markers or labels associated with th cells.
+        An array of markers or labels associated with the cells.
+    boundary_faces : np.ndarray
+        Tagged triangular facets as vertex indices, aligned with boundary_markers.
+    boundary_markers : np.ndarray or dict
+        Integer facet labels, or a mapping from three vertex indices to a label.
+        Canonical loading restores the aligned array representation.
 
     """
 
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0))
     cells: np.ndarray = field(default_factory=lambda: np.empty(0))
     markers: np.ndarray = field(default_factory=lambda: np.empty(0))
+    boundary_faces: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 3), dtype=np.int64), kw_only=True
+    )
+    boundary_markers: np.ndarray | dict = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64), kw_only=True
+    )
 
     def _summary_items(self):
         return [
