@@ -52,6 +52,11 @@ the manual check. Sensitive paths: `.github/workflows/`, `pyproject.toml` with
 `uv.lock`, `CMakeLists.txt` with `dtcc_core/cpp/`, and `dtcc_core/schemas/` with
 `dtcc_core/model/dtcc_pb2.py`.
 
+Pull requests test on Ubuntu only; macOS and Windows run on the merge commit.
+A change that could behave differently there, such as C++, file paths or
+floating point, gets the `full-ci` label before the PR is marked ready, which
+runs all three on the PR.
+
 ## Before opening a pull request (PR)
 
 "The operator" is the person running you.
