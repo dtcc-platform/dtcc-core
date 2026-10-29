@@ -8,3 +8,8 @@
 /dtcc_core/cpp/               @dtcc-platform/core-maintainers
 /dtcc_core/schemas/           @dtcc-platform/core-maintainers
 /dtcc_core/model/dtcc_pb2.py  @dtcc-platform/core-maintainers
+
+# The documents that steer the agents need the same review.
+/CLAUDE.md                    @dtcc-platform/core-maintainers
+/REVIEW.md                    @dtcc-platform/core-maintainers
+/AGENTS.md                    @dtcc-platform/core-maintainers
