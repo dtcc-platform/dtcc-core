@@ -5,14 +5,15 @@ on:
     branches: [ "develop", "main" ]
   pull_request:
     branches: [ "develop", "main" ]
-    # labeled: adding the full-ci label reruns the workflow on every OS; any
-    # other label reruns it unchanged, which keeps the checks on a commit honest.
+    # labeled: adding the full-ci label reruns the workflow on every OS. GitHub
+    # cannot filter this event by label name, so any other label reruns it
+    # unchanged; skipping the jobs instead would report a pass on the commit.
     types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
 
-# A new push to a pull request cancels the run still going for its last push;
+# A new push or label on a pull request cancels the run still going for it;
 # every other run has a group of its own.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -84,8 +85,8 @@ jobs:
     # Runs unless the changes job said no, so a failed changes job still tests.
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
-      # The merge run is the only place macOS and Windows run, so a failure
-      # on one must not cancel the other.
+      # macOS and Windows run only after merge or with the full-ci label, so a
+      # failure on one must not cancel the other.
       fail-fast: false
       matrix:
         # Pull requests test on Ubuntu only. The merge commit on develop or
@@ -179,7 +180,7 @@ jobs:
         run: |
           cd tests && uv run --locked pytest
 
-  # One required check for the ruleset in place of the six matrix legs: a
+  # One required check for the ruleset in place of the matrix legs: a
   # skipped matrix job reports under its plain name, so leg names required
   # by the ruleset would stay pending on documentation-only pull requests.
   tests:
