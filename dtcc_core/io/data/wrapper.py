@@ -8,15 +8,17 @@ import requests
 from dtcc_core import io
 from dtcc_core.model import Bounds
 
+from .digitalearth import download_imagery as _download_imagery
 from .geopkg import CACHE_DIR as GPKG_CACHE_DIR
 from .geopkg import download_tiles
 from .lidar import download_lidar
 from .logging import debug, error, info, warning
 from .overpass import get_buildings_for_bbox, get_roads_for_bbox
 
-# We'll allow "lidar" or "roads" or "footprints" for data_type, and "dtcc" or "OSM" for provider.
-valid_types = ["lidar", "roads", "footprints"]
-valid_providers = ["dtcc", "OSM"]
+# We'll allow "lidar", "roads", "footprints" or "imagery" for data_type, and
+# "dtcc", "OSM" or "DES" (Digital Earth Sweden) for provider.
+valid_types = ["lidar", "roads", "footprints", "imagery"]
+valid_providers = ["dtcc", "OSM", "DES"]
 _GPKG_TILE_SIZE = 10000.0
 _GPKG_TILE_NAME_RE = re.compile(
     r"^tile_(?P<xmin>-?\d+(?:\.\d+)?)_(?P<ymin>-?\d+(?:\.\d+)?)\.gpkg$"
@@ -149,17 +151,20 @@ def _load_cached_footprints(bounds: Bounds):
     return None
 
 
-def download_data(data_type: str, provider: str, bounds: Bounds, epsg="3006", url=None):
+def download_data(
+    data_type: str, provider: str, bounds: Bounds, epsg="3006", url=None, **kwargs
+):
     """
     A wrapper for downloading data from the configured backend.
 
     Parameters
     ----------
-    data_type : {"lidar", "footprints", "roads"}
+    data_type : {"lidar", "footprints", "roads", "imagery"}
         Kind of data to download.
-    provider : {"dtcc", "OSM"}
-        Data source. The DTCC backend serves lidar and footprints, and
-        OpenStreetMap serves footprints and roads.
+    provider : {"dtcc", "OSM", "DES"}
+        Data source. The DTCC backend serves lidar and footprints,
+        OpenStreetMap serves footprints and roads, and Digital Earth Sweden
+        serves satellite imagery.
     bounds : Bounds or sequence of float
         Area to download, as Bounds or ``(xmin, ymin, xmax, ymax)``.
     epsg : str, optional
@@ -167,17 +172,22 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg="3006", ur
         "3006".
     url : str, optional
         Base URL of the DTCC backend, overriding the configured service URLs.
+    **kwargs
+        Extra provider specific options, passed on to
+        ``dtcc_core.io.data.digitalearth.download_imagery`` for imagery.
 
     Returns
     -------
-    PointCloud, list[Building], RoadNetwork or None
-        The loaded data: a point cloud for lidar, buildings for footprints and
-        a road network for roads. ``None`` when ``epsg`` is not "3006".
+    PointCloud, list[Building], RoadNetwork, Raster or None
+        The loaded data: a point cloud for lidar, buildings for footprints, a
+        road network for roads and a raster for imagery. ``None`` when
+        ``epsg`` is not "3006", except for imagery.
 
     Raises
     ------
     ValueError
-        If ``data_type`` or ``provider`` is not supported.
+        If ``data_type`` or ``provider`` is not supported, or ``epsg`` is not
+        "3006" for imagery.
     """
     # Resolve per-service URLs: explicit `url` overrides env; otherwise use env-backed defaults.
     if url is not None:
@@ -192,6 +202,10 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg="3006", ur
 
     # user_bbox = user_bbox.tuple
     if not epsg == "3006":
+        if data_type == "imagery":
+            raise ValueError(
+                "Digital Earth Sweden imagery is only available in EPSG:3006."
+            )
         warning("Please enter the coordinates in EPSG:3006")
         return
     # Validate
@@ -231,6 +245,11 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg="3006", ur
         else:
             error("Incorrect data type.")
         return
+
+    elif provider == "DES":
+        if data_type != "imagery":
+            error("Digital Earth Sweden only provides imagery.")
+        return download_imagery(bounds, epsg=epsg, **kwargs)
 
     else:
         if data_type == "footprints":
@@ -336,3 +355,50 @@ def download_roadnetwork(bounds: Bounds, provider="OSM", epsg="3006"):
         return download_data("roads", "OSM", bounds, epsg=epsg)
     else:
         error("Please enter a valid provider")
+
+
+def download_imagery(bounds: Bounds, provider="DES", epsg="3006", **kwargs):
+    """
+    Download Sentinel-2 satellite imagery within the given bounds.
+
+    Without a ``date`` the most recent acquisition with less than
+    ``max_cloud`` percent cloud cover is used, since over Sweden the latest
+    image is very often solid cloud.
+
+    Parameters
+    ----------
+    bounds : Bounds
+        The geographic bounds to download imagery for.
+    provider : str, optional
+        The data provider. Only ``"DES"`` (Digital Earth Sweden) is
+        supported. Default is "DES".
+    epsg : str, optional
+        EPSG code of the coordinate reference system. Only "3006" is
+        supported. Default is "3006".
+    **kwargs
+        Options such as ``date``, ``style``, ``max_cloud``, ``resolution``
+        and ``search_days``. See
+        ``dtcc_core.io.data.digitalearth.download_imagery``.
+
+    Returns
+    -------
+    Raster
+        RGBA raster covering the bounds, in EPSG:3006 at 10 m by default.
+
+    Raises
+    ------
+    RuntimeError
+        If no clear acquisition is found for the area, or the area has no
+        imagery on the given ``date``.
+    ValueError
+        If ``epsg`` is not "3006", or ``date`` is invalid or outside the
+        archive served by Digital Earth Sweden.
+    """
+    if provider and provider.upper() != "DES":
+        error("Please enter a valid provider")
+    if str(epsg) != "3006":
+        raise ValueError("Digital Earth Sweden imagery is only available in EPSG:3006.")
+    if isinstance(bounds, (tuple, list)):
+        bounds = Bounds(xmin=bounds[0], ymin=bounds[1], xmax=bounds[2], ymax=bounds[3])
+    info("Downloading imagery from Digital Earth Sweden")
+    return _download_imagery(bounds.tuple, **kwargs)
