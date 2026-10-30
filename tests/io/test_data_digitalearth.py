@@ -7,7 +7,6 @@ from rasterio.io import MemoryFile
 
 from dtcc_core.io.data import digitalearth
 
-
 # Central Gothenburg, 8 km x 8 km in EPSG:3006, large enough to need tiling.
 BBOX = (317000, 6394000, 325000, 6402000)
 

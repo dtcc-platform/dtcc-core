@@ -24,7 +24,6 @@ from dtcc_core.io.data import digitalearth
 from dtcc_core.io.data.digitalearth import VALID_STYLES
 from dtcc_core.model import Raster
 
-
 BOUNDS = (319000.0, 6397000.0, 321000.0, 6399000.0)
 
 

@@ -1,5 +1,5 @@
 import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 import requests
 from pydantic import Field
@@ -11,7 +11,6 @@ from dtcc_core.model import Raster
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .providers import provider_display_name, provider_entry
-
 
 # Keep in step with dtcc_core.io.data.digitalearth.VALID_STYLES.
 ImageryStyle = Literal[
@@ -37,7 +36,7 @@ class SatelliteImageryArgs(DatasetBaseArgs):
             "Sentinel-2 services operated by RISE."
         ),
     )
-    date: Optional[datetime.date] = Field(
+    date: datetime.date | None = Field(
         None,
         description=(
             "Acquisition date as YYYY-MM-DD. When omitted, the most recent "
@@ -67,9 +66,7 @@ class SatelliteImageryArgs(DatasetBaseArgs):
         ge=1,
         description="How many days back to search for a clear acquisition.",
     )
-    format: Optional[Literal["tif", "png"]] = Field(
-        None, description="Output file format"
-    )
+    format: Literal["tif", "png"] | None = Field(None, description="Output file format")
 
 
 class SatelliteImageryDataset(DatasetDescriptor):

@@ -247,12 +247,9 @@ def download_data(
         return
 
     elif provider == "DES":
-        if data_type == "imagery":
-            info("Downloading imagery from Digital Earth Sweden")
-            return _download_imagery(bounds.tuple, **kwargs)
-        else:
+        if data_type != "imagery":
             error("Digital Earth Sweden only provides imagery.")
-        return
+        return download_imagery(bounds, epsg=epsg, **kwargs)
 
     else:
         if data_type == "footprints":
@@ -359,7 +356,8 @@ def download_roadnetwork(bounds: Bounds, provider="OSM", epsg="3006"):
     else:
         error("Please enter a valid provider")
 
-def download_imagery(bounds: Bounds, provider = 'DES', epsg = '3006', **kwargs):
+
+def download_imagery(bounds: Bounds, provider="DES", epsg="3006", **kwargs):
     """
     Download Sentinel-2 satellite imagery within the given bounds.
 
@@ -396,12 +394,10 @@ def download_imagery(bounds: Bounds, provider = 'DES', epsg = '3006', **kwargs):
         If ``epsg`` is not "3006", or ``date`` is invalid or outside the
         archive served by Digital Earth Sweden.
     """
-    if provider and provider.upper() != 'DES':
+    if provider and provider.upper() != "DES":
         error("Please enter a valid provider")
-    if str(epsg) != '3006':
-        raise ValueError(
-            "Digital Earth Sweden imagery is only available in EPSG:3006."
-        )
+    if str(epsg) != "3006":
+        raise ValueError("Digital Earth Sweden imagery is only available in EPSG:3006.")
     if isinstance(bounds, (tuple, list)):
         bounds = Bounds(xmin=bounds[0], ymin=bounds[1], xmax=bounds[2], ymax=bounds[3])
     info("Downloading imagery from Digital Earth Sweden")

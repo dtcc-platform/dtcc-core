@@ -17,23 +17,23 @@ most recent one, which over Sweden is very often solid cloud.
 
 import math
 import os
+from datetime import UTC, datetime, timedelta
 from datetime import date as Date
-from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pyproj
 import rasterio
 import requests
 from platformdirs import user_cache_dir
-from requests.adapters import HTTPAdapter
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
+from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from dtcc_core.common.progress import report_progress
 from dtcc_core.model import Raster
 
-from .logging import info, warning, debug, error
+from .logging import debug, info, warning
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
@@ -146,7 +146,7 @@ def _to_wgs84_bbox(bbox):
     transformer = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
     xmin, ymin, xmax, ymax = bbox
     corners = ((xmin, ymin), (xmin, ymax), (xmax, ymin), (xmax, ymax))
-    lons, lats = zip(*(transformer.transform(x, y) for x, y in corners))
+    lons, lats = zip(*(transformer.transform(x, y) for x, y in corners), strict=True)
     return (min(lons), min(lats), max(lons), max(lats))
 
 
@@ -281,9 +281,7 @@ def latest_clear_date(
     returning a cloudy date would hand the caller a white image.
     """
     session = session or create_session()
-    start = (datetime.now(timezone.utc) - timedelta(days=search_days)).strftime(
-        "%Y-%m-%d"
-    )
+    start = (datetime.now(UTC) - timedelta(days=search_days)).strftime("%Y-%m-%d")
     candidates = list_available_dates(
         bbox, max_cloud=max_cloud, start=start, session=session
     )
