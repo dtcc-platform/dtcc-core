@@ -18,6 +18,7 @@ DATASET_DEMOS = (
     "dataset_terrain_surface_mesh.py",
     "dataset_transit_vehicles.py",
     "dataset_trees.py",
+    "dataset_urban_atlas.py",
     "dataset_weather.py",
 )
 
