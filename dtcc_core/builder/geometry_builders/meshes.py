@@ -5212,7 +5212,8 @@ def build_city_volume_mesh(
     A block whose roof levels touch at a point only (its shell would have
     vertical edges with four faces, which a volume mesh cannot have) is
     extruded with one roof instead: the area-weighted mean of its parts'
-    roofs, or the highest when they span more than 2 m. This removes the
+    roofs, or the highest when their roofs or heights span more than 2 m
+    (:func:`.cleaning.blocks.fallback_roof`). This removes the
     steps of that block. A warning is logged, the conditioned-footprint
     contract warns, and ``stage_audit`` lists the blocks with the IDs of
     their buildings under the conditioned footprints' diagnostics

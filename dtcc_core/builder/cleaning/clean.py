@@ -55,11 +55,13 @@ which source wins an overlap, the height builders recompute the walls of that
 block from its source footprints (:func:`.blocks.update_walls`); so do the
 next cleaning and meshing of a block whose walls are not current.
 
-A block's roof and ``estimated_height`` are those of its highest part, and its
+A block's roof is the highest roof of its parts and its ``estimated_height``
+the largest height, which may belong to different parts; its
 ``ground_height`` is the lowest of its parts. The mesh builders use the parts'
-own roofs. A block that keeps one footprint is meshed with one roof: the
-area-weighted mean of its sources, or the highest source roof when they span
-more than 2 m (:func:`.blocks.fallback_roof`).
+own roofs. A block that keeps one footprint is meshed with one roof and has
+one height: the area-weighted mean of its sources, or the highest roof and
+height when their roofs or heights span more than 2 m
+(:func:`.blocks.fallback_roof`).
 """
 
 from __future__ import annotations
@@ -106,6 +108,7 @@ from .blocks import (
     precedence,
     set_source_footprint,
     source_id,
+    source_ids,
     wall_cells,
     walls_detail,
     walls_of,
@@ -115,6 +118,7 @@ from .contract import check_cleaning_contract, check_mesher_handoff_profile
 from .footprints import (
     ConditioningOptions,
     ConditioningResult,
+    UnresolvedFootprintCleaningError,
     condition_polygon_coverage,
 )
 from .plotting import plot_footprint_cleaning_comparison
@@ -126,6 +130,8 @@ RECORD_VERSION = 4
 
 # Numerical scale at which an unscaled (delta = 0) result is still checked.
 _UNSCALED_CHECK_SCALE = 1.0e-9
+# Overlapping pairs named in the warning of an unscaled result.
+_OVERLAP_EXAMPLES = 5
 # Namespace of the IDs of new blocks, derived from their parts' IDs.
 _BLOCK_NAMESPACE = uuid.uuid5(
     uuid.NAMESPACE_URL, "https://dtcc.chalmers.se/footprint-cleaning"
@@ -256,6 +262,15 @@ def clean_footprints(
 ):
     """Clean building footprints at the minimum building detail.
 
+    Where footprints overlap, the overlap goes to the one with the highest
+    roof, read as the z of its footprint (the height builders set it to the
+    ground plus the height); if any footprint of the block is at z = 0, to
+    the tallest when all have heights, else to the largest
+    (:func:`.blocks.precedence`).
+    Footprints at ground elevation should be given z = 0 or their roof level
+    before cleaning. A block records the rule it used in
+    ``attributes["footprint_walls"]["precedence"]``.
+
     Parameters
     ----------
     target : City, Building or sequence of Building
@@ -265,11 +280,15 @@ def clean_footprints(
         The scale delta in metres (default 0.5). Cleaned footprints have no
         feature smaller than delta, stay within delta / 2 of the input
         (3 delta / 4 when a merge group needs the retry), and footprints
-        closer than delta are merged. Zero disables geometric cleaning.
+        closer than delta are merged. Zero disables geometric cleaning: the
+        footprints are kept as they are, and footprints that overlap stay
+        overlapping buildings (a warning is logged; an error with
+        ``strict``).
     isolated : bool, optional
         Clean each building on its own, so nothing is merged and buildings may
         overlap or come closer than delta. By default the whole collection is
-        cleaned in unison, which yields a valid subdivision for meshing.
+        cleaned in unison, which yields a valid subdivision for meshing at a
+        positive ``min_building_detail``.
     min_area : float, optional
         Drop cleaned regions smaller than this area in square metres
         (default 0). Dropped buildings are listed in the record.
@@ -279,8 +298,12 @@ def clean_footprints(
         always uses its LOD0 footprint and its parts.
     strict : bool, optional
         Raise :class:`UnresolvedFootprintCleaningError` instead of returning a
-        result with residual separation below delta (and a warning), and give
-        a block one footprint instead of walls closer than delta.
+        result with residual separation below delta (and a warning), or at
+        zero detail one with overlapping footprints, and give a block one
+        footprint instead of walls closer than delta. Such a
+        block has one roof and one height (see the module documentation),
+        is logged, and has the outcome ``fallback`` in
+        ``attributes["footprint_walls"]``.
     show : bool, optional
         Plot the input and cleaned footprints.
     remove_holes : bool, optional
@@ -290,21 +313,28 @@ def clean_footprints(
         also in isolation and at zero detail. Geometric cleaning uses the
         filled input as its reference; final hole filling is an explicit
         policy outside the fidelity bound. Area selection uses the filled area.
+        The cells of a block's parts can still have holes, where one source
+        surrounds another.
 
     Returns
     -------
     City, Building, list of Building or None
         Cleaned buildings, one per cleaned region (see the module
         documentation), with unique IDs. The parts of a merged block have
-        their own cleaned footprints. A cleaned city records the cleaning in
-        ``city.attributes["footprint_cleaning"]``; the mesh builders reuse it
-        instead of cleaning again. For a single Building, None is returned if
-        ``min_area`` drops it.
+        their own cleaned footprints. The footprint, roof and height of a
+        block describe the whole block (see the module documentation), not
+        any one of its buildings; for the footprint and height of each
+        building, use its ``building_parts``, or :func:`building_cells`
+        for all buildings and blocks as one list. A cleaned city records the
+        cleaning in ``city.attributes["footprint_cleaning"]``; the mesh
+        builders reuse it instead of cleaning again. For a single Building,
+        None is returned if ``min_area`` drops it.
 
     Raises
     ------
     UnresolvedFootprintCleaningError
-        If no acceptable cleaning was found.
+        If no acceptable cleaning was found, or, with ``strict``, if
+        footprints overlap at zero detail.
     ValueError
         If a single Building is split into several regions; clean it as part
         of a list or city instead.
@@ -462,6 +492,10 @@ def clean_regions(
     selected = select_footprints(result, min_area=min_area)
     polygons = list(selected.polygons)
     region_sources = [list(indices) for indices in selected.source_map]
+    if delta == 0 and not isolated:
+        _report_overlaps(
+            polygons, region_sources, sources, buildings, selected.diagnostics, strict
+        )
 
     # Stage 2: walls between the labels of each region.
     budgets = _source_budgets(selected.diagnostics)
@@ -884,6 +918,106 @@ def footprint_cells(
     return [(piece, -1) for piece in pieces], {-1: _footprint_roof(building)}
 
 
+@dataclass(frozen=True)
+class FootprintCell:
+    """A piece of a cleaned footprint with one roof (see :func:`building_cells`).
+
+    Attributes
+    ----------
+    polygon : Polygon
+        The cell, in the plane.
+    roof_z : float
+        Its roof level: the z of its footprint.
+    height : float or None
+        The height of its part or building (``estimated_height``, else
+        ``measured_height``); for a block that keeps one footprint, the
+        height of the block as one footprint
+        (:func:`.blocks.fallback_roof`). None if unknown.
+    ground_height : float or None
+        ``attributes["ground_height"]`` of its part or building, if set.
+    building_id : str
+        The ID of the cleaned building it belongs to.
+    part_id : str or None
+        The ID of the part of a block whose cell it is; None for a building
+        that is not a block and for a block that keeps one footprint.
+    source_ids : tuple[str, ...]
+        The IDs of the input buildings behind it: its own, or all of a block
+        that keeps one footprint.
+    """
+
+    polygon: Polygon
+    roof_z: float
+    height: float | None
+    ground_height: float | None
+    building_id: str
+    part_id: str | None
+    source_ids: tuple[str, ...]
+
+
+def building_cells(target) -> list[FootprintCell]:
+    """The cells of cleaned buildings: each piece of footprint with one roof.
+
+    A block with walls has one cell per piece of each part's footprint; its
+    parts are the buildings that were merged into it, each with its own roof
+    and height. The cells are the walls for the current roofs of the parts
+    (:func:`.blocks.block_walls`): if heights changed after cleaning without
+    updating the walls, they are recomputed here, while the parts' own
+    footprints are not yet. A part that lost its cell to its neighbours has
+    none. A block that keeps one footprint, and any other building, has one
+    cell per piece of its footprint. The buildings are not modified.
+
+    Parameters
+    ----------
+    target : City, Building or sequence of Building
+        Buildings, usually from :func:`clean_footprints`.
+
+    Returns
+    -------
+    list[FootprintCell]
+        The cells, building by building; none for a building without a LOD0
+        footprint.
+
+    Raises
+    ------
+    ValueError
+        If a block was not made by this version of :func:`clean_footprints`.
+    """
+    if isinstance(target, City):
+        buildings = target.buildings
+    elif isinstance(target, Building):
+        buildings = [target]
+    else:
+        buildings = list(target)
+    result = []
+    for building in buildings:
+        pieces, roofs = footprint_cells(building)
+        if not pieces:
+            continue
+        parts = building.building_parts
+        height = (
+            block_roof(building)[1]
+            if is_block(building) and pieces[0][1] == -1
+            else modelling_height(building)
+        )
+        for polygon, label in pieces:
+            owner = building if label == -1 else parts[label]
+            ground = owner.attributes.get("ground_height")
+            result.append(
+                FootprintCell(
+                    polygon=polygon,
+                    roof_z=float(roofs[label]),
+                    height=height if label == -1 else modelling_height(owner),
+                    ground_height=float(ground) if _is_number(ground) else None,
+                    building_id=str(building.id),
+                    part_id=None if label == -1 else str(owner.id),
+                    source_ids=tuple(
+                        source_ids(building) if label == -1 else [source_id(owner)]
+                    ),
+                )
+            )
+    return result
+
+
 def _top(labels) -> tuple[float, float | None]:
     """The highest roof and the largest height of a block's labels."""
     heights = [label.height for label in labels if label.height is not None]
@@ -1242,6 +1376,61 @@ def _check_unscaled(raw, result: ConditioningResult) -> None:
     contract["mesher_profile"] = check_mesher_handoff_profile(result.polygons)
     result.diagnostics["before_selection_contract"] = contract
     result.diagnostics["mesher_profile"] = contract["mesher_profile"]
+
+
+def _report_overlaps(
+    polygons, region_sources, sources, buildings, diagnostics, strict
+) -> None:
+    """Warn of regions of an unscaled result that overlap, or, with
+    ``strict``, raise :class:`UnresolvedFootprintCleaningError`."""
+    overlaps = _overlapping_pairs(polygons)
+    if not overlaps:
+        return
+    names = [
+        "+".join(
+            str(buildings[index].id)
+            for index in sorted({sources[i].building for i in indices})
+        )
+        for indices in region_sources
+    ]
+    if strict:
+        raise UnresolvedFootprintCleaningError(
+            {
+                **diagnostics,
+                "outcome": "unresolved",
+                "unresolved_groups": [
+                    {
+                        "group": f"{names[i]}/{names[j]}",
+                        "source_indices": sorted(
+                            {*region_sources[i], *region_sources[j]}
+                        ),
+                        "reason": "overlap",
+                    }
+                    for i, j in overlaps
+                ],
+            }
+        )
+    examples = ", ".join(
+        f"{names[i]}/{names[j]}" for i, j in overlaps[:_OVERLAP_EXAMPLES]
+    )
+    more = ", ..." if len(overlaps) > _OVERLAP_EXAMPLES else ""
+    warning(
+        f"Footprint cleaning at 0 m keeps overlapping footprints: "
+        f"{len(overlaps)} pair(s) of buildings overlap ({examples}{more}); "
+        "clean at a positive min_building_detail to divide them."
+    )
+
+
+def _overlapping_pairs(polygons) -> list[tuple[int, int]]:
+    """Pairs of polygons whose interiors intersect, as the contract counts
+    them (:func:`.contract.check_cleaning_contract`)."""
+    tree = STRtree(polygons)
+    return sorted(
+        (i, int(j))
+        for i, polygon in enumerate(polygons)
+        for j in tree.query(polygon, predicate="intersects")
+        if j > i and polygon.relate_pattern(polygons[j], "T********")
+    )
 
 
 def _compact_contract(contract: dict[str, Any]) -> dict[str, Any]:

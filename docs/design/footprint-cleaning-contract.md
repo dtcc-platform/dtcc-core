@@ -436,12 +436,14 @@ The public outcome is one of the note's three outcomes, or the zero-scale mode:
 | `unchanged` / `conforming` | Strictly conforming candidate | Pass, at `fidelity_budget_used` | Return geometry |
 | `warning` | Warning candidate | Fail: minimum feature size only; topology, fidelity, attribution and the profile pass | Return geometry with a prominent warning (default) |
 | unresolved | No candidate found | No acceptable result found | Raise `UnresolvedFootprintCleaningError`; no partial coverage |
-| `unscaled_identity` | - | Checked only at the numerical scale `1e-9` (delta = 0) | Return each source's interpreted polygons; overlaps are kept |
+| `unscaled_identity` | - | Checked only at the numerical scale `1e-9` (delta = 0) | Return each source's interpreted polygons; overlaps are kept, with a warning |
 
-`clean_footprints(..., strict=True)` turns warnings into unresolved results.
-Unresolved means that the bounded search was exhausted, not that the problem is
-infeasible. Warning results keep the failed contract report; smaller mesh
-elements and higher mesh cost are possible.
+`clean_footprints(..., strict=True)` turns warnings into unresolved results,
+and at delta = 0 it raises for overlapping footprints instead of keeping them
+(reason `overlap`; no search runs at delta = 0). Otherwise unresolved means
+that the bounded search was exhausted, not that the problem is infeasible.
+Warning results keep the failed contract report; smaller mesh elements and
+higher mesh cost are possible.
 
 ## Walls between merged buildings
 
@@ -710,8 +712,9 @@ with w_c the mean of group c weighted by cell area. Then:
   from a far level of the other.
 
 A block that keeps one footprint is meshed with one roof. At cleaning, that
-roof is the area-weighted mean of its sources' roofs, or the highest roof when
-they span more than 2 m. Heights set afterwards replace it.
+roof is the area-weighted mean of its sources' roofs, or the highest roof (and
+height) when their roofs or heights span more than 2 m. Heights set afterwards
+replace it.
 
 **Level-union profile.** The union of the extruded regions is a 3-manifold
 with boundary if and only if every level set Q_t is a 2-manifold with

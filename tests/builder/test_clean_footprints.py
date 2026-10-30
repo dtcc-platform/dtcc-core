@@ -5,7 +5,7 @@ import pytest
 from shapely.geometry import Polygon, box
 
 from dtcc_core import io
-from dtcc_core.builder import clean_footprints
+from dtcc_core.builder import UnresolvedFootprintCleaningError, clean_footprints
 from dtcc_core.builder.cleaning import clean as clean_module
 from dtcc_core.builder.cleaning.blocks import block_walls
 from dtcc_core.builder.cleaning.clean import (
@@ -138,6 +138,47 @@ def test_isolated_cleaning_never_merges():
     assert cleaned.attributes[RECORD_KEY]["isolated"] is True
     # Isolated results are no valid input for meshing.
     assert cleaning_record(cleaned, min_building_detail=0.5) is None
+
+
+def test_zero_detail_keeps_overlaps_and_warns_of_them(caplog):
+    tower = building("tower", box(0, 0, 10, 10), 60)
+    house = building("house", box(5, 0, 40, 10), 6)  # overlaps the tower
+    shed = building("shed", box(40, 0, 45, 10), 3)  # shares an edge with the house
+    city = city_of(tower, house, shed, terrain=False)
+
+    cleaned = city.clean_footprints(min_building_detail=0)
+
+    assert [x.id for x in cleaned.buildings] == ["tower", "house", "shed"]
+    assert footprint(cleaned.buildings[0]).overlaps(footprint(cleaned.buildings[1]))
+    overlaps = [r.getMessage() for r in caplog.records if "overlap" in r.getMessage()]
+    assert len(overlaps) == 1
+    assert "1 pair(s)" in overlaps[0] and "tower/house" in overlaps[0]
+    assert "shed" not in overlaps[0]
+
+    # Buildings cleaned in isolation may overlap; nothing to warn of.
+    caplog.clear()
+    city.clean_footprints(min_building_detail=0, isolated=True)
+    assert "overlap" not in caplog.text
+
+
+def test_strict_zero_detail_cleaning_does_not_accept_overlaps():
+    tower = building("tower", box(0, 0, 10, 10), 60)
+    house = building("house", box(5, 0, 40, 10), 6)  # overlaps the tower
+    shed = building("shed", box(40, 0, 45, 10), 3)  # shares an edge with the house
+
+    with pytest.raises(
+        UnresolvedFootprintCleaningError, match="overlap at zero detail.*tower/house"
+    ) as error:
+        clean_footprints([tower, house, shed], min_building_detail=0, strict=True)
+
+    (group,) = error.value.diagnostics["unresolved_groups"]
+    assert (group["reason"], group["source_indices"]) == ("overlap", [0, 1])
+    # Touching is no overlap, and buildings cleaned in isolation may overlap.
+    assert len(clean_footprints([house, shed], min_building_detail=0, strict=True)) == 2
+    cleaned = clean_footprints(
+        [tower, house], min_building_detail=0, strict=True, isolated=True
+    )
+    assert len(cleaned) == 2
 
 
 def test_min_area_and_missing_footprints_are_reported_by_id():
