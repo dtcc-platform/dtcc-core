@@ -285,12 +285,17 @@ def latest_clear_date(
     query small. Each candidate is then probed against the imagery server,
     because the catalogue and the server are not perfectly in step: the
     catalogue lists acquisitions that the server has no pixels for, and
-    trusting it blindly yields a blank image. The first candidate that really
-    has pixels is returned.
+    trusting it blindly yields a blank image. The newest candidate that covers
+    the whole area is returned; if none does, the one covering most of it.
 
     Raises RuntimeError if nothing clear enough was found, since silently
     returning a cloudy date would hand the caller a white image.
     """
+    return _pick_clear_date(bbox, max_cloud, search_days, session, max_candidates)[0]
+
+
+def _pick_clear_date(bbox, max_cloud, search_days, session, max_candidates):
+    """Do the work of latest_clear_date and return (date, rgb coverage)."""
     session = session or create_session()
     start = (datetime.now(UTC) - timedelta(days=search_days)).strftime("%Y-%m-%d")
     candidates = list_available_dates(
@@ -303,15 +308,30 @@ def latest_clear_date(
             f"max_cloud, or widen search_days."
         )
 
-    for date, cloud in candidates[:max_candidates]:
-        if _imagery_coverage(session, bbox, date) > 0.0:
+    # A date at the edge of a satellite pass covers only part of the area, so
+    # an older date covering all of it is preferred.
+    probed = candidates[:max_candidates]
+    best = None
+    for date, cloud in probed:
+        coverage = _imagery_coverage(session, bbox, date)
+        if coverage >= COVERAGE_WARNING_THRESHOLD:
             info(f"Using acquisition from {date} ({cloud:.1f}% cloud cover)")
-            return date
-        debug(f"{date} is in the catalogue but the imagery server has no pixels for it")
+            return date, coverage
+        debug(f"{date} has imagery for {coverage:.0%} of the area")
+        if coverage > 0.0 and (best is None or coverage > best[2]):
+            best = (date, cloud, coverage)
+
+    if best is not None:
+        date, cloud, coverage = best
+        info(
+            f"Using acquisition from {date} ({cloud:.1f}% cloud cover), which "
+            f"covers {coverage:.0%} of the area; no candidate covered all of it"
+        )
+        return date, coverage
 
     raise RuntimeError(
         f"The catalogue lists {len(candidates)} acquisition(s) below {max_cloud}% "
-        f"cloud cover for this area, but none of the {max_candidates} most recent "
+        f"cloud cover for this area, but none of the {len(probed)} most recent "
         f"had imagery on the server. Pass an explicit date or widen search_days."
     )
 
@@ -615,13 +635,11 @@ def download_imagery(
 
     session = session or create_session()
     explicit_date = date is not None
+    probe_coverage = None
     if not explicit_date:
         report_progress(percent=0, message="Finding a clear acquisition date...")
-        date = latest_clear_date(
-            bbox,
-            max_cloud=max_cloud,
-            search_days=search_days,
-            session=session,
+        date, probe_coverage = _pick_clear_date(
+            bbox, max_cloud, search_days, session, MAX_DATE_CANDIDATES
         )
 
     out_path = os.path.join(
@@ -635,10 +653,8 @@ def download_imagery(
 
     # An explicit date is probed after the cache lookup, so cached results
     # still load offline, and before downloading every tile of a date with no
-    # pixels. Index styles are probed too, because their transparency cannot
-    # tell missing data apart from masked pixels.
-    probe_coverage = None
-    if explicit_date or style not in OPAQUE_STYLES:
+    # pixels. Automatic dates were probed while being picked.
+    if explicit_date:
         probe_coverage = _imagery_coverage(session, bbox, date)
         if probe_coverage == 0.0:
             raise RuntimeError(

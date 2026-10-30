@@ -245,7 +245,9 @@ class SatelliteImageryDataset(DatasetDescriptor):
             if args.format is None:
                 return raster
             with progress.phase("export", f"Exporting imagery as {args.format}..."):
-                return self.export_to_bytes(raster, args.format)
+                # Label band 4 as alpha so GIS tools show transparent pixels.
+                options = {"alpha": True} if args.format == "tif" else {}
+                return self.export_to_bytes(raster, args.format, **options)
 
     def _upstream_error(self, exc: requests.RequestException) -> DatasetUpstreamError:
         """Turn a failed Digital Earth Sweden request into a typed error."""

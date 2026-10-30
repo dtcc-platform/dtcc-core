@@ -546,9 +546,16 @@ def test_download_imagery_index_style_uses_rgb_probe_for_coverage(
     assert _cached_files(tmp_path) == []
 
 
-def test_download_imagery_probes_index_style_with_automatic_date(monkeypatch, tmp_path):
-    _stub_download(monkeypatch, tmp_path, alpha_fraction=0.0, probe_coverage=1.0)
-    monkeypatch.setattr(digitalearth, "latest_clear_date", lambda *a, **k: "2026-05-05")
+def test_download_imagery_reuses_date_probe_for_index_style(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=0.0)
+    monkeypatch.setattr(
+        digitalearth, "_pick_clear_date", lambda *a, **k: ("2026-05-05", 1.0)
+    )
+
+    def no_second_probe(*args, **kwargs):
+        raise AssertionError("the automatic date was already probed")
+
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", no_second_probe)
     raster = digitalearth.download_imagery((0, 0, 1000, 1000), style="ndwi")
     assert raster.data.shape == (100, 100, 4)
     assert len(_cached_files(tmp_path)) == 1
@@ -589,7 +596,7 @@ def _fail_on_network(monkeypatch):
         raise AssertionError("invalid bounds must be rejected before any request")
 
     monkeypatch.setattr(digitalearth, "create_session", no_network)
-    monkeypatch.setattr(digitalearth, "latest_clear_date", no_network)
+    monkeypatch.setattr(digitalearth, "_pick_clear_date", no_network)
 
 
 @pytest.mark.parametrize(
@@ -808,3 +815,40 @@ def test_cache_lives_in_the_shared_dtcc_data_cache():
     from dtcc_core.io.data import cache
 
     assert digitalearth.CACHE_DIR == str(cache.cache_dir / "downloaded_des")
+
+
+def _stub_candidates(monkeypatch, coverage_by_date):
+    monkeypatch.setattr(
+        digitalearth,
+        "list_available_dates",
+        lambda *a, **k: [(date, 5.0) for date in coverage_by_date],
+    )
+    probed = []
+
+    def fake_coverage(session, bbox, date):
+        probed.append(date)
+        return coverage_by_date[date]
+
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", fake_coverage)
+    return probed
+
+
+def test_latest_clear_date_prefers_older_date_covering_whole_area(monkeypatch):
+    probed = _stub_candidates(
+        monkeypatch, {"2026-08-24": 0.02, "2026-07-15": 1.0, "2026-06-01": 1.0}
+    )
+    assert digitalearth.latest_clear_date(BBOX, session=object()) == "2026-07-15"
+    assert probed == ["2026-08-24", "2026-07-15"]
+
+
+def test_latest_clear_date_falls_back_to_best_partial_date(monkeypatch):
+    _stub_candidates(
+        monkeypatch, {"2026-08-24": 0.3, "2026-07-15": 0.8, "2026-06-01": 0.0}
+    )
+    assert digitalearth.latest_clear_date(BBOX, session=object()) == "2026-07-15"
+
+
+def test_latest_clear_date_error_counts_dates_actually_probed(monkeypatch):
+    _stub_candidates(monkeypatch, {"2026-08-24": 0.0, "2026-07-15": 0.0})
+    with pytest.raises(RuntimeError, match="none of the 2 most recent"):
+        digitalearth.latest_clear_date(BBOX, session=object())

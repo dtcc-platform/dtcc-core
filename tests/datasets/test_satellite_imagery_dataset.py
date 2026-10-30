@@ -242,3 +242,16 @@ def test_build_types_service_error_reports_as_invalid_payload(mock_download):
     assert raised.value.failure_class == "invalid_payload"
     assert not raised.value.is_transient
     assert raised.value.__cause__ is exc
+
+
+@patch("dtcc_core.datasets.satellite_imagery.dtcc_core.io.data.download_imagery")
+def test_tif_export_labels_fourth_band_as_alpha(mock_download):
+    import rasterio
+    from rasterio.enums import ColorInterp
+
+    mock_download.return_value = _rgba_raster()
+    tif = SatelliteImageryDataset().build(
+        SatelliteImageryArgs(bounds=BOUNDS, format="tif")
+    )
+    with rasterio.MemoryFile(tif) as memfile, memfile.open() as src:
+        assert src.colorinterp[-1] == ColorInterp.alpha
