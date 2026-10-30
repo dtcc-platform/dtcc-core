@@ -128,6 +128,8 @@ RECORD_VERSION = 4
 
 # Numerical scale at which an unscaled (delta = 0) result is still checked.
 _UNSCALED_CHECK_SCALE = 1.0e-9
+# Overlapping pairs named in the warning of an unscaled result.
+_OVERLAP_EXAMPLES = 5
 # Namespace of the IDs of new blocks, derived from their parts' IDs.
 _BLOCK_NAMESPACE = uuid.uuid5(
     uuid.NAMESPACE_URL, "https://dtcc.chalmers.se/footprint-cleaning"
@@ -267,11 +269,14 @@ def clean_footprints(
         The scale delta in metres (default 0.5). Cleaned footprints have no
         feature smaller than delta, stay within delta / 2 of the input
         (3 delta / 4 when a merge group needs the retry), and footprints
-        closer than delta are merged. Zero disables geometric cleaning.
+        closer than delta are merged. Zero disables geometric cleaning: the
+        footprints are kept as they are, and footprints that overlap stay
+        overlapping buildings (a warning is logged).
     isolated : bool, optional
         Clean each building on its own, so nothing is merged and buildings may
         overlap or come closer than delta. By default the whole collection is
-        cleaned in unison, which yields a valid subdivision for meshing.
+        cleaned in unison, which yields a valid subdivision for meshing at a
+        positive ``min_building_detail``.
     min_area : float, optional
         Drop cleaned regions smaller than this area in square metres
         (default 0). Dropped buildings are listed in the record.
@@ -556,6 +561,25 @@ def clean_regions(
             f"Footprint cleaning: {len(vanished)} building(s) without an occupied core "
             f"at {delta:g} m have no cleaned footprint (see the cleaning record)."
         )
+    if delta == 0 and not isolated:
+        overlaps = _overlapping_pairs(polygons)
+        if overlaps:
+            names = [
+                "+".join(
+                    str(buildings[index].id)
+                    for index in sorted({sources[i].building for i in indices})
+                )
+                for indices in region_sources
+            ]
+            examples = ", ".join(
+                f"{names[i]}/{names[j]}" for i, j in overlaps[:_OVERLAP_EXAMPLES]
+            )
+            more = ", ..." if len(overlaps) > _OVERLAP_EXAMPLES else ""
+            warning(
+                f"Footprint cleaning at 0 m keeps overlapping footprints: "
+                f"{len(overlaps)} pair(s) of buildings overlap ({examples}{more}); "
+                "clean at a positive min_building_detail to divide them."
+            )
     if isolated:
         record["outcomes"] = diagnostics.get("outcomes", {})
     walls = record["walls"]
@@ -1244,6 +1268,18 @@ def _check_unscaled(raw, result: ConditioningResult) -> None:
     contract["mesher_profile"] = check_mesher_handoff_profile(result.polygons)
     result.diagnostics["before_selection_contract"] = contract
     result.diagnostics["mesher_profile"] = contract["mesher_profile"]
+
+
+def _overlapping_pairs(polygons) -> list[tuple[int, int]]:
+    """Pairs of polygons whose interiors intersect, as the contract counts
+    them (:func:`.contract.check_cleaning_contract`)."""
+    tree = STRtree(polygons)
+    return sorted(
+        (i, int(j))
+        for i, polygon in enumerate(polygons)
+        for j in tree.query(polygon, predicate="intersects")
+        if j > i and polygon.relate_pattern(polygons[j], "T********")
+    )
 
 
 def _compact_contract(contract: dict[str, Any]) -> dict[str, Any]:
