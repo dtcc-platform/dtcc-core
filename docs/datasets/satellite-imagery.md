@@ -23,6 +23,9 @@ What it is
 Two ways to call it
 -------------------
 
+For a runnable example, see
+[`demos/dataset_satellite_imagery.py`](../../demos/dataset_satellite_imagery.py).
+
 The dataset follows the dataset contract: options are validated, server
 failures raise `DatasetUpstreamError`, progress is reported, and `format`
 returns file bytes.
