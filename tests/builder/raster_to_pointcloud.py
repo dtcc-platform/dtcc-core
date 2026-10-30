@@ -1,8 +1,10 @@
-import pytest
-import numpy as np
 from pathlib import Path
-from dtcc_core.model import Raster, PointCloud
+
+import numpy as np
+import pytest
+
 from dtcc_core import io
+from dtcc_core.model import PointCloud
 
 
 @pytest.fixture

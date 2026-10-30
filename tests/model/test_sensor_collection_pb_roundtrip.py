@@ -1,15 +1,15 @@
 """Test SensorCollection protobuf roundtrip."""
 
-import pytest
 import numpy as np
+import pytest
 
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg", force=True)
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import attach_dataset_context
-from dtcc_core.model.object import SensorCollection, Object
 from dtcc_core.model.geometry import Point
+from dtcc_core.model.object import Object, SensorCollection
 from dtcc_core.model.values import Field
 
 
@@ -22,18 +22,18 @@ def test_sensor_collection_creation():
 def test_sensor_collection_add_station():
     """Test adding stations to collection."""
     sc = SensorCollection()
-    
+
     # Create station
     station = Object()
     station.attributes = {"id": "station1", "name": "Test Station"}
-    
+
     # Add geometry
     point = Point(x=10.0, y=20.0, z=0.0)
     station.add_geometry(point, "location")
-    
+
     # Add station
     sc.add_station(station)
-    
+
     assert len(sc.stations()) == 1
     assert sc.stations()[0] == station
 
@@ -41,27 +41,27 @@ def test_sensor_collection_add_station():
 def test_sensor_collection_with_field():
     """Test SensorCollection with field values."""
     sc = SensorCollection()
-    
+
     # Create station with field
     station = Object()
     station.attributes = {"id": "s1", "value": 42.5}
-    
+
     point = Point(x=100.0, y=200.0, z=0.0)
-    
+
     field = Field(association="sample")
     field.name = "NO2"
     field.unit = "µg/m³"
     field.dim = 1
     field.values = np.array([42.5], dtype=np.float32)
-    
+
     point.fields = [field]
     station.add_geometry(point, "location")
-    
+
     sc.add_station(station)
-    
+
     # Test to_arrays
     points, values = sc.to_arrays("NO2")
-    
+
     assert points.shape == (1, 3)
     assert values.shape == (1,)
     assert values[0] == pytest.approx(42.5)
@@ -118,7 +118,7 @@ def test_sensor_collection_protobuf_roundtrip():
     # Create collection
     sc1 = SensorCollection()
     sc1.attributes = {"source": "test", "phenomenon": "PM10"}
-    
+
     # Add two stations
     for i in range(2):
         station = Object()
@@ -126,41 +126,41 @@ def test_sensor_collection_protobuf_roundtrip():
             "station_id": f"s{i}",
             "value": float(i * 10),
         }
-        
+
         point = Point(x=float(i), y=float(i * 2), z=0.0)
-        
+
         field = Field(association="sample")
         field.name = "PM10"
         field.unit = "µg/m³"
         field.dim = 1
         field.values = np.array([float(i * 10)], dtype=np.float32)
-        
+
         point.fields = [field]
         station.add_geometry(point, "location")
-        
+
         sc1.add_station(station)
-    
+
     # Serialize to protobuf
     pb = sc1.to_proto()
-    
+
     # Deserialize
     sc2 = SensorCollection()
     sc2.from_proto(pb)
-    
+
     # Verify structure
     assert len(sc2.stations()) == 2
     assert sc2.attributes.get("phenomenon") == "PM10"
-    
+
     # Verify stations
     for i, station in enumerate(sc2.stations()):
         assert station.attributes["station_id"] == f"s{i}"
-        
+
         # Check geometry
         assert "location" in station.geometry
         point = station.get_geometry("location")
         assert point.x == float(i)
         assert point.y == float(i * 2)
-        
+
         # Check field
         assert len(point.fields) == 1
         field = point.fields[0]

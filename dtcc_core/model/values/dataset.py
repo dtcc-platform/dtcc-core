@@ -56,8 +56,13 @@ class DatasetValue(Model):
 
         sections = super()._info_sections()
         if isinstance(self.value, Mapping):
-            sections.append(("Values", ("Key", "Value"),
-                             [(key, value_text(value)) for key, value in self.value.items()]))
+            sections.append(
+                (
+                    "Values",
+                    ("Key", "Value"),
+                    [(key, value_text(value)) for key, value in self.value.items()],
+                )
+            )
         else:
             sections[0][2].append(("Value", value_text(self.value)))
         return sections

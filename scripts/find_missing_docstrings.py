@@ -3,10 +3,8 @@
 Script to find all functions and methods missing docstrings in dtcc_core directory.
 """
 
-import os
-import re
 import ast
-from typing import List, Tuple, Dict
+import os
 from pathlib import Path
 
 
@@ -23,12 +21,12 @@ def has_docstring(node):
     )
 
 
-def analyze_file(file_path: str) -> List[Tuple[str, str, int]]:
+def analyze_file(file_path: str) -> list[tuple[str, str, int]]:
     """Analyze a Python file and return functions/methods missing docstrings."""
     missing_docstrings = []
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
 
         # Parse the AST
@@ -60,7 +58,7 @@ def analyze_file(file_path: str) -> List[Tuple[str, str, int]]:
     return missing_docstrings
 
 
-def find_missing_docstrings(root_dir: str) -> List[Tuple[str, str, int]]:
+def find_missing_docstrings(root_dir: str) -> list[tuple[str, str, int]]:
     """Find all functions/methods missing docstrings in the given directory."""
     all_missing = []
 
@@ -84,18 +82,15 @@ def main():
 
     if missing_docstrings:
         with open(root_dir / "MISSING_DOCSTRINGS.md", "w", encoding="utf-8") as f:
-
             print(
                 f"Found {len(missing_docstrings)} functions/methods missing docstrings:\n"
             )
-            f.write(
-                f"# Missing Docstrings\n\n"
-            )
+            f.write("# Missing Docstrings\n\n")
             f.write(
                 f"Found {len(missing_docstrings)} functions/methods missing docstrings.\n\n"
             )
             f.write(
-                f"Run `python scripts/find_missing_docstrings.py` to regenerate this file.\n\n"
+                "Run `python scripts/find_missing_docstrings.py` to regenerate this file.\n\n"
             )
 
             # Group by file for better readability

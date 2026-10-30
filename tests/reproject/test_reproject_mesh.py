@@ -1,29 +1,35 @@
-import pytest
 import numpy as np
-from dtcc_core.reproject.reproject import reproject_mesh
+import pytest
+
 from dtcc_core.model import Mesh
+from dtcc_core.reproject.reproject import reproject_mesh
 
 
 @pytest.fixture
 def sample_vertices():
     """Sample vertices in SWEREF99 TM (EPSG:3006)"""
-    return np.array([
-        [500000.0, 6500000.0, 100.0],
-        [500100.0, 6500000.0, 100.0],
-        [500050.0, 6500100.0, 100.0],
-        [500050.0, 6500050.0, 150.0],
-    ])
+    return np.array(
+        [
+            [500000.0, 6500000.0, 100.0],
+            [500100.0, 6500000.0, 100.0],
+            [500050.0, 6500100.0, 100.0],
+            [500050.0, 6500050.0, 150.0],
+        ]
+    )
 
 
 @pytest.fixture
 def sample_faces():
     """Sample triangular faces"""
-    return np.array([
-        [0, 1, 2],
-        [0, 1, 3],
-        [0, 2, 3],
-        [1, 2, 3],
-    ], dtype=np.int64)
+    return np.array(
+        [
+            [0, 1, 2],
+            [0, 1, 3],
+            [0, 2, 3],
+            [1, 2, 3],
+        ],
+        dtype=np.int64,
+    )
 
 
 @pytest.fixture
@@ -47,12 +53,14 @@ def mesh_with_markers(sample_vertices, sample_faces, sample_markers):
 @pytest.fixture
 def mesh_with_normals(sample_vertices, sample_faces):
     """Create a Mesh with normal vectors"""
-    normals = np.array([
-        [0.0, 0.0, 1.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, -1.0],
-    ])
+    normals = np.array(
+        [
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, -1.0],
+        ]
+    )
     return Mesh(vertices=sample_vertices, faces=sample_faces, normals=normals)
 
 
@@ -113,11 +121,13 @@ class TestEmptyMesh:
 
     def test_single_triangle_mesh(self):
         """Test reprojection with minimal (single triangle) mesh"""
-        vertices = np.array([
-            [500000.0, 6500000.0, 100.0],
-            [500100.0, 6500000.0, 100.0],
-            [500050.0, 6500100.0, 100.0],
-        ])
+        vertices = np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+                [500050.0, 6500100.0, 100.0],
+            ]
+        )
         faces = np.array([[0, 1, 2]], dtype=np.int64)
         mesh = Mesh(vertices=vertices, faces=faces)
 
@@ -127,10 +137,12 @@ class TestEmptyMesh:
 
     def test_vertices_without_faces(self):
         """Test mesh with vertices but no faces"""
-        vertices = np.array([
-            [500000.0, 6500000.0, 100.0],
-            [500100.0, 6500000.0, 100.0],
-        ])
+        vertices = np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+            ]
+        )
         mesh = Mesh(vertices=vertices, faces=np.empty((0, 3), dtype=np.int64))
 
         result = reproject_mesh(mesh, "EPSG:3006", "EPSG:4326")
@@ -144,11 +156,13 @@ class TestCoordinateAccuracy:
     def test_known_coordinate_transformation(self):
         """Test transformation with known coordinates"""
         # Known points in SWEREF99 TM (EPSG:3006): Stockholm area
-        vertices = np.array([
-            [674032.0, 6580822.0, 50.0],
-            [674132.0, 6580822.0, 50.0],
-            [674082.0, 6580922.0, 50.0],
-        ])
+        vertices = np.array(
+            [
+                [674032.0, 6580822.0, 50.0],
+                [674132.0, 6580822.0, 50.0],
+                [674082.0, 6580922.0, 50.0],
+            ]
+        )
         faces = np.array([[0, 1, 2]], dtype=np.int64)
         mesh = Mesh(vertices=vertices, faces=faces)
 
@@ -169,7 +183,9 @@ class TestCoordinateAccuracy:
         result = reproject_mesh(intermediate, "EPSG:4326", "EPSG:3006")
 
         # Should be very close to original (within reasonable tolerance)
-        np.testing.assert_allclose(result.vertices, basic_mesh.vertices, rtol=1e-5, atol=1e-3)
+        np.testing.assert_allclose(
+            result.vertices, basic_mesh.vertices, rtol=1e-5, atol=1e-3
+        )
 
     def test_round_trip_preserves_faces(self, basic_mesh):
         """Test round-trip transformation preserves face connectivity"""
@@ -203,11 +219,13 @@ class TestDifferentCRSTypes:
 
     def test_utm_zones(self):
         """Test reprojection between different UTM zones"""
-        vertices = np.array([
-            [500000.0, 6500000.0, 100.0],
-            [500100.0, 6500000.0, 100.0],
-            [500050.0, 6500100.0, 100.0],
-        ])
+        vertices = np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+                [500050.0, 6500100.0, 100.0],
+            ]
+        )
         faces = np.array([[0, 1, 2]], dtype=np.int64)
         mesh = Mesh(vertices=vertices, faces=faces)
 
@@ -283,17 +301,22 @@ class TestTopologyPreservation:
 
     def test_face_orientation_preserved(self):
         """Test that face vertex order (orientation) is preserved"""
-        vertices = np.array([
-            [500000.0, 6500000.0, 100.0],
-            [500100.0, 6500000.0, 100.0],
-            [500100.0, 6500100.0, 100.0],
-            [500000.0, 6500100.0, 100.0],
-        ])
+        vertices = np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+                [500100.0, 6500100.0, 100.0],
+                [500000.0, 6500100.0, 100.0],
+            ]
+        )
         # Explicitly ordered faces
-        faces = np.array([
-            [0, 1, 2],  # Counter-clockwise
-            [0, 2, 3],  # Counter-clockwise
-        ], dtype=np.int64)
+        faces = np.array(
+            [
+                [0, 1, 2],  # Counter-clockwise
+                [0, 2, 3],  # Counter-clockwise
+            ],
+            dtype=np.int64,
+        )
 
         mesh = Mesh(vertices=vertices, faces=faces)
         result = reproject_mesh(mesh, "EPSG:3006", "EPSG:4326")
@@ -322,11 +345,13 @@ class TestAttributePreservation:
 
     def test_connectivity_and_markers_preserved(self):
         """Supported optional mesh attributes remain independent of coordinates."""
-        vertices = np.array([
-            [500000.0, 6500000.0, 100.0],
-            [500100.0, 6500000.0, 100.0],
-            [500050.0, 6500100.0, 100.0],
-        ])
+        vertices = np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+                [500050.0, 6500100.0, 100.0],
+            ]
+        )
         faces = np.array([[0, 1, 2]], dtype=np.int64)
         markers = np.array([5])
         mesh = Mesh(vertices=vertices, faces=faces, markers=markers)
@@ -337,18 +362,17 @@ class TestAttributePreservation:
 
     def test_empty_attributes_preserved(self):
         """Test that empty attributes are preserved correctly"""
-        vertices = np.array([
-            [500000.0, 6500000.0, 100.0],
-            [500100.0, 6500000.0, 100.0],
-            [500050.0, 6500100.0, 100.0],
-        ])
+        vertices = np.array(
+            [
+                [500000.0, 6500000.0, 100.0],
+                [500100.0, 6500000.0, 100.0],
+                [500050.0, 6500100.0, 100.0],
+            ]
+        )
         faces = np.array([[0, 1, 2]], dtype=np.int64)
 
         mesh = Mesh(
-            vertices=vertices,
-            faces=faces,
-            markers=np.empty(0),
-            normals=np.empty(0)
+            vertices=vertices, faces=faces, markers=np.empty(0), normals=np.empty(0)
         )
         result = reproject_mesh(mesh, "EPSG:3006", "EPSG:4326")
 

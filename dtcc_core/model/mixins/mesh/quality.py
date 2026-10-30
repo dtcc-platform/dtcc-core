@@ -19,8 +19,8 @@ where ``l_max`` is the longest edge and ``r`` is the inradius.
 from __future__ import annotations
 
 import logging
+
 import numpy as np
-from typing import Dict, Union
 
 from dtcc_core.common import log_table
 
@@ -42,7 +42,7 @@ def _tri_areas(v0: np.ndarray, v1: np.ndarray, v2: np.ndarray):
     return 0.5 * np.linalg.norm(cross, axis=1)
 
 
-def _summarize(values: np.ndarray) -> Dict[str, float]:
+def _summarize(values: np.ndarray) -> dict[str, float]:
     """Return min/max/mean summary for an array of per-element values."""
     return {
         "min": float(np.min(values)),
@@ -116,7 +116,7 @@ def tri_skewness(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
 
 def triangle_mesh_quality(
     vertices: np.ndarray, faces: np.ndarray
-) -> Dict[str, Union[int, Dict[str, float]]]:
+) -> dict[str, int | dict[str, float]]:
     """Compute quality metrics for a triangular mesh.
 
     Returns a dict with ``num_cells`` and summary stats (min, max, mean)
@@ -306,7 +306,7 @@ def tet_skewness(vertices: np.ndarray, cells: np.ndarray) -> np.ndarray:
 
 def tetrahedron_mesh_quality(
     vertices: np.ndarray, cells: np.ndarray
-) -> Dict[str, Union[int, Dict[str, float]]]:
+) -> dict[str, int | dict[str, float]]:
     """Compute quality metrics for a tetrahedral mesh.
 
     Returns a dict with ``num_cells`` and summary stats (min, max, mean)
@@ -336,7 +336,7 @@ _METRIC_LABELS = {
 }
 
 
-def format_quality(q: Dict[str, Union[int, Dict[str, float]]]) -> str:
+def format_quality(q: dict[str, int | dict[str, float]]) -> str:
     """Return a human-readable table from a quality dict."""
     n = q["num_cells"]
     col_w = 38  # label column width
@@ -353,7 +353,7 @@ def format_quality(q: Dict[str, Union[int, Dict[str, float]]]) -> str:
 
 
 def report_quality(
-    q: Dict[str, Union[int, Dict[str, float]]],
+    q: dict[str, int | dict[str, float]],
     log_fn=None,
 ) -> None:
     """Log mesh quality metrics as a compact Rich table.

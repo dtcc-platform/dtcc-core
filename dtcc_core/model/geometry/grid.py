@@ -2,11 +2,10 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
-from typing import Union
+
 import numpy as np
 
-
-from .geometry import Geometry, Bounds
+from .geometry import Bounds, Geometry
 
 
 def _validate_dimensions(**dimensions):
@@ -44,7 +43,10 @@ class Grid(Geometry):
     height: int = 0
 
     def _summary_items(self):
-        return [("width", self.width), ("height", self.height)] + super()._summary_items()
+        return [
+            ("width", self.width),
+            ("height", self.height),
+        ] + super()._summary_items()
 
     def __post_init__(self):
         # Zero dimensions intentionally represent an empty grid.
@@ -169,7 +171,12 @@ class VolumeGrid(Geometry):
         _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
         if self._bounds is None:
             self._bounds = Bounds(
-                xmin=0, ymin=0, zmin=0, xmax=self.width, ymax=self.height, zmax=self.depth
+                xmin=0,
+                ymin=0,
+                zmin=0,
+                xmax=self.width,
+                ymax=self.height,
+                zmax=self.depth,
             )
         return self._bounds
 

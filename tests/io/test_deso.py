@@ -264,20 +264,27 @@ def test_attach_deso_statistics_records_mixed_default_years(monkeypatch):
     assert deso.fields["employed_residents_total"].values.tolist() == [[99.0]]
 
 
-def test_download_deso_filters_converts_and_reuses_cached_geopackage(monkeypatch, tmp_path):
+def test_download_deso_filters_converts_and_reuses_cached_geopackage(
+    monkeypatch, tmp_path
+):
     from types import SimpleNamespace
     from unittest.mock import Mock
+
     import requests
 
     gdf = gpd.GeoDataFrame(
         {"desokod": ["inside", "outside"]},
-        geometry=[Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
-                  Polygon([(10, 10), (12, 10), (12, 12), (10, 12)])],
+        geometry=[
+            Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+            Polygon([(10, 10), (12, 10), (12, 12), (10, 12)]),
+        ],
         crs="EPSG:3006",
     )
     fixture_path = tmp_path / "source.gpkg"
     gdf.to_file(fixture_path, driver="GPKG")
-    response = SimpleNamespace(content=fixture_path.read_bytes(), raise_for_status=lambda: None)
+    response = SimpleNamespace(
+        content=fixture_path.read_bytes(), raise_for_status=lambda: None
+    )
     get = Mock(return_value=response)
     monkeypatch.setattr(deso_data.requests, "get", get)
     monkeypatch.setattr(deso_data, "cache_dir", tmp_path / "cache")
@@ -290,12 +297,13 @@ def test_download_deso_filters_converts_and_reuses_cached_geopackage(monkeypatch
     assert result.areas[0].get_geometry("lod0").to_polygon().area == pytest.approx(4)
     assert get.call_count == 1
     assert get.call_args.kwargs["timeout"] == (
-        deso_data.SCB_CONNECT_TIMEOUT_SECONDS, deso_data.SCB_READ_TIMEOUT_SECONDS
+        deso_data.SCB_CONNECT_TIMEOUT_SECONDS,
+        deso_data.SCB_READ_TIMEOUT_SECONDS,
     )
     cached = deso_data.download_deso_geodataframe(bounds)
     assert cached.desokod.tolist() == ["inside"]
     assert get.call_count == 1
-    cache_path, = (tmp_path / "cache").rglob("*.gpkg")
+    (cache_path,) = (tmp_path / "cache").rglob("*.gpkg")
     assert cache_path.read_bytes() == response.content
 
     get.side_effect = requests.ConnectionError("offline fixture")

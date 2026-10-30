@@ -54,6 +54,7 @@ from .transit_vehicles import (
 from .deso import DeSODataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
+from .orthophoto import OrthophotoDataset
 
 # Remote dataset support (optional, requires httpx)
 try:
@@ -106,6 +107,7 @@ ferries = get_dataset("ferries")
 deso = get_dataset("deso")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
+orthophoto = get_dataset("orthophoto")
 
 
 _CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
@@ -121,11 +123,22 @@ def info(print: bool = True) -> str | None:
     from dtcc_core.common._display import format_info
 
     datasets_dict = list()
-    sections = [("", None, "Use datasets.<name>() to access a dataset.\n"
-                 "Use datasets.<name>.info() to see dataset parameters.")]
+    sections = [
+        (
+            "",
+            None,
+            "Use datasets.<name>() to access a dataset.\n"
+            "Use datasets.<name>.info() to see dataset parameters.",
+        )
+    ]
     for category, rows in _group_dataset_summary_rows(datasets_dict).items():
-        sections.append((f"{_format_category_title(category)} ({len(rows)})",
-                         ("Dataset", "Product", "Formats", "Source"), rows))
+        sections.append(
+            (
+                f"{_format_category_title(category)} ({len(rows)})",
+                ("Dataset", "Product", "Formats", "Source"),
+                rows,
+            )
+        )
     summary = format_info(f"DTCC Datasets ({len(datasets_dict)} available)", sections)
     if print:
         builtins.print(summary)
@@ -175,10 +188,7 @@ def _group_dataset_summary_rows(
                 _dataset_source(dataset),
             )
         )
-    return {
-        category: grouped[category]
-        for category in _ordered_categories(grouped)
-    }
+    return {category: grouped[category] for category in _ordered_categories(grouped)}
 
 
 def _ordered_categories(grouped: dict[str, list]) -> list[str]:

@@ -1,16 +1,19 @@
-
 #!/usr/bin/env python3
-import requests
 import os
-from pathlib import Path
 import re
-from .overpass import get_roads_for_bbox, get_buildings_for_bbox
-from .geopkg import CACHE_DIR as GPKG_CACHE_DIR, download_tiles
-from .lidar import download_lidar
-from .digitalearth import download_imagery as _download_imagery
+from pathlib import Path
+
+import requests
+
 from dtcc_core import io
 from dtcc_core.model import Bounds
-from .logging import info, warning, debug, error
+
+from .digitalearth import download_imagery as _download_imagery
+from .geopkg import CACHE_DIR as GPKG_CACHE_DIR
+from .geopkg import download_tiles
+from .lidar import download_lidar
+from .logging import debug, error, info, warning
+from .overpass import get_buildings_for_bbox, get_roads_for_bbox
 
 # We'll allow "lidar", "roads", "footprints" or "imagery" for data_type, and
 # "dtcc", "OSM" or "DES" (Digital Earth Sweden) for provider.
@@ -24,7 +27,8 @@ _GPKG_TILE_NAME_RE = re.compile(
 # Env-overridable backend URLs (defaults preserve current behavior).
 _DTCC_BASE = os.environ.get("DTCC_DATA_URL", "http://compute.dtcc.chalmers.se")
 DTCC_LIDAR_URL = os.environ.get("DTCC_LIDAR_URL", f"{_DTCC_BASE}:8000")
-DTCC_GPKG_URL  = os.environ.get("DTCC_GPKG_URL",  f"{_DTCC_BASE}:8001")
+DTCC_GPKG_URL = os.environ.get("DTCC_GPKG_URL", f"{_DTCC_BASE}:8001")
+
 
 def _bounds_overlap(lhs: Bounds, rhs: Bounds) -> bool:
     return not (
@@ -96,7 +100,9 @@ def _find_cached_footprint_files(bounds: Bounds) -> list[str]:
     return matching_files
 
 
-def _cached_footprint_files_cover_bounds(cached_files: list[str], bounds: Bounds) -> bool:
+def _cached_footprint_files_cover_bounds(
+    cached_files: list[str], bounds: Bounds
+) -> bool:
     tile_bounds = [
         tile_bounds
         for cached_file in cached_files
@@ -144,7 +150,10 @@ def _load_cached_footprints(bounds: Bounds):
         return buildings
     return None
 
-def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', url = None, **kwargs):
+
+def download_data(
+    data_type: str, provider: str, bounds: Bounds, epsg="3006", url=None, **kwargs
+):
     """
     A wrapper for downloading data from the configured backend.
 
@@ -186,36 +195,42 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
     else:
         lidar_url, gpkg_url = DTCC_LIDAR_URL, DTCC_GPKG_URL
     # Ensure user provided bounding box is a dtcc.Bounds object.
-    if isinstance(bounds,(tuple | list)):
-        bounds = Bounds(xmin=bounds[0],ymin=bounds[1],xmax=bounds[2],ymax=bounds[3])
-    if not isinstance(bounds,Bounds):
+    if isinstance(bounds, (tuple | list)):
+        bounds = Bounds(xmin=bounds[0], ymin=bounds[1], xmax=bounds[2], ymax=bounds[3])
+    if not isinstance(bounds, Bounds):
         raise TypeError("user_bbox parameter must be of dtcc.Bounds type.")
-    
+
     # user_bbox = user_bbox.tuple
-    if not epsg == '3006':
-        if data_type == 'imagery':
+    if not epsg == "3006":
+        if data_type == "imagery":
             raise ValueError(
                 "Digital Earth Sweden imagery is only available in EPSG:3006."
             )
-        warning('Please enter the coordinates in EPSG:3006')
+        warning("Please enter the coordinates in EPSG:3006")
         return
     # Validate
     if data_type not in valid_types:
-        raise ValueError(f"Invalid data_type '{data_type}'. Must be one of {valid_types}.")
+        raise ValueError(
+            f"Invalid data_type '{data_type}'. Must be one of {valid_types}."
+        )
     if provider not in valid_providers:
-        raise ValueError(f"Invalid provider '{provider}'. Must be one of {valid_providers}.")
+        raise ValueError(
+            f"Invalid provider '{provider}'. Must be one of {valid_providers}."
+        )
 
     if provider == "dtcc":
         session = requests.Session()
-        if data_type == 'lidar':
+        if data_type == "lidar":
             info("Resolving lidar tiles from DTCC source")
             files = download_lidar(bounds.tuple, session, base_url=lidar_url)
             if not files:
-                raise RuntimeError("No lidar data available for the requested bounding box.")
+                raise RuntimeError(
+                    "No lidar data available for the requested bounding box."
+                )
             debug(files)
-            pc = io.load_pointcloud(files,bounds=bounds)
+            pc = io.load_pointcloud(files, bounds=bounds)
             return pc
-        elif data_type == 'footprints':
+        elif data_type == "footprints":
             cached_footprints = _load_cached_footprints(bounds)
             if cached_footprints is not None:
                 return cached_footprints
@@ -225,36 +240,37 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
                 raise RuntimeError(
                     f"Footprint download failed for bounds {bounds.tuple}."
                 )
-            foots = io.load_footprints(files,bounds= bounds)
-            return foots 
+            foots = io.load_footprints(files, bounds=bounds)
+            return foots
         else:
             error("Incorrect data type.")
         return
 
     elif provider == "DES":
-        if data_type == 'imagery':
+        if data_type == "imagery":
             info("Downloading imagery from Digital Earth Sweden")
             return _download_imagery(bounds.tuple, **kwargs)
         else:
             error("Digital Earth Sweden only provides imagery.")
         return
 
-    else:  
-        if data_type == 'footprints':
+    else:
+        if data_type == "footprints":
             info("Downloading footprint tiles from OSM source")
             gdf, filename = get_buildings_for_bbox(bounds.tuple)
             footprints = io.load_footprints(filename, bounds=bounds)
             return footprints
-        elif data_type == 'roads':
+        elif data_type == "roads":
             info("Downloading road tiles from OSM source")
             gdf, filename = get_roads_for_bbox(bounds.tuple)
             roads = io.load_roadnetwork(filename, bounds=bounds)
             return roads
         else:
-            error('Please enter a valid data type')
+            error("Please enter a valid data type")
         return
-   
-def download_pointcloud(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
+
+
+def download_pointcloud(bounds: Bounds, provider="dtcc", epsg="3006"):
     """
     Download a point cloud from the specified provider within the given bounds.
 
@@ -278,12 +294,13 @@ def download_pointcloud(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
         If an unsupported provider is given.
     """
 
-    if not provider or provider.lower() == 'dtcc':
-        return download_data('lidar', 'dtcc', bounds, epsg=epsg)
+    if not provider or provider.lower() == "dtcc":
+        return download_data("lidar", "dtcc", bounds, epsg=epsg)
     else:
         error("Please enter a valid provider")
 
-def download_footprints(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
+
+def download_footprints(bounds: Bounds, provider="dtcc", epsg="3006"):
     """
     Download building footprints from the specified provider within the given bounds.
 
@@ -306,14 +323,15 @@ def download_footprints(bounds: Bounds, provider = 'dtcc', epsg = '3006'):
     RuntimeError
         If an unsupported provider is given.
     """
-    if not provider or provider.lower() == 'dtcc':
-        return download_data('footprints', 'dtcc', bounds, epsg=epsg)
-    elif provider.upper() == 'OSM':
-        return download_data('footprints', "OSM", bounds, epsg = epsg)
+    if not provider or provider.lower() == "dtcc":
+        return download_data("footprints", "dtcc", bounds, epsg=epsg)
+    elif provider.upper() == "OSM":
+        return download_data("footprints", "OSM", bounds, epsg=epsg)
     else:
         error("Please enter a valid provider")
 
-def download_roadnetwork(bounds: Bounds, provider = 'OSM', epsg='3006'):
+
+def download_roadnetwork(bounds: Bounds, provider="OSM", epsg="3006"):
     """
     Download road network data from the specified provider within the given bounds.
 
@@ -336,8 +354,8 @@ def download_roadnetwork(bounds: Bounds, provider = 'OSM', epsg='3006'):
     RuntimeError
         If an unsupported provider is given.
     """
-    if provider and provider.upper() == 'OSM':
-        return download_data('roads', "OSM", bounds, epsg=epsg)
+    if provider and provider.upper() == "OSM":
+        return download_data("roads", "OSM", bounds, epsg=epsg)
     else:
         error("Please enter a valid provider")
 

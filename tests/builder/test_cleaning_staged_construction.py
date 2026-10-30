@@ -73,9 +73,10 @@ def test_dense_structural_proposal_repairs_one_cap_case_and_explains_the_residua
         "no_candidate_helped",
     }
     assert report["fallback_attempts"][1]["reason"] == "residual_defects"
-    assert report["total_work"]["evaluations"] > report["selected_attempt_work"][
-        "evaluations"
-    ]
+    assert (
+        report["total_work"]["evaluations"]
+        > report["selected_attempt_work"]["evaluations"]
+    )
 
 
 def test_search_stops_at_the_first_candidate_with_preferred_angles():
@@ -104,9 +105,15 @@ def test_a_conforming_result_without_preferred_angles_does_not_stop_the_search(
         calls.append(len(calls))
         contract = check_cleaning_contract(raw, repaired, delta=0.5)
         return repaired, dict(
-            contract=contract, outcome="conforming", stages={},
+            contract=contract,
+            outcome="conforming",
+            stages={},
             final=construction.defect_tuple(contract["admissibility"]),
-            edits=0, sites=0, evaluations=1, admissions=0, global_evaluations=0,
+            edits=0,
+            sites=0,
+            evaluations=1,
+            admissions=0,
+            global_evaluations=0,
         )
 
     def finish(raw, output, **kwargs):
@@ -277,9 +284,15 @@ def test_warning_candidate_never_outranks_a_conforming_fallback(monkeypatch):
         output = raw if len(calls) == 1 else repaired
         contract = check_cleaning_contract(raw, output, delta=0.5)
         return output, dict(
-            contract=contract, outcome="unresolved" if len(calls) == 1 else "conforming",
-            stages={}, final=construction.defect_tuple(contract["admissibility"]),
-            edits=0, sites=0, evaluations=1, admissions=0, global_evaluations=0,
+            contract=contract,
+            outcome="unresolved" if len(calls) == 1 else "conforming",
+            stages={},
+            final=construction.defect_tuple(contract["admissibility"]),
+            edits=0,
+            sites=0,
+            evaluations=1,
+            admissions=0,
+            global_evaluations=0,
         )
 
     monkeypatch.setattr(construction, "attempt", attempt)
@@ -394,7 +407,10 @@ def test_a_retry_that_does_not_improve_keeps_the_declared_budget(monkeypatch):
 
     calls.clear()
     _, _, report = construction.construct_coverage(
-        raw, [[0], [1], [2]], delta=0.5, epsilon=0.25,
+        raw,
+        [[0], [1], [2]],
+        delta=0.5,
+        epsilon=0.25,
         allow_residual_separation=True,
     )
     assert 0.375 not in calls and report["fidelity_budget_used"] == 0.25
@@ -417,7 +433,10 @@ def test_early_stop_is_revisited_when_groups_end_up_too_close(monkeypatch):
 
     monkeypatch.setattr(construction, "construct", construct)
     polygons, _, report = construction.construct_coverage(
-        left + [right], [[0], [1], [2]], delta=0.5, epsilon=0.25,
+        left + [right],
+        [[0], [1], [2]],
+        delta=0.5,
+        epsilon=0.25,
         allow_residual_separation=True,
     )
     assert report["outcome"] == "conforming"

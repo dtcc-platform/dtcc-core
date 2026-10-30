@@ -1,4 +1,5 @@
 import pytest
+
 from dtcc_core.model import Bounds
 
 
