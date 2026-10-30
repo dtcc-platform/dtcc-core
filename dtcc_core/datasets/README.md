@@ -167,6 +167,7 @@ Current Built-In Datasets
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI HydroObs latest-day station observations with catchment metadata, units, value timestamps, and quality codes. |
 | `ocean` | raw | `SensorCollection` | `pb` | SMHI OcObs latest-hour station/platform observations with units, period timestamps, quality codes, and parameter metadata. |
 | `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, household, car, and employment statistics. |
+| `population_grid` | raw | `PopulationGrid` | `tif`, `gpkg`, `geojson` | SCB registered population per 1 km cell for 2015-2025: total, men, women or a five-year age band, on whole cells covering the bounds; cells outside Sweden are nodata. `gpkg`/`geojson` return all variables as cell polygons. CC0. |
 
 Smoke Dataset
 -------------
