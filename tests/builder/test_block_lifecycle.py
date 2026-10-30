@@ -14,7 +14,7 @@ import shapely
 from shapely.geometry import box, shape
 
 from dtcc_core import io
-from dtcc_core.builder import build_lod1_buildings
+from dtcc_core.builder import build_lod1_buildings, building_cells
 from dtcc_core.builder.cleaning import walls as walls_module
 from dtcc_core.builder.cleaning.blocks import (
     MERGED_FROM_KEY,
@@ -728,6 +728,46 @@ def test_a_fallback_block_keeps_its_tallest_height(monkeypatch, z):
     assert block.attributes[WALLS_KEY]["outcome"] == "fallback"
     assert block.estimated_height == 60.0
     assert block.get_geometry(GeometryType.LOD0).zmax == z
+    # The block is one cell, with the height of the block.
+    (cell,) = building_cells(cleaned)
+    assert (cell.building_id, cell.part_id, cell.source_ids) == (
+        block.id,
+        None,
+        ("tower", "house"),
+    )
+    assert (cell.roof_z, cell.height) == (z, 60.0)
+    assert cell.polygon.area == pytest.approx(400.0)
+
+
+def test_building_cells_follow_the_current_roofs_of_the_parts():
+    tower = building("tower", box(0, 0, 10, 10), 60.0, height=60.0, ground=0.0)
+    house = building("house", box(5, 0, 40, 10), 6.0, height=6.0, ground=0.0)
+    shed = building("shed", box(50, 0, 55, 5), 3.0, height=3.0)
+    cleaned = city_of(tower, house, shed).clean_footprints()
+    block, _ = cleaned.buildings
+
+    cells = building_cells(cleaned)
+
+    assert [
+        (c.building_id, c.part_id, c.source_ids, c.roof_z, c.height, c.ground_height)
+        for c in cells
+    ] == [
+        (block.id, "tower", ("tower",), 60.0, 60.0, 0.0),
+        (block.id, "house", ("house",), 6.0, 6.0, 0.0),
+        ("shed", None, ("shed",), 3.0, 3.0, None),
+    ]
+    assert [c.polygon.area for c in cells] == pytest.approx([100.0, 300.0, 25.0])
+
+    # Raised above the tower, the house wins the overlap. Its own footprint is
+    # stale until the walls are updated; its cell is not.
+    house_part = block.building_parts[1]
+    set_part_roof(house_part, 80.0)
+    house_part.estimated_height = 80.0
+    assert polygon_of(house_part.get_geometry(GeometryType.LOD0)).area == 300.0
+    by_part = {c.part_id: c for c in building_cells(block)}
+    assert (by_part["house"].roof_z, by_part["house"].height) == (80.0, 80.0)
+    assert by_part["house"].polygon.area == pytest.approx(350.0)
+    assert by_part["tower"].polygon.area == pytest.approx(50.0)
 
 
 def test_fallback_roof_averages_only_close_roofs_and_heights():

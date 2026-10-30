@@ -108,6 +108,7 @@ from .blocks import (
     precedence,
     set_source_footprint,
     source_id,
+    source_ids,
     wall_cells,
     walls_detail,
     walls_of,
@@ -323,7 +324,8 @@ def clean_footprints(
         their own cleaned footprints. The footprint, roof and height of a
         block describe the whole block (see the module documentation), not
         any one of its buildings; for the footprint and height of each
-        building, use its ``building_parts``. A cleaned city records the
+        building, use its ``building_parts``, or :func:`building_cells`
+        for all buildings and blocks as one list. A cleaned city records the
         cleaning in ``city.attributes["footprint_cleaning"]``; the mesh
         builders reuse it instead of cleaning again. For a single Building,
         None is returned if ``min_area`` drops it.
@@ -914,6 +916,106 @@ def footprint_cells(
     if not pieces:
         return [], {}
     return [(piece, -1) for piece in pieces], {-1: _footprint_roof(building)}
+
+
+@dataclass(frozen=True)
+class FootprintCell:
+    """A piece of a cleaned footprint with one roof (see :func:`building_cells`).
+
+    Attributes
+    ----------
+    polygon : Polygon
+        The cell, in the plane.
+    roof_z : float
+        Its roof level: the z of its footprint.
+    height : float or None
+        The height of its part or building (``estimated_height``, else
+        ``measured_height``); for a block that keeps one footprint, the
+        height of the block as one footprint
+        (:func:`.blocks.fallback_roof`). None if unknown.
+    ground_height : float or None
+        ``attributes["ground_height"]`` of its part or building, if set.
+    building_id : str
+        The ID of the cleaned building it belongs to.
+    part_id : str or None
+        The ID of the part of a block whose cell it is; None for a building
+        that is not a block and for a block that keeps one footprint.
+    source_ids : tuple[str, ...]
+        The IDs of the input buildings behind it: its own, or all of a block
+        that keeps one footprint.
+    """
+
+    polygon: Polygon
+    roof_z: float
+    height: float | None
+    ground_height: float | None
+    building_id: str
+    part_id: str | None
+    source_ids: tuple[str, ...]
+
+
+def building_cells(target) -> list[FootprintCell]:
+    """The cells of cleaned buildings: each piece of footprint with one roof.
+
+    A block with walls has one cell per piece of each part's footprint; its
+    parts are the buildings that were merged into it, each with its own roof
+    and height. The cells are the walls for the current roofs of the parts
+    (:func:`.blocks.block_walls`): if heights changed after cleaning without
+    updating the walls, they are recomputed here, while the parts' own
+    footprints are not yet. A part that lost its cell to its neighbours has
+    none. A block that keeps one footprint, and any other building, has one
+    cell per piece of its footprint. The buildings are not modified.
+
+    Parameters
+    ----------
+    target : City, Building or sequence of Building
+        Buildings, usually from :func:`clean_footprints`.
+
+    Returns
+    -------
+    list[FootprintCell]
+        The cells, building by building; none for a building without a LOD0
+        footprint.
+
+    Raises
+    ------
+    ValueError
+        If a block was not made by this version of :func:`clean_footprints`.
+    """
+    if isinstance(target, City):
+        buildings = target.buildings
+    elif isinstance(target, Building):
+        buildings = [target]
+    else:
+        buildings = list(target)
+    result = []
+    for building in buildings:
+        pieces, roofs = footprint_cells(building)
+        if not pieces:
+            continue
+        parts = building.building_parts
+        height = (
+            block_roof(building)[1]
+            if is_block(building) and pieces[0][1] == -1
+            else modelling_height(building)
+        )
+        for polygon, label in pieces:
+            owner = building if label == -1 else parts[label]
+            ground = owner.attributes.get("ground_height")
+            result.append(
+                FootprintCell(
+                    polygon=polygon,
+                    roof_z=float(roofs[label]),
+                    height=height if label == -1 else modelling_height(owner),
+                    ground_height=float(ground) if _is_number(ground) else None,
+                    building_id=str(building.id),
+                    part_id=None if label == -1 else str(owner.id),
+                    source_ids=tuple(
+                        source_ids(building) if label == -1 else [source_id(owner)]
+                    ),
+                )
+            )
+    return result
 
 
 def _top(labels) -> tuple[float, float | None]:
