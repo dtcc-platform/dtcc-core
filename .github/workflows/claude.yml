@@ -43,7 +43,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Comments the action puts in the prompt come only from these accounts;
-          # the issue or pull request title and body are not filtered. Same list
-          # as in claude-review.yml.
+          # Only comments from these accounts reach the prompt; the title, body,
+          # checked-out files and CI logs are not filtered. Keep in sync with the
+          # accounts that have write access to the repository.
           include_comments_by_actor: "anderslogg,vbassn,dwastberg,Georspai,AlexKaridas,claude[bot]"
