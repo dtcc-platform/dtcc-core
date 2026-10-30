@@ -260,6 +260,15 @@ def clean_footprints(
 ):
     """Clean building footprints at the minimum building detail.
 
+    Where footprints overlap, the overlap goes to the one with the highest
+    roof, read as the z of its footprint (the height builders set it to the
+    ground plus the height); if any footprint of the block is at z = 0, to
+    the tallest when all have heights, else to the largest
+    (:func:`.blocks.precedence`).
+    Footprints at ground elevation should be given z = 0 or their roof level
+    before cleaning. A block records the rule it used in
+    ``attributes["footprint_walls"]["precedence"]``.
+
     Parameters
     ----------
     target : City, Building or sequence of Building
@@ -287,7 +296,10 @@ def clean_footprints(
     strict : bool, optional
         Raise :class:`UnresolvedFootprintCleaningError` instead of returning a
         result with residual separation below delta (and a warning), and give
-        a block one footprint instead of walls closer than delta.
+        a block one footprint instead of walls closer than delta. Such a
+        block has one roof and one height (see the module documentation),
+        is logged, and has the outcome ``fallback`` in
+        ``attributes["footprint_walls"]``.
     show : bool, optional
         Plot the input and cleaned footprints.
     remove_holes : bool, optional
@@ -297,16 +309,21 @@ def clean_footprints(
         also in isolation and at zero detail. Geometric cleaning uses the
         filled input as its reference; final hole filling is an explicit
         policy outside the fidelity bound. Area selection uses the filled area.
+        The cells of a block's parts can still have holes, where one source
+        surrounds another.
 
     Returns
     -------
     City, Building, list of Building or None
         Cleaned buildings, one per cleaned region (see the module
         documentation), with unique IDs. The parts of a merged block have
-        their own cleaned footprints. A cleaned city records the cleaning in
-        ``city.attributes["footprint_cleaning"]``; the mesh builders reuse it
-        instead of cleaning again. For a single Building, None is returned if
-        ``min_area`` drops it.
+        their own cleaned footprints. The footprint, roof and height of a
+        block describe the whole block (see the module documentation), not
+        any one of its buildings; for the footprint and height of each
+        building, use its ``building_parts``. A cleaned city records the
+        cleaning in ``city.attributes["footprint_cleaning"]``; the mesh
+        builders reuse it instead of cleaning again. For a single Building,
+        None is returned if ``min_area`` drops it.
 
     Raises
     ------
