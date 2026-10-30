@@ -132,9 +132,12 @@ class SatelliteImageryDataset(DatasetDescriptor):
             "max_cloud percent within search_days and probe the newest ones "
             "for real pixels"
         ),
+        "With an explicit date, return the cached GeoTIFF if there is one",
+        "Probe the date in rgb and fail if the area has no imagery",
         "Request the chosen date from the WMS server as 512-pixel tiles in EPSG:3006",
-        "Stitch the tiles into one RGBA mosaic and cache it as a GeoTIFF",
-        "Warn when the mosaic is empty or only partly covered",
+        "Stitch the tiles into one RGBA mosaic",
+        "Fail if the mosaic is empty; warn and skip the cache if partly covered",
+        "Cache complete mosaics as GeoTIFFs",
         "Return a Raster or serialize it as tif or png",
     ]
     derived_from = [
@@ -155,7 +158,9 @@ class SatelliteImageryDataset(DatasetDescriptor):
             "body": (
                 "Each pixel is a rendered Sentinel-2 value for one acquisition "
                 "date. The fourth channel is transparency, marking pixels that "
-                "the source had no data for."
+                "the source had no data for. Index styles also make pixels "
+                "transparent where the index does not apply, such as land in "
+                "ndwi."
             ),
         },
         {
@@ -179,7 +184,11 @@ class SatelliteImageryDataset(DatasetDescriptor):
         "source='DES' uses the anonymous Digital Earth Sweden services",
         "Without date, the newest acquisition below max_cloud percent is used",
         "Imagery is returned in EPSG:3006 at 10 m unless resolution is changed",
-        "Downloads are cached, so repeating a request does not download again",
+        (
+            "Complete downloads are cached, so repeating a request with the same "
+            "date does not download again; without date, the catalogue is still "
+            "queried each time"
+        ),
     ]
     presentation_legend = {
         "title": "Rendering styles",
@@ -202,7 +211,14 @@ class SatelliteImageryDataset(DatasetDescriptor):
     presentation_limitations = [
         "Only Swedish coverage is available from Digital Earth Sweden.",
         "Cloud cover is judged per date for the whole area, not per pixel.",
-        "Transparent pixels mark areas the chosen acquisition did not cover.",
+        (
+            "One request is limited to 100 million pixels, a 100 km square at "
+            "10 m, and the area must be at least one pixel wide and tall."
+        ),
+        (
+            "Transparent pixels mark areas the chosen acquisition did not cover, "
+            "and in index styles also pixels the index masks out."
+        ),
     ]
 
     def build(self, args: SatelliteImageryArgs):

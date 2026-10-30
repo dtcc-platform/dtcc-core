@@ -229,8 +229,7 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
     elif provider == "DES":
         if data_type == 'imagery':
             info("Downloading imagery from Digital Earth Sweden")
-            filename = _download_imagery(bounds.tuple, **kwargs)
-            return io.load_raster(filename)
+            return _download_imagery(bounds.tuple, **kwargs)
         else:
             error("Digital Earth Sweden only provides imagery.")
         return
@@ -367,7 +366,10 @@ def download_imagery(bounds: Bounds, provider = 'DES', epsg = '3006', **kwargs):
     Raises
     ------
     RuntimeError
-        If no clear acquisition is found for the area.
+        If no clear acquisition is found for the area, or the area has no
+        imagery on the given ``date``.
+    ValueError
+        If ``date`` is outside the archive served by Digital Earth Sweden.
     """
     if not provider or provider.upper() == 'DES':
         return download_data('imagery', 'DES', bounds, epsg=epsg, **kwargs)

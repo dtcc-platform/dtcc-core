@@ -22,19 +22,26 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pyproj
 import rasterio
+import requests
 from platformdirs import user_cache_dir
+from requests.adapters import HTTPAdapter
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
+from urllib3.util.retry import Retry
+
+from dtcc_core.model import Raster
 
 from .logging import info, warning, debug, error
-from .overpass import create_retry_session
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
 # ------------------------------------------------------------------------
 BASE_CACHE_DIR = user_cache_dir(appname="dtcc-data")
 CACHE_DIR = os.path.join(BASE_CACHE_DIR, "downloaded_des")
-os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Part of every cache file name. Raise it when the stored imagery changes, so
+# files written under an earlier version are downloaded again.
+CACHE_VERSION = 2
 
 WMS_URL = "https://ows.digitalearth.se"
 STAC_URL = "https://explorer.digitalearth.se/stac"
@@ -46,6 +53,13 @@ MAX_TILE_PIXELS = 512
 
 # Native ground resolution of the Sentinel-2 visual bands, in metres.
 DEFAULT_RESOLUTION = 10.0
+
+# Largest mosaic, in pixels, that one call may request. At the default
+# resolution this is a 100 km square: about 400 tiles and 400 MB of memory.
+MAX_PIXELS = 10_000 * 10_000
+
+# Attempts per request after a dropped connection, a timeout or a 429/5xx.
+HTTP_RETRIES = 3
 
 # Acquisitions cloudier than this are skipped when picking a date.
 DEFAULT_MAX_CLOUD = 10.0
@@ -62,10 +76,8 @@ MAX_DATE_CANDIDATES = 12
 # Warn when less than this fraction of the requested area has imagery.
 COVERAGE_WARNING_THRESHOLD = 0.99
 
-# Two layers cover the same archive but are tuned differently. Despite its
-# name, 'sentinel2_reflectance2022' is the one for imagery *before* 2022.
-LAYER_FROM_2022 = "sentinel2_reflectance"
-LAYER_BEFORE_2022 = "sentinel2_reflectance2022"
+# WMS layer serving the whole Sentinel-2 archive.
+LAYER = "sentinel2_reflectance"
 
 VALID_STYLES = [
     "rgb",
@@ -78,6 +90,37 @@ VALID_STYLES = [
     "nbi",
     "msi",
 ]
+
+# Styles that render every pixel the acquisition covers, so a transparent
+# pixel means no data. The index styles also hide pixels by content, for
+# example ndwi hides land and ndvi hides water.
+OPAQUE_STYLES = ("rgb", "false_color", "false_color_urban", "swir")
+
+
+def create_session(retries=HTTP_RETRIES, backoff_factor=1.0):
+    """
+    Create a requests session for the Digital Earth Sweden services.
+
+    Dropped connections and timeouts are retried as well as 429 and 5xx
+    responses, so one network fault does not discard a long tiled download.
+    Both services are read-only, so the POSTed catalogue searches are safe
+    to repeat.
+    """
+    retry = Retry(
+        total=retries,
+        connect=retries,
+        read=retries,
+        status=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=["GET", "POST"],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 # ------------------------------------------------------------------------
@@ -177,7 +220,7 @@ def list_available_dates(
     tiles is reported once, with the cloudiest of those tiles, so that a
     date is only called clear when the whole area is clear.
     """
-    session = session or create_retry_session()
+    session = session or create_session()
     payload = {
         "collections": [STAC_COLLECTION],
         "bbox": list(_to_wgs84_bbox(bbox)),
@@ -213,7 +256,6 @@ def latest_clear_date(
     bbox,
     max_cloud=DEFAULT_MAX_CLOUD,
     search_days=DEFAULT_SEARCH_DAYS,
-    style="rgb",
     session=None,
     max_candidates=MAX_DATE_CANDIDATES,
 ):
@@ -230,7 +272,7 @@ def latest_clear_date(
     Raises RuntimeError if nothing clear enough was found, since silently
     returning a cloudy date would hand the caller a white image.
     """
-    session = session or create_retry_session()
+    session = session or create_session()
     start = (datetime.now(timezone.utc) - timedelta(days=search_days)).strftime(
         "%Y-%m-%d"
     )
@@ -245,7 +287,7 @@ def latest_clear_date(
         )
 
     for date, cloud in candidates[:max_candidates]:
-        if _has_imagery(session, _layer_for_date(date), style, bbox, date):
+        if _imagery_coverage(session, bbox, date) > 0.0:
             info(f"Using acquisition from {date} ({cloud:.1f}% cloud cover)")
             return date
         debug(f"{date} is in the catalogue but the imagery server has no pixels for it")
@@ -260,14 +302,29 @@ def latest_clear_date(
 # ------------------------------------------------------------------------
 # 3) Imagery requests (WMS)
 # ------------------------------------------------------------------------
-def _layer_for_date(date):
+def _mosaic_size(bbox, resolution):
     """
-    Pick the WMS layer tuned for the year of 'date'.
+    Return the (width, height) in pixels of a mosaic covering 'bbox'.
 
-    The two layers span the same archive but are styled for different
-    periods; see LAYER_FROM_2022 above for the naming trap.
+    Raises ValueError if 'bbox' is narrower than one pixel in either
+    direction, or the mosaic would exceed MAX_PIXELS.
     """
-    return LAYER_FROM_2022 if int(date[:4]) >= 2022 else LAYER_BEFORE_2022
+    if resolution <= 0:
+        raise ValueError(f"Resolution must be positive, got {resolution}.")
+    xmin, ymin, xmax, ymax = bbox
+    if xmax - xmin < resolution or ymax - ymin < resolution:
+        raise ValueError(
+            f"Bounds must be at least one pixel ({resolution:g} m) wide and tall; "
+            f"got {xmax - xmin:g} m x {ymax - ymin:g} m."
+        )
+    width = math.ceil((xmax - xmin) / resolution)
+    height = math.ceil((ymax - ymin) / resolution)
+    if width * height > MAX_PIXELS:
+        raise ValueError(
+            f"Request is {width}x{height} px, more than the limit of {MAX_PIXELS:,}. "
+            "Use a coarser resolution or a smaller area."
+        )
+    return width, height
 
 
 def _tile_grid(bbox, resolution):
@@ -279,8 +336,7 @@ def _tile_grid(bbox, resolution):
     offset, pixel size and its own bounding box in EPSG:3006.
     """
     xmin, ymin, xmax, ymax = bbox
-    width = max(1, int(math.ceil((xmax - xmin) / resolution)))
-    height = max(1, int(math.ceil((ymax - ymin) / resolution)))
+    width, height = _mosaic_size(bbox, resolution)
 
     tiles = []
     for row_off in range(0, height, MAX_TILE_PIXELS):
@@ -332,6 +388,10 @@ def get_map(session, layer, style, bbox, width, height, date):
     }
     debug(f"[GET] {WMS_URL} bbox={params['bbox']} time={date}")
     resp = session.get(WMS_URL, params=params, timeout=120)
+    if resp.status_code == 400 and "InvalidDimensionValue" in resp.text:
+        raise ValueError(
+            f"{date} is outside the date range served by Digital Earth Sweden."
+        )
     if resp.status_code != 200:
         raise RuntimeError(
             f"WMS request failed with status {resp.status_code}:\n{resp.text}"
@@ -361,20 +421,70 @@ def _tile_to_array(png_bytes, width, height):
     return data[:4].astype(np.uint8)
 
 
-def _has_imagery(session, layer, style, bbox, date):
+def _imagery_coverage(session, bbox, date):
     """
-    Report whether the WMS server holds any pixels for 'bbox' on 'date'.
+    Return the fraction of 'bbox' that the WMS server has pixels for on 'date'.
 
     This is a deliberately tiny request, PROBE_PIXELS on a side, because an
     empty answer comes back as a few hundred bytes and a full sized one would
-    waste a download only to be thrown away.
+    waste a download only to be thrown away. It always uses the rgb style,
+    since the index styles leave pixels transparent where they have data.
     """
-    png_bytes = get_map(session, layer, style, bbox, PROBE_PIXELS, PROBE_PIXELS, date)
-    return bool(_tile_to_array(png_bytes, PROBE_PIXELS, PROBE_PIXELS)[3].any())
+    png_bytes = get_map(session, LAYER, "rgb", bbox, PROBE_PIXELS, PROBE_PIXELS, date)
+    alpha = _tile_to_array(png_bytes, PROBE_PIXELS, PROBE_PIXELS)[3]
+    return float((alpha > 0).mean())
 
 
 # ------------------------------------------------------------------------
-# 4) Entry point
+# 4) Cache
+# ------------------------------------------------------------------------
+def _read_geotiff(path):
+    """Load a cached GeoTIFF as an (H, W, 4) RGBA Raster."""
+    with rasterio.open(path) as src:
+        data = src.read()
+        transform = src.transform
+    return Raster(data=np.moveaxis(data, 0, -1), georef=transform, crs="EPSG:3006")
+
+
+def _write_geotiff(path, mosaic, transform):
+    """
+    Write an RGBA mosaic to 'path' as a GeoTIFF.
+
+    The file is written under a temporary name and renamed when complete, so
+    an interrupted write never leaves a truncated file at 'path'.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = path + ".part"
+    try:
+        with rasterio.open(
+            tmp_path,
+            "w",
+            driver="GTiff",
+            height=mosaic.shape[1],
+            width=mosaic.shape[2],
+            count=4,
+            dtype="uint8",
+            crs="EPSG:3006",
+            transform=transform,
+            photometric="RGB",
+            compress="deflate",
+        ) as dst:
+            dst.write(mosaic)
+            dst.colorinterp = [
+                rasterio.enums.ColorInterp.red,
+                rasterio.enums.ColorInterp.green,
+                rasterio.enums.ColorInterp.blue,
+                rasterio.enums.ColorInterp.alpha,
+            ]
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+# ------------------------------------------------------------------------
+# 5) Entry point
 # ------------------------------------------------------------------------
 def download_imagery(
     bbox,
@@ -386,15 +496,20 @@ def download_imagery(
     session=None,
 ):
     """
-    Download Sentinel-2 imagery covering 'bbox' and save it as a GeoTIFF.
+    Download Sentinel-2 imagery covering 'bbox' as an RGBA Raster.
 
     'bbox' is a tuple (xmin, ymin, xmax, ymax) in EPSG:3006. If 'date' is
     omitted the most recent acquisition with less than 'max_cloud' percent
     cloud is used. 'style' selects the rendering, see VALID_STYLES, and
     'resolution' is the ground sample distance in metres.
 
-    Returns the path to the written GeoTIFF, which is cached so that asking
-    for the same image twice only downloads it once.
+    Returns a Raster with (height, width, 4) uint8 data. Complete results are
+    cached as GeoTIFFs, so asking for the same image twice only downloads it
+    once. A result that covers only part of the area is returned with a
+    warning and not cached.
+
+    Raises RuntimeError if the server has no imagery for the area on 'date',
+    and ValueError if 'date' is outside the served archive.
     """
     if style not in VALID_STYLES:
         raise ValueError(f"Invalid style '{style}'. Must be one of {VALID_STYLES}.")
@@ -402,76 +517,78 @@ def download_imagery(
     xmin, ymin, xmax, ymax = bbox
     if xmax <= xmin or ymax <= ymin:
         raise ValueError(f"Invalid bounds {bbox}; expected (xmin, ymin, xmax, ymax).")
+    _mosaic_size(bbox, resolution)
 
-    session = session or create_retry_session()
-    if date is None:
+    session = session or create_session()
+    explicit_date = date is not None
+    if not explicit_date:
         date = latest_clear_date(
             bbox,
             max_cloud=max_cloud,
             search_days=search_days,
-            style=style,
             session=session,
         )
 
     out_path = os.path.join(
         CACHE_DIR,
-        f"des_{style}_{date}_{xmin:.0f}_{ymin:.0f}_{xmax:.0f}_{ymax:.0f}"
+        f"des_v{CACHE_VERSION}_{style}_{date}_{xmin:.0f}_{ymin:.0f}_{xmax:.0f}_{ymax:.0f}"
         f"_{resolution:g}m.tif",
     )
     if os.path.exists(out_path):
         info(f"Imagery for {date} already in cache, skipping download.")
-        return out_path
+        return _read_geotiff(out_path)
 
-    layer = _layer_for_date(date)
+    # An explicit date is probed after the cache lookup, so cached results
+    # still load offline, and before downloading every tile of a date with no
+    # pixels. Index styles are probed too, because their transparency cannot
+    # tell missing data apart from masked pixels.
+    probe_coverage = None
+    if explicit_date or style not in OPAQUE_STYLES:
+        probe_coverage = _imagery_coverage(session, bbox, date)
+        if probe_coverage == 0.0:
+            raise RuntimeError(
+                f"Digital Earth Sweden has no imagery for {date} in this area. "
+                "Use list_available_dates() to pick a date, or omit date."
+            )
+
     width, height, tiles = _tile_grid(bbox, resolution)
     mosaic = np.zeros((4, height, width), dtype=np.uint8)
 
     for index, tile in enumerate(tiles, start=1):
         info(f"Downloading tile {index}/{len(tiles)} for {date}")
         png_bytes = get_map(
-            session, layer, style, tile["bbox"], tile["width"], tile["height"], date
+            session, LAYER, style, tile["bbox"], tile["width"], tile["height"], date
         )
         data = _tile_to_array(png_bytes, tile["width"], tile["height"])
         rows = slice(tile["row_off"], tile["row_off"] + tile["height"])
         cols = slice(tile["col_off"], tile["col_off"] + tile["width"])
         mosaic[:, rows, cols] = data
 
-    covered = float((mosaic[3] > 0).mean())
+    # For opaque styles the full mosaic also reveals a single tile that came
+    # back blank; index styles rely on the rgb probe.
+    if style in OPAQUE_STYLES:
+        covered = float((mosaic[3] > 0).mean())
+    else:
+        covered = probe_coverage
     if covered == 0.0:
-        warning(
+        raise RuntimeError(
             f"The imagery returned for {date} is empty. The area may lie outside "
             f"the Digital Earth Sweden coverage, or have no acquisition that day."
-        )
-    elif covered < COVERAGE_WARNING_THRESHOLD:
-        # A partly covered mosaic looks like a normal image with transparent
-        # patches, so say so rather than letting it pass for a complete one.
-        warning(
-            f"Only {covered:.0%} of the requested area has imagery for {date}; the "
-            f"rest is transparent. The acquisition may not span the whole area."
         )
 
     # The mosaic is anchored at its top left corner, which is (xmin, ymax).
     transform = from_origin(xmin, ymax, resolution, resolution)
-    with rasterio.open(
-        out_path,
-        "w",
-        driver="GTiff",
-        height=height,
-        width=width,
-        count=4,
-        dtype="uint8",
-        crs="EPSG:3006",
-        transform=transform,
-        photometric="RGB",
-        compress="deflate",
-    ) as dst:
-        dst.write(mosaic)
-        dst.colorinterp = [
-            rasterio.enums.ColorInterp.red,
-            rasterio.enums.ColorInterp.green,
-            rasterio.enums.ColorInterp.blue,
-            rasterio.enums.ColorInterp.alpha,
-        ]
+    raster = Raster(data=np.moveaxis(mosaic, 0, -1), georef=transform, crs="EPSG:3006")
 
+    if covered < COVERAGE_WARNING_THRESHOLD:
+        # A partly covered mosaic may come from a passing server fault, so it
+        # is returned for this call only and the next call downloads again.
+        warning(
+            f"Only {covered:.0%} of the requested area has imagery for {date}; the "
+            f"rest is transparent. The result was not cached."
+        )
+        return raster
+
+    _write_geotiff(out_path, mosaic, transform)
     info(f"Saved imagery to {out_path}")
-    return out_path
+    return raster

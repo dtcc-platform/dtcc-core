@@ -93,16 +93,12 @@ def test_tile_grid_small_bbox_is_a_single_tile():
     assert len(tiles) == 1
 
 
-def test_layer_for_date_switches_at_2022():
-    assert digitalearth._layer_for_date("2021-12-31") == digitalearth.LAYER_BEFORE_2022
-    assert digitalearth._layer_for_date("2022-01-01") == digitalearth.LAYER_FROM_2022
-    assert digitalearth._layer_for_date("2026-05-05") == digitalearth.LAYER_FROM_2022
-
-
 def test_acquisition_datetime_falls_back_to_start_datetime():
     # Every item in the live catalogue leaves 'datetime' null, so the
     # fallback is the normal path rather than an edge case.
-    feature = {"properties": {"datetime": None, "start_datetime": "2026-05-05T10:27:01Z"}}
+    feature = {
+        "properties": {"datetime": None, "start_datetime": "2026-05-05T10:27:01Z"}
+    }
     assert digitalearth._acquisition_datetime(feature) == "2026-05-05T10:27:01Z"
 
     feature = {"properties": {"datetime": "2026-06-01T10:20:41Z"}}
@@ -117,8 +113,13 @@ def test_get_map_uses_northing_first_bbox():
     # so the ordering is pinned down here.
     session = RecordingSession()
     digitalearth.get_map(
-        session, "sentinel2_reflectance", "rgb", (317000, 6394000, 321000, 6398000),
-        512, 512, "2026-05-05",
+        session,
+        "sentinel2_reflectance",
+        "rgb",
+        (317000, 6394000, 321000, 6398000),
+        512,
+        512,
+        "2026-05-05",
     )
     params = session.calls[0]["params"]
     assert params["bbox"] == "6394000,317000,6398000,321000"
@@ -130,11 +131,28 @@ def test_get_map_uses_northing_first_bbox():
 def test_get_map_raises_on_service_exception():
     # The server reports errors as XML with status 200.
     session = RecordingSession(
-        DummyResponse(content=b"<ServiceExceptionReport/>", content_type="application/xml")
+        DummyResponse(
+            content=b"<ServiceExceptionReport/>", content_type="application/xml"
+        )
     )
     with pytest.raises(RuntimeError, match="WMS returned an error"):
         digitalearth.get_map(
             session, "sentinel2_reflectance", "rgb", BBOX, 32, 32, "2026-05-05"
+        )
+
+
+def test_get_map_rejects_date_outside_archive():
+    response = DummyResponse(status_code=400, content_type="application/xml")
+    response.text = '<ServiceException code="InvalidDimensionValue"/>'
+    with pytest.raises(ValueError, match="outside the date range"):
+        digitalearth.get_map(
+            RecordingSession(response),
+            "sentinel2_reflectance",
+            "rgb",
+            BBOX,
+            32,
+            32,
+            "2099-01-01",
         )
 
 
@@ -168,16 +186,43 @@ def test_tile_to_array_keeps_rgba():
 def test_list_available_dates_filters_and_sorts(monkeypatch):
     features = [
         # One date spread over two satellite tiles, one clear and one not.
-        {"properties": {"start_datetime": "2026-06-21T10:00:00Z", "eo:cloud_cover": 0.1}},
-        {"properties": {"start_datetime": "2026-06-21T10:00:00Z", "eo:cloud_cover": 80.0}},
-        {"properties": {"start_datetime": "2026-07-15T10:00:00Z", "eo:cloud_cover": 3.0}},
-        {"properties": {"start_datetime": "2026-08-24T10:00:00Z", "eo:cloud_cover": 7.0}},
-        {"properties": {"start_datetime": "2026-09-01T10:00:00Z", "eo:cloud_cover": 99.0}},
+        {
+            "properties": {
+                "start_datetime": "2026-06-21T10:00:00Z",
+                "eo:cloud_cover": 0.1,
+            }
+        },
+        {
+            "properties": {
+                "start_datetime": "2026-06-21T10:00:00Z",
+                "eo:cloud_cover": 80.0,
+            }
+        },
+        {
+            "properties": {
+                "start_datetime": "2026-07-15T10:00:00Z",
+                "eo:cloud_cover": 3.0,
+            }
+        },
+        {
+            "properties": {
+                "start_datetime": "2026-08-24T10:00:00Z",
+                "eo:cloud_cover": 7.0,
+            }
+        },
+        {
+            "properties": {
+                "start_datetime": "2026-09-01T10:00:00Z",
+                "eo:cloud_cover": 99.0,
+            }
+        },
         # Items without usable metadata are skipped rather than crashing.
         {"properties": {"start_datetime": None, "eo:cloud_cover": 1.0}},
         {"properties": {"start_datetime": "2026-09-05T10:00:00Z"}},
     ]
-    monkeypatch.setattr(digitalearth, "_stac_search_all", lambda session, payload: features)
+    monkeypatch.setattr(
+        digitalearth, "_stac_search_all", lambda session, payload: features
+    )
 
     dates = digitalearth.list_available_dates(BBOX, max_cloud=10.0, session=object())
 
@@ -187,14 +232,23 @@ def test_list_available_dates_filters_and_sorts(monkeypatch):
 
 def test_list_available_dates_respects_max_cloud(monkeypatch):
     features = [
-        {"properties": {"start_datetime": "2026-07-15T10:00:00Z", "eo:cloud_cover": 25.0}}
+        {
+            "properties": {
+                "start_datetime": "2026-07-15T10:00:00Z",
+                "eo:cloud_cover": 25.0,
+            }
+        }
     ]
-    monkeypatch.setattr(digitalearth, "_stac_search_all", lambda session, payload: features)
+    monkeypatch.setattr(
+        digitalearth, "_stac_search_all", lambda session, payload: features
+    )
 
-    assert digitalearth.list_available_dates(BBOX, max_cloud=10.0, session=object()) == []
-    assert digitalearth.list_available_dates(BBOX, max_cloud=30.0, session=object()) == [
-        ("2026-07-15", 25.0)
-    ]
+    assert (
+        digitalearth.list_available_dates(BBOX, max_cloud=10.0, session=object()) == []
+    )
+    assert digitalearth.list_available_dates(
+        BBOX, max_cloud=30.0, session=object()
+    ) == [("2026-07-15", 25.0)]
 
 
 def test_latest_clear_date_skips_dates_without_pixels(monkeypatch):
@@ -207,11 +261,11 @@ def test_latest_clear_date_skips_dates_without_pixels(monkeypatch):
     )
     probed = []
 
-    def fake_has_imagery(session, layer, style, bbox, date):
+    def fake_coverage(session, bbox, date):
         probed.append(date)
-        return date == "2026-07-15"
+        return 1.0 if date == "2026-07-15" else 0.0
 
-    monkeypatch.setattr(digitalearth, "_has_imagery", fake_has_imagery)
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", fake_coverage)
 
     assert digitalearth.latest_clear_date(BBOX, session=object()) == "2026-07-15"
     assert probed == ["2026-08-24", "2026-07-15"]
@@ -227,9 +281,16 @@ def test_latest_clear_date_raises_when_no_candidate_has_pixels(monkeypatch):
     monkeypatch.setattr(
         digitalearth, "list_available_dates", lambda *a, **k: [("2026-08-24", 7.0)]
     )
-    monkeypatch.setattr(digitalearth, "_has_imagery", lambda *a, **k: False)
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", lambda *a, **k: 0.0)
     with pytest.raises(RuntimeError, match="none of the"):
         digitalearth.latest_clear_date(BBOX, session=object())
+
+
+def test_imagery_coverage_always_probes_rgb():
+    session = RecordingSession(DummyResponse(content=make_png(4, 32, 32)))
+    assert digitalearth._imagery_coverage(session, BBOX, "2026-05-05") == 1.0
+    assert session.calls[0]["params"]["styles"] == "rgb"
+    assert session.calls[0]["params"]["width"] == digitalearth.PROBE_PIXELS
 
 
 def test_stac_search_all_follows_next_links():
@@ -238,7 +299,13 @@ def test_stac_search_all_follows_next_links():
     pages = [
         {
             "features": [{"id": "a"}],
-            "links": [{"rel": "next", "href": "https://example/stac/search", "body": {"_o": 1}}],
+            "links": [
+                {
+                    "rel": "next",
+                    "href": "https://example/stac/search",
+                    "body": {"_o": 1},
+                }
+            ],
         },
         {"features": [{"id": "b"}], "links": []},
     ]
@@ -265,7 +332,9 @@ def test_download_imagery_rejects_unknown_style():
 
 def test_download_imagery_rejects_inverted_bounds():
     with pytest.raises(ValueError, match="Invalid bounds"):
-        digitalearth.download_imagery((325000, 6402000, 317000, 6394000), date="2026-05-05")
+        digitalearth.download_imagery(
+            (325000, 6402000, 317000, 6394000), date="2026-05-05"
+        )
 
 
 def test_stac_search_all_warns_when_page_limit_is_hit(monkeypatch):
@@ -273,7 +342,9 @@ def test_stac_search_all_warns_when_page_limit_is_hit(monkeypatch):
     # acquisitions silently unless the truncation is reported.
     page = {
         "features": [{"id": "x"}],
-        "links": [{"rel": "next", "href": "https://example/stac/search", "body": {"_o": 1}}],
+        "links": [
+            {"rel": "next", "href": "https://example/stac/search", "body": {"_o": 1}}
+        ],
     }
 
     class EndlessSession:
@@ -294,7 +365,13 @@ def test_stac_search_all_does_not_warn_when_results_run_out(monkeypatch):
     pages = [
         {
             "features": [{"id": "a"}],
-            "links": [{"rel": "next", "href": "https://example/stac/search", "body": {"_o": 1}}],
+            "links": [
+                {
+                    "rel": "next",
+                    "href": "https://example/stac/search",
+                    "body": {"_o": 1},
+                }
+            ],
         },
         {"features": [{"id": "b"}], "links": []},
     ]
@@ -314,11 +391,21 @@ def test_stac_search_all_does_not_warn_when_results_run_out(monkeypatch):
     assert warnings == []
 
 
-def _stub_download(monkeypatch, tmp_path, alpha_fraction):
+def _stub_download(monkeypatch, cache_dir, alpha_fraction, probe_coverage=1.0):
     """Wire download_imagery up to tiles with a given fraction of coverage."""
-    monkeypatch.setattr(digitalearth, "CACHE_DIR", str(tmp_path))
-    monkeypatch.setattr(digitalearth, "create_retry_session", lambda: object())
-    monkeypatch.setattr(digitalearth, "get_map", lambda *a, **k: b"")
+    monkeypatch.setattr(digitalearth, "CACHE_DIR", str(cache_dir))
+    monkeypatch.setattr(digitalearth, "create_session", lambda: object())
+    monkeypatch.setattr(
+        digitalearth, "_imagery_coverage", lambda *a, **k: probe_coverage
+    )
+
+    calls = []
+
+    def fake_get_map(session, layer, style, bbox, width, height, date):
+        calls.append({"layer": layer, "style": style, "bbox": bbox})
+        return b""
+
+    monkeypatch.setattr(digitalearth, "get_map", fake_get_map)
 
     def fake_tile(png_bytes, width, height):
         data = np.zeros((4, height, width), dtype=np.uint8)
@@ -330,24 +417,225 @@ def _stub_download(monkeypatch, tmp_path, alpha_fraction):
 
     warnings = []
     monkeypatch.setattr(digitalearth, "warning", warnings.append)
-    return warnings
+    return warnings, calls
 
 
-def test_download_imagery_warns_on_partial_coverage(monkeypatch, tmp_path):
-    warnings = _stub_download(monkeypatch, tmp_path, alpha_fraction=0.5)
-    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
-    assert len(warnings) == 1
-    assert "50%" in warnings[0]
+def _cached_files(cache_dir):
+    return sorted(p.name for p in cache_dir.iterdir()) if cache_dir.exists() else []
 
 
-def test_download_imagery_warns_when_empty(monkeypatch, tmp_path):
-    warnings = _stub_download(monkeypatch, tmp_path, alpha_fraction=0.0)
-    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
-    assert len(warnings) == 1
-    assert "is empty" in warnings[0]
+def test_download_imagery_uses_one_layer_for_all_dates(monkeypatch, tmp_path):
+    _, calls = _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    digitalearth.download_imagery((0, 0, 1000, 1000), date="2019-06-13")
+    assert {call["layer"] for call in calls} == {"sentinel2_reflectance"}
 
 
-def test_download_imagery_quiet_on_full_coverage(monkeypatch, tmp_path):
-    warnings = _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
-    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+def test_download_imagery_returns_rgba_raster(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    raster = digitalearth.download_imagery((0, 0, 1000, 2000), date="2026-05-05")
+    assert raster.data.shape == (200, 100, 4)
+    assert raster.crs == "EPSG:3006"
+    assert raster.georef == digitalearth.from_origin(0, 2000, 10.0, 10.0)
+
+
+def test_download_imagery_caches_complete_result(monkeypatch, tmp_path):
+    warnings, _ = _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    first = digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
     assert warnings == []
+    assert len(_cached_files(tmp_path)) == 1
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("cache hit must not contact the server")
+
+    monkeypatch.setattr(digitalearth, "get_map", no_network)
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", no_network)
+    second = digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    np.testing.assert_array_equal(second.data, first.data)
+    assert second.georef == first.georef
+
+
+def test_download_imagery_raises_when_explicit_date_has_no_imagery(
+    monkeypatch, tmp_path
+):
+    _, calls = _stub_download(
+        monkeypatch, tmp_path, alpha_fraction=1.0, probe_coverage=0.0
+    )
+    with pytest.raises(RuntimeError, match="no imagery for 2026-10-16"):
+        digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-10-16")
+    assert calls == []
+    assert _cached_files(tmp_path) == []
+
+
+def test_download_imagery_raises_on_empty_mosaic_and_caches_nothing(
+    monkeypatch, tmp_path
+):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=0.0)
+    with pytest.raises(RuntimeError, match="is empty"):
+        digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    assert _cached_files(tmp_path) == []
+
+
+def test_download_imagery_returns_partial_result_without_caching(monkeypatch, tmp_path):
+    warnings, _ = _stub_download(monkeypatch, tmp_path, alpha_fraction=0.5)
+    raster = digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    assert raster.data.shape == (100, 100, 4)
+    assert len(warnings) == 1
+    assert "50%" in warnings[0] and "not cached" in warnings[0]
+    assert _cached_files(tmp_path) == []
+
+
+def test_download_imagery_leaves_no_file_after_interrupted_write(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    real_open = digitalearth.rasterio.open
+
+    class InterruptingDataset:
+        def __init__(self, dataset):
+            self.dataset = dataset
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.dataset.close()
+            return False
+
+        def write(self, data):
+            raise KeyboardInterrupt
+
+    def interrupting_open(path, mode="r", **kwargs):
+        dataset = real_open(path, mode, **kwargs)
+        return InterruptingDataset(dataset) if mode == "w" else dataset
+
+    monkeypatch.setattr(digitalearth.rasterio, "open", interrupting_open)
+    with pytest.raises(KeyboardInterrupt):
+        digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    assert _cached_files(tmp_path) == []
+
+
+def test_download_imagery_recreates_missing_cache_dir(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "removed" / "downloaded_des"
+    _stub_download(monkeypatch, cache_dir, alpha_fraction=1.0)
+    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    assert len(_cached_files(cache_dir)) == 1
+
+
+def test_download_imagery_caches_masked_index_style(monkeypatch, tmp_path):
+    # ndwi hides land, so a dry area is fully transparent but not missing.
+    warnings, _ = _stub_download(
+        monkeypatch, tmp_path, alpha_fraction=0.0, probe_coverage=1.0
+    )
+    raster = digitalearth.download_imagery(
+        (0, 0, 1000, 1000), date="2026-05-05", style="ndwi"
+    )
+    assert not raster.data[..., 3].any()
+    assert warnings == []
+    assert len(_cached_files(tmp_path)) == 1
+
+
+def test_download_imagery_index_style_uses_rgb_probe_for_coverage(
+    monkeypatch, tmp_path
+):
+    warnings, _ = _stub_download(
+        monkeypatch, tmp_path, alpha_fraction=1.0, probe_coverage=0.5
+    )
+    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05", style="ndvi")
+    assert len(warnings) == 1 and "50%" in warnings[0]
+    assert _cached_files(tmp_path) == []
+
+
+def test_download_imagery_probes_index_style_with_automatic_date(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=0.0, probe_coverage=1.0)
+    monkeypatch.setattr(digitalearth, "latest_clear_date", lambda *a, **k: "2026-05-05")
+    raster = digitalearth.download_imagery((0, 0, 1000, 1000), style="ndwi")
+    assert raster.data.shape == (100, 100, 4)
+    assert len(_cached_files(tmp_path)) == 1
+
+
+def test_download_imagery_ignores_files_from_older_cache_version(monkeypatch, tmp_path):
+    _, calls = _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    old_name = "des_rgb_2026-05-05_0_0_1000_1000_10m.tif"
+    (tmp_path / old_name).write_bytes(b"written by an older version")
+
+    raster = digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+
+    assert raster.data.shape == (100, 100, 4)
+    assert calls, "a file from an older cache version must not be reused"
+    assert (
+        f"des_v{digitalearth.CACHE_VERSION}_rgb_2026-05-05_0_0_1000_1000_10m.tif"
+        in (_cached_files(tmp_path))
+    )
+
+
+def test_download_imagery_works_after_empty_cache(monkeypatch, tmp_path):
+    from dtcc_core.io.data import cache
+
+    monkeypatch.setattr(cache, "cache_dir", tmp_path)
+    cache_dir = tmp_path / "downloaded_des"
+    _stub_download(monkeypatch, cache_dir, alpha_fraction=1.0)
+    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+
+    cache.empty_cache()
+    assert not cache_dir.exists()
+
+    digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    assert len(_cached_files(cache_dir)) == 1
+
+
+def _fail_on_network(monkeypatch):
+    def no_network(*args, **kwargs):
+        raise AssertionError("invalid bounds must be rejected before any request")
+
+    monkeypatch.setattr(digitalearth, "create_session", no_network)
+    monkeypatch.setattr(digitalearth, "latest_clear_date", no_network)
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        (317000, 6394000, 317005, 6396000),  # 5 m wide
+        (317000, 6394000, 319000, 6394009),  # 9 m tall
+    ],
+)
+def test_download_imagery_rejects_bounds_below_one_pixel(monkeypatch, bbox):
+    _fail_on_network(monkeypatch)
+    with pytest.raises(ValueError, match="at least one pixel"):
+        digitalearth.download_imagery(bbox)
+
+
+@pytest.mark.parametrize(
+    ("bbox", "resolution"),
+    [
+        ((0, 0, 200_000, 200_000), 10.0),  # 20000 x 20000 px
+        ((317000, 6394000, 319000, 6396000), 0.01),  # 200000 x 200000 px
+    ],
+)
+def test_download_imagery_rejects_oversized_requests(monkeypatch, bbox, resolution):
+    _fail_on_network(monkeypatch)
+    with pytest.raises(ValueError, match="coarser resolution or a smaller area"):
+        digitalearth.download_imagery(bbox, resolution=resolution)
+
+
+def test_download_imagery_rejects_non_positive_resolution(monkeypatch):
+    _fail_on_network(monkeypatch)
+    with pytest.raises(ValueError, match="Resolution must be positive"):
+        digitalearth.download_imagery((0, 0, 1000, 1000), resolution=0)
+
+
+def test_mosaic_size_accepts_the_largest_allowed_request():
+    side = int(digitalearth.MAX_PIXELS**0.5)
+    assert digitalearth._mosaic_size((0, 0, side * 10, side * 10), 10.0) == (side, side)
+
+
+def test_download_imagery_keeps_one_pixel_wide_raster_rgba(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    raster = digitalearth.download_imagery((0, 0, 10, 2000), date="2026-05-05")
+    assert raster.data.shape == (200, 1, 4)
+    assert raster.channels == 4
+
+
+def test_create_session_retries_dropped_connections_and_timeouts():
+    retry = digitalearth.create_session().get_adapter(digitalearth.WMS_URL).max_retries
+    assert retry.connect == digitalearth.HTTP_RETRIES
+    assert retry.read == digitalearth.HTTP_RETRIES
+    assert 503 in retry.status_forcelist
+    assert "POST" in retry.allowed_methods
