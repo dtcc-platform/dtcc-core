@@ -439,10 +439,11 @@ The public outcome is one of the note's three outcomes, or the zero-scale mode:
 | `unscaled_identity` | - | Checked only at the numerical scale `1e-9` (delta = 0) | Return each source's interpreted polygons; overlaps are kept, with a warning |
 
 `clean_footprints(..., strict=True)` turns warnings into unresolved results,
-and at delta = 0 it raises for overlapping footprints instead of keeping them.
-Unresolved means that the bounded search was exhausted, not that the problem is
-infeasible. Warning results keep the failed contract report; smaller mesh
-elements and higher mesh cost are possible.
+and at delta = 0 it raises for overlapping footprints instead of keeping them
+(reason `overlap`; no search runs at delta = 0). Otherwise unresolved means
+that the bounded search was exhausted, not that the problem is infeasible.
+Warning results keep the failed contract report; smaller mesh elements and
+higher mesh cost are possible.
 
 ## Walls between merged buildings
 

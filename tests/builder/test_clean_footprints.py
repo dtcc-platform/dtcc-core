@@ -166,7 +166,9 @@ def test_strict_zero_detail_cleaning_does_not_accept_overlaps():
     house = building("house", box(5, 0, 40, 10), 6)  # overlaps the tower
     shed = building("shed", box(40, 0, 45, 10), 3)  # shares an edge with the house
 
-    with pytest.raises(UnresolvedFootprintCleaningError, match="tower/house") as error:
+    with pytest.raises(
+        UnresolvedFootprintCleaningError, match="overlap at zero detail.*tower/house"
+    ) as error:
         clean_footprints([tower, house, shed], min_building_detail=0, strict=True)
 
     (group,) = error.value.diagnostics["unresolved_groups"]
