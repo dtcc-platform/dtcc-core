@@ -17,6 +17,7 @@ most recent one, which over Sweden is very often solid cloud.
 
 import math
 import os
+from datetime import date as Date
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -29,6 +30,7 @@ from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 from urllib3.util.retry import Retry
 
+from dtcc_core.common.progress import report_progress
 from dtcc_core.model import Raster
 
 from .logging import info, warning, debug, error
@@ -123,6 +125,10 @@ def create_session(retries=HTTP_RETRIES, backoff_factor=1.0):
     return session
 
 
+class ServiceError(requests.RequestException):
+    """The imagery server answered with an error report instead of an image."""
+
+
 # ------------------------------------------------------------------------
 # 2) Catalogue queries (STAC)
 # ------------------------------------------------------------------------
@@ -172,8 +178,10 @@ def _stac_search_all(session, payload, max_pages=20):
         debug(f"[POST] to {url} with payload={body}")
         resp = session.post(url, json=body, timeout=60)
         if resp.status_code != 200:
-            raise RuntimeError(
-                f"STAC search failed with status {resp.status_code}:\n{resp.text}"
+            raise requests.HTTPError(
+                f"STAC search failed with status {resp.status_code}:\n{resp.text}",
+                request=resp.request,
+                response=resp,
             )
         data = resp.json()
         page = data.get("features", [])
@@ -302,6 +310,28 @@ def latest_clear_date(
 # ------------------------------------------------------------------------
 # 3) Imagery requests (WMS)
 # ------------------------------------------------------------------------
+def _normalize_date(value):
+    """
+    Return 'value' as a 'YYYY-MM-DD' string, or None if it is None.
+
+    Accepts a datetime.date, a datetime.datetime or an ISO date string, and
+    raises ValueError for anything else, including impossible dates such as
+    '2026-02-30'.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, Date):
+        return value.isoformat()
+    try:
+        return Date.fromisoformat(value).isoformat()
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Invalid date {value!r}; expected a datetime.date or 'YYYY-MM-DD'."
+        ) from None
+
+
 def _mosaic_size(bbox, resolution):
     """
     Return the (width, height) in pixels of a mosaic covering 'bbox'.
@@ -393,12 +423,18 @@ def get_map(session, layer, style, bbox, width, height, date):
             f"{date} is outside the date range served by Digital Earth Sweden."
         )
     if resp.status_code != 200:
-        raise RuntimeError(
-            f"WMS request failed with status {resp.status_code}:\n{resp.text}"
+        raise requests.HTTPError(
+            f"WMS request failed with status {resp.status_code}:\n{resp.text}",
+            request=resp.request,
+            response=resp,
         )
     # Errors come back as an XML ServiceExceptionReport with status 200.
     if "xml" in resp.headers.get("Content-Type", ""):
-        raise RuntimeError(f"WMS returned an error:\n{resp.text}")
+        raise ServiceError(
+            f"WMS returned an error:\n{resp.text}",
+            request=resp.request,
+            response=resp,
+        )
     return resp.content
 
 
@@ -483,6 +519,44 @@ def _write_geotiff(path, mosaic, transform):
         raise
 
 
+def _download_mosaic(session, bbox, resolution, style, date, tile_errors):
+    """
+    Download 'bbox' tile by tile and stitch the tiles into one mosaic.
+
+    Returns (mosaic, failed_fraction): a (4, height, width) uint8 RGBA array
+    and the fraction of its pixels whose tile failed. Failed tiles are handled
+    as described for download_imagery's 'tile_errors'.
+    """
+    width, height, tiles = _tile_grid(bbox, resolution)
+    mosaic = np.zeros((4, height, width), dtype=np.uint8)
+
+    failed_pixels = 0
+    for index, tile in enumerate(tiles, start=1):
+        message = f"Downloading tile {index}/{len(tiles)} for {date}"
+        info(message)
+        report_progress(current=index - 1, total=len(tiles), message=message)
+        try:
+            png_bytes = get_map(
+                session, LAYER, style, tile["bbox"], tile["width"], tile["height"], date
+            )
+        except requests.RequestException as exc:
+            if tile_errors is None:
+                raise
+            tile_errors.append(exc)
+            failed_pixels += tile["width"] * tile["height"]
+            warning(f"Tile {index}/{len(tiles)} failed and was left transparent: {exc}")
+            continue
+        data = _tile_to_array(png_bytes, tile["width"], tile["height"])
+        rows = slice(tile["row_off"], tile["row_off"] + tile["height"])
+        cols = slice(tile["col_off"], tile["col_off"] + tile["width"])
+        mosaic[:, rows, cols] = data
+    report_progress(current=len(tiles), total=len(tiles), message="Tiles downloaded")
+
+    if failed_pixels == width * height:
+        raise tile_errors[-1]
+    return mosaic, failed_pixels / (width * height)
+
+
 # ------------------------------------------------------------------------
 # 5) Entry point
 # ------------------------------------------------------------------------
@@ -494,14 +568,20 @@ def download_imagery(
     resolution=DEFAULT_RESOLUTION,
     search_days=DEFAULT_SEARCH_DAYS,
     session=None,
+    tile_errors=None,
 ):
     """
     Download Sentinel-2 imagery covering 'bbox' as an RGBA Raster.
 
-    'bbox' is a tuple (xmin, ymin, xmax, ymax) in EPSG:3006. If 'date' is
-    omitted the most recent acquisition with less than 'max_cloud' percent
-    cloud is used. 'style' selects the rendering, see VALID_STYLES, and
-    'resolution' is the ground sample distance in metres.
+    'bbox' is a tuple (xmin, ymin, xmax, ymax) in EPSG:3006. 'date' is a
+    datetime.date or a 'YYYY-MM-DD' string; if omitted the most recent
+    acquisition with less than 'max_cloud' percent cloud is used. 'style'
+    selects the rendering, see VALID_STYLES, and 'resolution' is the ground
+    sample distance in metres.
+
+    A tile that still fails after retries raises its requests exception. If
+    'tile_errors' is a list, the exception is appended to it instead and the
+    tile is left transparent, unless every tile failed.
 
     Returns a Raster with (height, width, 4) uint8 data. Complete results are
     cached as GeoTIFFs, so asking for the same image twice only downloads it
@@ -509,7 +589,7 @@ def download_imagery(
     warning and not cached.
 
     Raises RuntimeError if the server has no imagery for the area on 'date',
-    and ValueError if 'date' is outside the served archive.
+    and ValueError if 'date' is invalid or outside the served archive.
     """
     if style not in VALID_STYLES:
         raise ValueError(f"Invalid style '{style}'. Must be one of {VALID_STYLES}.")
@@ -518,10 +598,12 @@ def download_imagery(
     if xmax <= xmin or ymax <= ymin:
         raise ValueError(f"Invalid bounds {bbox}; expected (xmin, ymin, xmax, ymax).")
     _mosaic_size(bbox, resolution)
+    date = _normalize_date(date)
 
     session = session or create_session()
     explicit_date = date is not None
     if not explicit_date:
+        report_progress(percent=0, message="Finding a clear acquisition date...")
         date = latest_clear_date(
             bbox,
             max_cloud=max_cloud,
@@ -551,25 +633,16 @@ def download_imagery(
                 "Use list_available_dates() to pick a date, or omit date."
             )
 
-    width, height, tiles = _tile_grid(bbox, resolution)
-    mosaic = np.zeros((4, height, width), dtype=np.uint8)
-
-    for index, tile in enumerate(tiles, start=1):
-        info(f"Downloading tile {index}/{len(tiles)} for {date}")
-        png_bytes = get_map(
-            session, LAYER, style, tile["bbox"], tile["width"], tile["height"], date
-        )
-        data = _tile_to_array(png_bytes, tile["width"], tile["height"])
-        rows = slice(tile["row_off"], tile["row_off"] + tile["height"])
-        cols = slice(tile["col_off"], tile["col_off"] + tile["width"])
-        mosaic[:, rows, cols] = data
+    mosaic, failed_fraction = _download_mosaic(
+        session, bbox, resolution, style, date, tile_errors
+    )
 
     # For opaque styles the full mosaic also reveals a single tile that came
-    # back blank; index styles rely on the rgb probe.
+    # back blank; index styles rely on the rgb probe and the failed tiles.
     if style in OPAQUE_STYLES:
         covered = float((mosaic[3] > 0).mean())
     else:
-        covered = probe_coverage
+        covered = probe_coverage * (1.0 - failed_fraction)
     if covered == 0.0:
         raise RuntimeError(
             f"The imagery returned for {date} is empty. The area may lie outside "

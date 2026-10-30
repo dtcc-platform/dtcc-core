@@ -1,11 +1,15 @@
-import re
-
-import dtcc_core
-from dtcc_core.model import Raster
-from pydantic import Field, field_validator
+import datetime
 from typing import Literal, Optional
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+import requests
+from pydantic import Field
+
+import dtcc_core
+from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.io.data.digitalearth import STAC_URL, WMS_URL, ServiceError
+from dtcc_core.model import Raster
+
+from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .providers import provider_display_name, provider_entry
 
 
@@ -22,8 +26,6 @@ ImageryStyle = Literal[
     "msi",
 ]
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
 
 class SatelliteImageryArgs(DatasetBaseArgs):
     """Arguments for the Digital Earth Sweden satellite imagery dataset."""
@@ -35,7 +37,7 @@ class SatelliteImageryArgs(DatasetBaseArgs):
             "Sentinel-2 services operated by RISE."
         ),
     )
-    date: Optional[str] = Field(
+    date: Optional[datetime.date] = Field(
         None,
         description=(
             "Acquisition date as YYYY-MM-DD. When omitted, the most recent "
@@ -68,15 +70,6 @@ class SatelliteImageryArgs(DatasetBaseArgs):
     format: Optional[Literal["tif", "png"]] = Field(
         None, description="Output file format"
     )
-
-    @field_validator("date")
-    @classmethod
-    def validate_date(cls, value):
-        if value is None:
-            return value
-        if not _DATE_RE.match(value):
-            raise ValueError("date must be formatted as YYYY-MM-DD.")
-        return value
 
 
 class SatelliteImageryDataset(DatasetDescriptor):
@@ -135,6 +128,10 @@ class SatelliteImageryDataset(DatasetDescriptor):
         "With an explicit date, return the cached GeoTIFF if there is one",
         "Probe the date in rgb and fail if the area has no imagery",
         "Request the chosen date from the WMS server as 512-pixel tiles in EPSG:3006",
+        (
+            "Retry failed requests; without strict_live, leave a tile that keeps "
+            "failing transparent, otherwise raise a typed upstream error"
+        ),
         "Stitch the tiles into one RGBA mosaic",
         "Fail if the mosaic is empty; warn and skip the cache if partly covered",
         "Cache complete mosaics as GeoTIFFs",
@@ -166,8 +163,9 @@ class SatelliteImageryDataset(DatasetDescriptor):
         {
             "heading": "How to use it",
             "body": (
-                "Use rgb for a background map, and indices such as ndvi or ndwi "
-                "to highlight vegetation or water. Pass date to repeat an "
+                "Use rgb for a background map, and the index styles such as "
+                "ndvi or ndwi to see where vegetation or water is. Index styles "
+                "are colour ramps, not index values. Pass date to repeat an "
                 "earlier image exactly."
             ),
         },
@@ -205,6 +203,10 @@ class SatelliteImageryDataset(DatasetDescriptor):
         "table_role": "basemap",
     }
     presentation_warnings = [
+        (
+            "Rendered 8-bit visualization, not surface reflectance or index "
+            "values; do not use for quantitative analysis."
+        ),
         "Digital Earth Sweden service terms require review before redistributing imagery.",
         "The chosen acquisition date is logged but not yet stored on the returned Raster.",
     ]
@@ -222,20 +224,54 @@ class SatelliteImageryDataset(DatasetDescriptor):
     ]
 
     def build(self, args: SatelliteImageryArgs):
-        bounds = self.parse_bounds(args.bounds)
-        raster: Raster = dtcc_core.io.data.download_imagery(
-            bounds=bounds,
-            provider=args.source,
-            epsg="3006",
-            date=args.date,
-            style=args.style,
-            max_cloud=args.max_cloud,
-            resolution=args.resolution,
-            search_days=args.search_days,
-        )
-        if args.format is not None:
-            return self.export_to_bytes(raster, args.format)
-        return raster
+        progress_phases = {"download": 0.95, "export": 0.05}
+        with ProgressTracker(total=1.0, phases=progress_phases) as progress:
+            bounds = self.parse_bounds(args.bounds)
+            # Without strict_live a tile that keeps failing is left transparent
+            # and the partial result is returned uncached with a warning.
+            tile_errors = None if args.strict_live else []
+            with progress.phase("download", "Downloading satellite imagery..."):
+                try:
+                    raster: Raster = dtcc_core.io.data.download_imagery(
+                        bounds=bounds,
+                        provider=args.source,
+                        epsg="3006",
+                        date=args.date,
+                        style=args.style,
+                        max_cloud=args.max_cloud,
+                        resolution=args.resolution,
+                        search_days=args.search_days,
+                        tile_errors=tile_errors,
+                    )
+                except requests.RequestException as exc:
+                    raise self._upstream_error(exc) from exc
+
+            if args.format is None:
+                return raster
+            with progress.phase("export", f"Exporting imagery as {args.format}..."):
+                return self.export_to_bytes(raster, args.format)
+
+    def _upstream_error(self, exc: requests.RequestException) -> DatasetUpstreamError:
+        """Turn a failed Digital Earth Sweden request into a typed error."""
+        operation, target = _failed_operation(exc)
+        if isinstance(exc, ServiceError):
+            return DatasetUpstreamError(
+                dataset=self.name,
+                operation=operation,
+                target=target,
+                failure_class="invalid_payload",
+                message=f"{self.name} {operation} failed for {target}: {exc}",
+            )
+        return self.build_upstream_error(self.name, operation, target, exc)
+
+
+def _failed_operation(exc: requests.RequestException) -> tuple[str, str]:
+    """Name the Digital Earth Sweden service a request exception came from."""
+    request = getattr(exc, "request", None)
+    url = getattr(request, "url", None) or ""
+    if url.startswith(STAC_URL):
+        return "stac_search", STAC_URL
+    return "wms_getmap", WMS_URL
 
 
 __all__ = ["SatelliteImageryArgs", "SatelliteImageryDataset"]

@@ -172,12 +172,13 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
     PointCloud, list[Building], RoadNetwork, Raster or None
         The loaded data: a point cloud for lidar, buildings for footprints, a
         road network for roads and a raster for imagery. ``None`` when
-        ``epsg`` is not "3006".
+        ``epsg`` is not "3006", except for imagery.
 
     Raises
     ------
     ValueError
-        If ``data_type`` or ``provider`` is not supported.
+        If ``data_type`` or ``provider`` is not supported, or ``epsg`` is not
+        "3006" for imagery.
     """
     # Resolve per-service URLs: explicit `url` overrides env; otherwise use env-backed defaults.
     if url is not None:
@@ -192,6 +193,10 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg = '3006', 
     
     # user_bbox = user_bbox.tuple
     if not epsg == '3006':
+        if data_type == 'imagery':
+            raise ValueError(
+                "Digital Earth Sweden imagery is only available in EPSG:3006."
+            )
         warning('Please enter the coordinates in EPSG:3006')
         return
     # Validate
@@ -352,7 +357,8 @@ def download_imagery(bounds: Bounds, provider = 'DES', epsg = '3006', **kwargs):
         The data provider. Only ``"DES"`` (Digital Earth Sweden) is
         supported. Default is "DES".
     epsg : str, optional
-        EPSG code of the coordinate reference system. Default is "3006".
+        EPSG code of the coordinate reference system. Only "3006" is
+        supported. Default is "3006".
     **kwargs
         Options such as ``date``, ``style``, ``max_cloud``, ``resolution``
         and ``search_days``. See
@@ -369,9 +375,16 @@ def download_imagery(bounds: Bounds, provider = 'DES', epsg = '3006', **kwargs):
         If no clear acquisition is found for the area, or the area has no
         imagery on the given ``date``.
     ValueError
-        If ``date`` is outside the archive served by Digital Earth Sweden.
+        If ``epsg`` is not "3006", or ``date`` is invalid or outside the
+        archive served by Digital Earth Sweden.
     """
-    if not provider or provider.upper() == 'DES':
-        return download_data('imagery', 'DES', bounds, epsg=epsg, **kwargs)
-    else:
+    if provider and provider.upper() != 'DES':
         error("Please enter a valid provider")
+    if str(epsg) != '3006':
+        raise ValueError(
+            "Digital Earth Sweden imagery is only available in EPSG:3006."
+        )
+    if isinstance(bounds, (tuple, list)):
+        bounds = Bounds(xmin=bounds[0], ymin=bounds[1], xmax=bounds[2], ymax=bounds[3])
+    info("Downloading imagery from Digital Earth Sweden")
+    return _download_imagery(bounds.tuple, **kwargs)

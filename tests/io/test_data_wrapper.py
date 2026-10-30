@@ -169,3 +169,25 @@ def test_download_imagery_returns_des_raster_and_forwards_options():
     download_imagery.assert_called_once_with(
         bounds.tuple, date="2025-06-01", style="ndvi"
     )
+
+
+def test_download_imagery_rejects_other_epsg():
+    with patch.object(wrapper, "_download_imagery") as download_imagery:
+        with pytest.raises(ValueError, match="only available in EPSG:3006"):
+            wrapper.download_imagery(Bounds(0, 0, 10, 10), epsg="4326")
+    download_imagery.assert_not_called()
+
+
+def test_download_imagery_accepts_bounds_tuple():
+    with patch.object(
+        wrapper, "_download_imagery", return_value="raster"
+    ) as download_imagery:
+        assert wrapper.download_imagery((0, 0, 10, 10)) == "raster"
+    download_imagery.assert_called_once_with((0, 0, 10, 10))
+
+
+def test_download_data_rejects_imagery_in_other_epsg():
+    with patch.object(wrapper, "_download_imagery") as download_imagery:
+        with pytest.raises(ValueError, match="only available in EPSG:3006"):
+            wrapper.download_data("imagery", "DES", Bounds(0, 0, 10, 10), epsg="4326")
+    download_imagery.assert_not_called()

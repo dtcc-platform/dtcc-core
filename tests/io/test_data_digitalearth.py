@@ -1,5 +1,8 @@
+import datetime
+
 import numpy as np
 import pytest
+import requests
 from rasterio.io import MemoryFile
 
 from dtcc_core.io.data import digitalearth
@@ -17,6 +20,7 @@ class DummyResponse:
         self.status_code = status_code
         self.headers = {"Content-Type": content_type}
         self.text = ""
+        self.request = None
 
 
 class JsonResponse:
@@ -135,7 +139,7 @@ def test_get_map_raises_on_service_exception():
             content=b"<ServiceExceptionReport/>", content_type="application/xml"
         )
     )
-    with pytest.raises(RuntimeError, match="WMS returned an error"):
+    with pytest.raises(digitalearth.ServiceError, match="WMS returned an error"):
         digitalearth.get_map(
             session, "sentinel2_reflectance", "rgb", BBOX, 32, 32, "2026-05-05"
         )
@@ -158,7 +162,7 @@ def test_get_map_rejects_date_outside_archive():
 
 def test_get_map_raises_on_bad_status():
     session = RecordingSession(DummyResponse(status_code=500))
-    with pytest.raises(RuntimeError, match="status 500"):
+    with pytest.raises(requests.HTTPError, match="status 500"):
         digitalearth.get_map(
             session, "sentinel2_reflectance", "rgb", BBOX, 32, 32, "2026-05-05"
         )
@@ -639,3 +643,109 @@ def test_create_session_retries_dropped_connections_and_timeouts():
     assert retry.read == digitalearth.HTTP_RETRIES
     assert 503 in retry.status_forcelist
     assert "POST" in retry.allowed_methods
+
+
+def _stub_failing_tiles(monkeypatch, tmp_path, failing, style="rgb"):
+    """Stub a 2x2 tile download in which the tiles listed in 'failing' fail."""
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    calls = []
+
+    def flaky_get_map(session, layer, style, bbox, width, height, date):
+        calls.append(bbox)
+        if len(calls) in failing:
+            raise requests.ConnectionError(f"tile {len(calls)} dropped")
+        return b""
+
+    monkeypatch.setattr(digitalearth, "get_map", flaky_get_map)
+
+
+def test_download_imagery_raises_failed_tile_by_default(monkeypatch, tmp_path):
+    _stub_failing_tiles(monkeypatch, tmp_path, failing={2})
+    with pytest.raises(requests.ConnectionError, match="tile 2"):
+        digitalearth.download_imagery((0, 0, 6000, 6000), date="2026-05-05")
+    assert _cached_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("style", ["rgb", "ndvi"])
+def test_download_imagery_collects_failed_tiles_when_asked(
+    monkeypatch, tmp_path, style
+):
+    _stub_failing_tiles(monkeypatch, tmp_path, failing={2})
+    tile_errors = []
+    raster = digitalearth.download_imagery(
+        (0, 0, 6000, 6000), date="2026-05-05", style=style, tile_errors=tile_errors
+    )
+    assert [str(e) for e in tile_errors] == ["tile 2 dropped"]
+    assert raster.data.shape == (600, 600, 4)
+    # The failed tile is the top right one: columns 512 onwards of rows 0-511.
+    assert not raster.data[:512, 512:, 3].any()
+    assert raster.data[:512, :512, 3].all()
+    assert _cached_files(tmp_path) == []
+
+
+def test_download_imagery_raises_when_every_tile_fails(monkeypatch, tmp_path):
+    _stub_failing_tiles(monkeypatch, tmp_path, failing={1, 2, 3, 4})
+    tile_errors = []
+    with pytest.raises(requests.ConnectionError, match="tile 4"):
+        digitalearth.download_imagery(
+            (0, 0, 6000, 6000), date="2026-05-05", tile_errors=tile_errors
+        )
+    assert len(tile_errors) == 4
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-09-22",
+        datetime.date(2026, 9, 22),
+        datetime.datetime(2026, 9, 22, 10, 30),
+    ],
+)
+def test_normalize_date_accepts_strings_dates_and_datetimes(value):
+    assert digitalearth._normalize_date(value) == "2026-09-22"
+
+
+@pytest.mark.parametrize("value", ["2026-02-30", "22/09/2026", 20260922])
+def test_normalize_date_rejects_invalid_dates(value):
+    with pytest.raises(ValueError, match="Invalid date"):
+        digitalearth._normalize_date(value)
+
+
+def test_download_imagery_accepts_date_object(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    digitalearth.download_imagery((0, 0, 1000, 1000), date=datetime.date(2026, 5, 5))
+    assert _cached_files(tmp_path) == [
+        f"des_v{digitalearth.CACHE_VERSION}_rgb_2026-05-05_0_0_1000_1000_10m.tif"
+    ]
+
+
+def test_download_imagery_rejects_impossible_date_before_any_request(monkeypatch):
+    _fail_on_network(monkeypatch)
+    with pytest.raises(ValueError, match="Invalid date"):
+        digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-02-30")
+
+
+def test_download_imagery_writes_georeferenced_geotiff(monkeypatch, tmp_path):
+    _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    tiles = []
+
+    def numbered_tile(png_bytes, width, height):
+        # Fill each tile with its request order, so its position can be checked.
+        tiles.append(len(tiles) + 1)
+        return np.full((4, height, width), tiles[-1], dtype=np.uint8)
+
+    monkeypatch.setattr(digitalearth, "_tile_to_array", numbered_tile)
+    bbox = (317000, 6394000, 323000, 6400000)  # 600 x 600 px, 2 x 2 tiles
+    digitalearth.download_imagery(bbox, date="2026-05-05")
+
+    (name,) = _cached_files(tmp_path)
+    with digitalearth.rasterio.open(tmp_path / name) as src:
+        assert src.crs.to_epsg() == 3006
+        assert src.transform == digitalearth.from_origin(317000, 6400000, 10.0, 10.0)
+        assert (src.width, src.height, src.count) == (600, 600, 4)
+        data = src.read()
+    # Tiles are requested row by row from the north west corner.
+    assert data[0, 0, 0] == 1  # top left
+    assert data[0, 0, -1] == 2  # top right
+    assert data[0, -1, 0] == 3  # bottom left
+    assert data[0, -1, -1] == 4  # bottom right
