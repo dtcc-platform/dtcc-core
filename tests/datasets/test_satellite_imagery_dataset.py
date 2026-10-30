@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import typing
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -16,7 +15,6 @@ import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.satellite_imagery import (
-    ImageryStyle,
     SatelliteImageryArgs,
     SatelliteImageryDataset,
 )
@@ -50,8 +48,20 @@ def test_satellite_imagery_module_attribute():
     assert callable(datasets.satellite_imagery)
 
 
-def test_style_choices_match_download_module():
-    assert list(typing.get_args(ImageryStyle)) == VALID_STYLES
+@pytest.mark.parametrize("style", VALID_STYLES)
+def test_accepts_every_download_style(style):
+    assert SatelliteImageryArgs(bounds=BOUNDS, style=style).style == style
+
+
+def test_defaults_match_download_module():
+    args = SatelliteImageryArgs(bounds=BOUNDS)
+    assert args.max_cloud == digitalearth.DEFAULT_MAX_CLOUD
+    assert args.resolution == digitalearth.DEFAULT_RESOLUTION
+    assert args.search_days == digitalearth.DEFAULT_SEARCH_DAYS
+
+
+def test_describe_includes_timeout_hint():
+    assert SatelliteImageryDataset().describe()["timeout_hint"] == 900
 
 
 @pytest.mark.parametrize("date", ["22/09/2026", "2026-02-30"])

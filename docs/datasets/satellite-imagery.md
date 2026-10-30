@@ -78,8 +78,9 @@ cache, so it also works offline.
 - An impossible date such as `2026-02-30` is rejected before any request.
 
 **Finding dates.** `list_available_dates` lists acquisitions with their cloud
-cover, newest first. Pass a `start` date: without it the whole archive since
-2018 is read, which takes a few minutes.
+cover, newest first. By default it searches the last 120 days. An earlier
+`start`, such as `"2018-01-01"` for the whole archive, can take a few
+minutes.
 
 ```python
 from dtcc_core.io.data import list_available_dates

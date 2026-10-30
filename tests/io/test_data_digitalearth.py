@@ -564,7 +564,7 @@ def test_download_imagery_ignores_files_from_older_cache_version(monkeypatch, tm
     assert raster.data.shape == (100, 100, 4)
     assert calls, "a file from an older cache version must not be reused"
     assert (
-        f"des_v{digitalearth.CACHE_VERSION}_rgb_2026-05-05_0_0_1000_1000_10m.tif"
+        f"des_v{digitalearth.CACHE_VERSION}_rgb_2026-05-05_0.00_0.00_1000.00_1000.00_10m.tif"
         in (_cached_files(tmp_path))
     )
 
@@ -714,7 +714,7 @@ def test_download_imagery_accepts_date_object(monkeypatch, tmp_path):
     _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
     digitalearth.download_imagery((0, 0, 1000, 1000), date=datetime.date(2026, 5, 5))
     assert _cached_files(tmp_path) == [
-        f"des_v{digitalearth.CACHE_VERSION}_rgb_2026-05-05_0_0_1000_1000_10m.tif"
+        f"des_v{digitalearth.CACHE_VERSION}_rgb_2026-05-05_0.00_0.00_1000.00_1000.00_10m.tif"
     ]
 
 
@@ -748,3 +748,63 @@ def test_download_imagery_writes_georeferenced_geotiff(monkeypatch, tmp_path):
     assert data[0, 0, -1] == 2  # top right
     assert data[0, -1, 0] == 3  # bottom left
     assert data[0, -1, -1] == 4  # bottom right
+
+
+def test_cache_key_separates_boxes_shifted_by_less_than_a_metre(monkeypatch, tmp_path):
+    _, calls = _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    first = digitalearth.download_imagery((0, 0, 1000, 1000), date="2026-05-05")
+    shifted = digitalearth.download_imagery((0.4, 0, 1000.4, 1000), date="2026-05-05")
+    assert len(calls) == 2
+    assert len(_cached_files(tmp_path)) == 2
+    assert shifted.georef.c == 0.4 and first.georef.c == 0.0
+
+
+def _record_stac_payload(monkeypatch):
+    payloads = []
+
+    def fake_search(session, payload):
+        payloads.append(payload)
+        return []
+
+    monkeypatch.setattr(digitalearth, "_stac_search_all", fake_search)
+    return payloads
+
+
+def test_list_available_dates_defaults_to_recent_dates(monkeypatch):
+    payloads = _record_stac_payload(monkeypatch)
+    digitalearth.list_available_dates(BBOX, session=object())
+    start = datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(
+        days=digitalearth.DEFAULT_SEARCH_DAYS
+    )
+    assert payloads[0]["datetime"] == f"{start.isoformat()}/.."
+
+
+def test_list_available_dates_accepts_date_objects(monkeypatch):
+    payloads = _record_stac_payload(monkeypatch)
+    digitalearth.list_available_dates(
+        BBOX,
+        start=datetime.date(2018, 1, 1),
+        end=datetime.date(2026, 9, 30),
+        session=object(),
+    )
+    assert payloads[0]["datetime"] == "2018-01-01/2026-09-30"
+
+
+def test_tile_to_array_does_not_warn_about_georeferencing():
+    import warnings
+
+    png = make_png(4)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        digitalearth._tile_to_array(png, 4, 4)
+
+
+def test_create_session_sends_dtcc_user_agent():
+    session = digitalearth.create_session()
+    assert session.headers["User-Agent"] == digitalearth.USER_AGENT
+
+
+def test_cache_lives_in_the_shared_dtcc_data_cache():
+    from dtcc_core.io.data import cache
+
+    assert digitalearth.CACHE_DIR == str(cache.cache_dir / "downloaded_des")

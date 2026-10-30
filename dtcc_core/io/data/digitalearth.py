@@ -17,6 +17,7 @@ most recent one, which over Sweden is very often solid cloud.
 
 import math
 import os
+import warnings
 from datetime import UTC, datetime, timedelta
 from datetime import date as Date
 
@@ -24,7 +25,7 @@ import numpy as np
 import pyproj
 import rasterio
 import requests
-from platformdirs import user_cache_dir
+from rasterio.errors import NotGeoreferencedWarning
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 from requests.adapters import HTTPAdapter
@@ -33,13 +34,13 @@ from urllib3.util.retry import Retry
 from dtcc_core.common.progress import report_progress
 from dtcc_core.model import Raster
 
+from . import cache
 from .logging import debug, info, warning
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
 # ------------------------------------------------------------------------
-BASE_CACHE_DIR = user_cache_dir(appname="dtcc-data")
-CACHE_DIR = os.path.join(BASE_CACHE_DIR, "downloaded_des")
+CACHE_DIR = os.path.join(cache.cache_dir, "downloaded_des")
 
 # Part of every cache file name. Raise it when the stored imagery changes, so
 # files written under an earlier version are downloaded again.
@@ -62,6 +63,8 @@ MAX_PIXELS = 10_000 * 10_000
 
 # Attempts per request after a dropped connection, a timeout or a 429/5xx.
 HTTP_RETRIES = 3
+
+USER_AGENT = "dtcc-core (https://github.com/dtcc-platform/dtcc-core)"
 
 # Acquisitions cloudier than this are skipped when picking a date.
 DEFAULT_MAX_CLOUD = 10.0
@@ -120,6 +123,7 @@ def create_session(retries=HTTP_RETRIES, backoff_factor=1.0):
     )
     adapter = HTTPAdapter(max_retries=retry)
     session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
@@ -220,22 +224,29 @@ def list_available_dates(
     List the Sentinel-2 acquisition dates that cover 'bbox'.
 
     'bbox' is a tuple (xmin, ymin, xmax, ymax) in EPSG:3006. 'start' and
-    'end' are ISO date strings bounding the search, both optional. Items
-    with a cloud cover above 'max_cloud' percent are discarded.
+    'end' bound the search, as datetime.date objects or 'YYYY-MM-DD'
+    strings. 'start' defaults to DEFAULT_SEARCH_DAYS days ago, because the
+    whole archive takes minutes to read; pass an early date such as
+    '2018-01-01' to search all of it. Items with a cloud cover above
+    'max_cloud' percent are discarded.
 
     Returns a list of (date, cloud_cover) tuples sorted newest first, where
     'date' is a 'YYYY-MM-DD' string. A date appearing on several satellite
     tiles is reported once, with the cloudiest of those tiles, so that a
     date is only called clear when the whole area is clear.
     """
+    if start is None:
+        start = datetime.now(UTC).date() - timedelta(days=DEFAULT_SEARCH_DAYS)
+    start = _normalize_date(start)
+    end = _normalize_date(end)
+
     session = session or create_session()
     payload = {
         "collections": [STAC_COLLECTION],
         "bbox": list(_to_wgs84_bbox(bbox)),
         "limit": limit,
+        "datetime": f"{start}/{end or '..'}",
     }
-    if start or end:
-        payload["datetime"] = f"{start or '..'}/{end or '..'}"
 
     worst_cloud_per_date = {}
     for feature in _stac_search_all(session, payload):
@@ -443,9 +454,13 @@ def _tile_to_array(png_bytes, width, height):
     Tiles with no data for the requested date come back as a small greyscale
     image rather than RGBA, and are treated as fully transparent.
     """
-    with MemoryFile(png_bytes) as memfile:
-        with memfile.open() as src:
-            data = src.read()
+    # Tiles are plain PNGs; their position comes from the request, so the
+    # warning that they carry no georeferencing does not apply.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NotGeoreferencedWarning)
+        with MemoryFile(png_bytes) as memfile:
+            with memfile.open() as src:
+                data = src.read()
 
     if data.shape[0] < 3:
         return np.zeros((4, height, width), dtype=np.uint8)
@@ -611,7 +626,7 @@ def download_imagery(
 
     out_path = os.path.join(
         CACHE_DIR,
-        f"des_v{CACHE_VERSION}_{style}_{date}_{xmin:.0f}_{ymin:.0f}_{xmax:.0f}_{ymax:.0f}"
+        f"des_v{CACHE_VERSION}_{style}_{date}_{xmin:.2f}_{ymin:.2f}_{xmax:.2f}_{ymax:.2f}"
         f"_{resolution:g}m.tif",
     )
     if os.path.exists(out_path):

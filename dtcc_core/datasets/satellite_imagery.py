@@ -6,24 +6,21 @@ from pydantic import Field
 
 import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
-from dtcc_core.io.data.digitalearth import STAC_URL, WMS_URL, ServiceError
+from dtcc_core.io.data.digitalearth import (
+    DEFAULT_MAX_CLOUD,
+    DEFAULT_RESOLUTION,
+    DEFAULT_SEARCH_DAYS,
+    STAC_URL,
+    VALID_STYLES,
+    WMS_URL,
+    ServiceError,
+)
 from dtcc_core.model import Raster
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .providers import provider_display_name, provider_entry
 
-# Keep in step with dtcc_core.io.data.digitalearth.VALID_STYLES.
-ImageryStyle = Literal[
-    "rgb",
-    "false_color",
-    "false_color_urban",
-    "swir",
-    "ndvi",
-    "ndmi",
-    "ndwi",
-    "nbi",
-    "msi",
-]
+ImageryStyle = Literal[tuple(VALID_STYLES)]
 
 
 class SatelliteImageryArgs(DatasetBaseArgs):
@@ -51,18 +48,18 @@ class SatelliteImageryArgs(DatasetBaseArgs):
         ),
     )
     max_cloud: float = Field(
-        10.0,
+        DEFAULT_MAX_CLOUD,
         ge=0.0,
         le=100.0,
         description="Highest cloud cover, in percent, accepted when picking a date.",
     )
     resolution: float = Field(
-        10.0,
+        DEFAULT_RESOLUTION,
         gt=0.0,
         description="Ground sample distance in metres; Sentinel-2 is natively 10 m.",
     )
     search_days: int = Field(
-        120,
+        DEFAULT_SEARCH_DAYS,
         ge=1,
         description="How many days back to search for a clear acquisition.",
     )
@@ -89,6 +86,8 @@ class SatelliteImageryDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.Raster"
+    # The largest allowed request is about 400 tiles at about 2 s each.
+    timeout_hint = 900
     provider = [
         provider_entry("rise", role="source_provider"),
         provider_entry("dtcc-platform", role="processor"),

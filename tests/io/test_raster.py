@@ -165,8 +165,7 @@ def test_alpha_needs_two_or_four_bands(tmp_path, channels):
     assert not path.exists()
 
 
-def test_missing_crs_as_loaded_is_not_written(tmp_path):
-    # The loader stores a file without a CRS as the text "None".
+def test_none_crs_text_is_not_written(tmp_path):
     path = tmp_path / "out.tif"
     georeferenced(samples((5, 7)), crs="None").save(path)
     with rasterio.open(path) as src:
@@ -246,3 +245,9 @@ def test_writing_allocates_at_most_one_strip(tmp_path, monkeypatch):
         tracemalloc.stop()
     # A second strip alive at the same time would exceed the small allowance.
     assert peak <= cap + 128 * 1024
+
+
+def test_loader_reads_missing_crs_as_empty(tmp_path):
+    path = tmp_path / "no_crs.tif"
+    georeferenced(samples((5, 7))).save(path)
+    assert io.load_raster(path).crs == ""
