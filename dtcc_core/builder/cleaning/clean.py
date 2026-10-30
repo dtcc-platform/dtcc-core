@@ -117,6 +117,7 @@ from .contract import check_cleaning_contract, check_mesher_handoff_profile
 from .footprints import (
     ConditioningOptions,
     ConditioningResult,
+    UnresolvedFootprintCleaningError,
     condition_polygon_coverage,
 )
 from .plotting import plot_footprint_cleaning_comparison
@@ -280,7 +281,8 @@ def clean_footprints(
         (3 delta / 4 when a merge group needs the retry), and footprints
         closer than delta are merged. Zero disables geometric cleaning: the
         footprints are kept as they are, and footprints that overlap stay
-        overlapping buildings (a warning is logged).
+        overlapping buildings (a warning is logged; an error with
+        ``strict``).
     isolated : bool, optional
         Clean each building on its own, so nothing is merged and buildings may
         overlap or come closer than delta. By default the whole collection is
@@ -295,8 +297,9 @@ def clean_footprints(
         always uses its LOD0 footprint and its parts.
     strict : bool, optional
         Raise :class:`UnresolvedFootprintCleaningError` instead of returning a
-        result with residual separation below delta (and a warning), and give
-        a block one footprint instead of walls closer than delta. Such a
+        result with residual separation below delta (and a warning), or at
+        zero detail one with overlapping footprints, and give a block one
+        footprint instead of walls closer than delta. Such a
         block has one roof and one height (see the module documentation),
         is logged, and has the outcome ``fallback`` in
         ``attributes["footprint_walls"]``.
@@ -328,7 +331,8 @@ def clean_footprints(
     Raises
     ------
     UnresolvedFootprintCleaningError
-        If no acceptable cleaning was found.
+        If no acceptable cleaning was found, or, with ``strict``, if
+        footprints overlap at zero detail.
     ValueError
         If a single Building is split into several regions; clean it as part
         of a list or city instead.
@@ -486,6 +490,10 @@ def clean_regions(
     selected = select_footprints(result, min_area=min_area)
     polygons = list(selected.polygons)
     region_sources = [list(indices) for indices in selected.source_map]
+    if delta == 0 and not isolated:
+        _report_overlaps(
+            polygons, region_sources, sources, buildings, selected.diagnostics, strict
+        )
 
     # Stage 2: walls between the labels of each region.
     budgets = _source_budgets(selected.diagnostics)
@@ -578,25 +586,6 @@ def clean_regions(
             f"Footprint cleaning: {len(vanished)} building(s) without an occupied core "
             f"at {delta:g} m have no cleaned footprint (see the cleaning record)."
         )
-    if delta == 0 and not isolated:
-        overlaps = _overlapping_pairs(polygons)
-        if overlaps:
-            names = [
-                "+".join(
-                    str(buildings[index].id)
-                    for index in sorted({sources[i].building for i in indices})
-                )
-                for indices in region_sources
-            ]
-            examples = ", ".join(
-                f"{names[i]}/{names[j]}" for i, j in overlaps[:_OVERLAP_EXAMPLES]
-            )
-            more = ", ..." if len(overlaps) > _OVERLAP_EXAMPLES else ""
-            warning(
-                f"Footprint cleaning at 0 m keeps overlapping footprints: "
-                f"{len(overlaps)} pair(s) of buildings overlap ({examples}{more}); "
-                "clean at a positive min_building_detail to divide them."
-            )
     if isolated:
         record["outcomes"] = diagnostics.get("outcomes", {})
     walls = record["walls"]
@@ -1285,6 +1274,49 @@ def _check_unscaled(raw, result: ConditioningResult) -> None:
     contract["mesher_profile"] = check_mesher_handoff_profile(result.polygons)
     result.diagnostics["before_selection_contract"] = contract
     result.diagnostics["mesher_profile"] = contract["mesher_profile"]
+
+
+def _report_overlaps(
+    polygons, region_sources, sources, buildings, diagnostics, strict
+) -> None:
+    """Warn of regions of an unscaled result that overlap, or, with
+    ``strict``, raise :class:`UnresolvedFootprintCleaningError`."""
+    overlaps = _overlapping_pairs(polygons)
+    if not overlaps:
+        return
+    names = [
+        "+".join(
+            str(buildings[index].id)
+            for index in sorted({sources[i].building for i in indices})
+        )
+        for indices in region_sources
+    ]
+    if strict:
+        raise UnresolvedFootprintCleaningError(
+            {
+                **diagnostics,
+                "outcome": "unresolved",
+                "unresolved_groups": [
+                    {
+                        "group": f"{names[i]}/{names[j]}",
+                        "source_indices": sorted(
+                            {*region_sources[i], *region_sources[j]}
+                        ),
+                        "reason": "overlap",
+                    }
+                    for i, j in overlaps
+                ],
+            }
+        )
+    examples = ", ".join(
+        f"{names[i]}/{names[j]}" for i, j in overlaps[:_OVERLAP_EXAMPLES]
+    )
+    more = ", ..." if len(overlaps) > _OVERLAP_EXAMPLES else ""
+    warning(
+        f"Footprint cleaning at 0 m keeps overlapping footprints: "
+        f"{len(overlaps)} pair(s) of buildings overlap ({examples}{more}); "
+        "clean at a positive min_building_detail to divide them."
+    )
 
 
 def _overlapping_pairs(polygons) -> list[tuple[int, int]]:
