@@ -22,6 +22,7 @@ from dtcc_core.builder.cleaning.blocks import (
     SOURCE_ID_KEY,
     WALLS_KEY,
     block_walls,
+    fallback_roof,
     set_part_roof,
     set_source_footprint,
     source_footprint,
@@ -705,6 +706,39 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
     strict = cleaned.clean_footprints(strict=True).buildings[0].attributes[WALLS_KEY]
     assert strict["outcome"] == "fallback"
     assert strict["detail"] == {"reason": "strict", **record["detail"]}
+
+
+@pytest.mark.parametrize("z", [0.0, 12.0])
+def test_a_fallback_block_keeps_its_tallest_height(monkeypatch, z):
+    # Footprints at one level (no roofs, or a common ground): only the
+    # heights tell the tower from the house.
+    def warn(self):
+        labelled = _original_xy(self)
+        report = {**labelled.report, "wall_pairs": 1, "min_wall_distance": 0.01}
+        return walls_module.LabelledRegion(
+            labelled.region, labelled.cells, "warning", report
+        )
+
+    monkeypatch.setattr(walls_module._WallRepair, "_xy", warn)
+    cleaned = city_of(
+        building("tower", box(0, 0, 10, 10), z, height=60.0),
+        building("house", box(5, 0, 40, 10), z, height=6.0),
+    ).clean_footprints(strict=True)
+    (block,) = cleaned.buildings
+    assert block.attributes[WALLS_KEY]["outcome"] == "fallback"
+    assert block.estimated_height == 60.0
+    assert block.get_geometry(GeometryType.LOD0).zmax == z
+
+
+def test_fallback_roof_averages_only_close_roofs_and_heights():
+    areas, roofs = [100.0, 300.0], [10.0, 11.0]
+    assert fallback_roof([0, 1], areas, roofs, [9.0, 10.0]) == pytest.approx(
+        (10.75, 9.75)
+    )
+    assert fallback_roof([0, 1], areas, roofs, [9.0, 12.0]) == (11.0, 12.0)
+    assert fallback_roof([0, 1], areas, roofs, [9.0, None]) == pytest.approx(
+        (10.75, 9.0)
+    )
 
 
 @pytest.mark.parametrize("owner", ["city", "terrain"])

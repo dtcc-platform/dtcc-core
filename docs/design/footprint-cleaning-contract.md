@@ -710,8 +710,9 @@ with w_c the mean of group c weighted by cell area. Then:
   from a far level of the other.
 
 A block that keeps one footprint is meshed with one roof. At cleaning, that
-roof is the area-weighted mean of its sources' roofs, or the highest roof when
-they span more than 2 m. Heights set afterwards replace it.
+roof is the area-weighted mean of its sources' roofs, or the highest roof (and
+height) when their roofs or heights span more than 2 m. Heights set afterwards
+replace it.
 
 **Level-union profile.** The union of the extruded regions is a 3-manifold
 with boundary if and only if every level set Q_t is a 2-manifold with

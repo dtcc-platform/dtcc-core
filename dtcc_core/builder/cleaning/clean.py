@@ -55,11 +55,13 @@ which source wins an overlap, the height builders recompute the walls of that
 block from its source footprints (:func:`.blocks.update_walls`); so do the
 next cleaning and meshing of a block whose walls are not current.
 
-A block's roof and ``estimated_height`` are those of its highest part, and its
+A block's roof is the highest roof of its parts and its ``estimated_height``
+the largest height, which may belong to different parts; its
 ``ground_height`` is the lowest of its parts. The mesh builders use the parts'
-own roofs. A block that keeps one footprint is meshed with one roof: the
-area-weighted mean of its sources, or the highest source roof when they span
-more than 2 m (:func:`.blocks.fallback_roof`).
+own roofs. A block that keeps one footprint is meshed with one roof and has
+one height: the area-weighted mean of its sources, or the highest roof and
+height when their roofs or heights span more than 2 m
+(:func:`.blocks.fallback_roof`).
 """
 
 from __future__ import annotations
