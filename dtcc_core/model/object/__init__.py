@@ -14,6 +14,7 @@ from .roadnetwork import RoadNetwork, RoadType
 from .landuse import Landuse, LanduseClasses
 from .sensor_collection import SensorCollection
 from .vehicle_collection import VehicleCollection
+from .place_collection import PlaceCollection
 from .deso import DeSO
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "LanduseClasses",
     "SensorCollection",
     "VehicleCollection",
+    "PlaceCollection",
     "DeSO",
 ]
