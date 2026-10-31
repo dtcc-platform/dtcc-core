@@ -1,9 +1,74 @@
+import importlib
 from unittest.mock import ANY, patch
 
 import pytest
 
 from dtcc_core.io.data import wrapper
 from dtcc_core.model import Bounds
+
+
+@pytest.mark.parametrize(
+    ("env", "lidar", "gpkg"),
+    [
+        ({}, "https://api.dtcc.chalmers.se", "https://api.dtcc.chalmers.se"),
+        (
+            {"DTCC_DATA_URL": "http://old.example"},
+            "http://old.example:8000",
+            "http://old.example:8001",
+        ),
+        (
+            {"DTCC_LIDAR_URL": "http://lidar.example"},
+            "http://lidar.example",
+            "https://api.dtcc.chalmers.se",
+        ),
+        (
+            {"DTCC_GPKG_URL": "http://gpkg.example"},
+            "https://api.dtcc.chalmers.se",
+            "http://gpkg.example",
+        ),
+        (
+            {
+                "DTCC_DATA_URL": "http://old.example",
+                "DTCC_LIDAR_URL": "http://lidar.example",
+            },
+            "http://lidar.example",
+            "http://old.example:8001",
+        ),
+    ],
+)
+def test_service_urls(env, lidar, gpkg):
+    assert wrapper._service_urls(env) == (lidar, gpkg)
+
+
+def test_service_urls_read_from_environment_at_import(monkeypatch):
+    monkeypatch.setenv("DTCC_LIDAR_URL", "http://lidar.example")
+    monkeypatch.setenv("DTCC_GPKG_URL", "http://gpkg.example")
+    try:
+        importlib.reload(wrapper)
+        assert wrapper.DTCC_LIDAR_URL == "http://lidar.example"
+        assert wrapper.DTCC_GPKG_URL == "http://gpkg.example"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(wrapper)
+
+
+def test_download_data_url_argument_appends_service_ports():
+    bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
+
+    with (
+        patch.object(wrapper, "_load_cached_footprints", return_value=None),
+        patch.object(wrapper, "download_lidar", return_value=["a.laz"]) as lidar,
+        patch.object(wrapper, "download_tiles", return_value=["a.gpkg"]) as tiles,
+        patch.object(wrapper.io, "load_pointcloud"),
+        patch.object(wrapper.io, "load_footprints"),
+    ):
+        wrapper.download_data("lidar", "dtcc", bounds, url="http://old.example")
+        wrapper.download_data("footprints", "dtcc", bounds, url="http://old.example")
+
+    lidar.assert_called_once_with(bounds.tuple, ANY, base_url="http://old.example:8000")
+    tiles.assert_called_once_with(
+        bounds.tuple, ANY, server_url="http://old.example:8001"
+    )
 
 
 def test_download_data_propagates_lidar_request_error():
