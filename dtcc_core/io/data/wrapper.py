@@ -22,10 +22,24 @@ _GPKG_TILE_NAME_RE = re.compile(
     r"^tile_(?P<xmin>-?\d+(?:\.\d+)?)_(?P<ymin>-?\d+(?:\.\d+)?)\.gpkg$"
 )
 
-# Env-overridable backend URLs (defaults preserve current behavior).
-_DTCC_BASE = os.environ.get("DTCC_DATA_URL", "http://compute.dtcc.chalmers.se")
-DTCC_LIDAR_URL = os.environ.get("DTCC_LIDAR_URL", f"{_DTCC_BASE}:8000")
-DTCC_GPKG_URL = os.environ.get("DTCC_GPKG_URL", f"{_DTCC_BASE}:8001")
+_DTCC_GATEWAY_URL = "https://api.dtcc.chalmers.se"
+
+
+def _service_urls(env):
+    """Return the LiDAR and GPKG base URLs.
+
+    ``DTCC_LIDAR_URL`` and ``DTCC_GPKG_URL`` are complete base URLs for one
+    service. ``DTCC_DATA_URL`` is a base for a host that serves LiDAR on port
+    8000 and GPKG on port 8001. With neither set, both use the gateway.
+    """
+    base = env.get("DTCC_DATA_URL")
+    return (
+        env.get("DTCC_LIDAR_URL", f"{base}:8000" if base else _DTCC_GATEWAY_URL),
+        env.get("DTCC_GPKG_URL", f"{base}:8001" if base else _DTCC_GATEWAY_URL),
+    )
+
+
+DTCC_LIDAR_URL, DTCC_GPKG_URL = _service_urls(os.environ)
 
 
 def _bounds_overlap(lhs: Bounds, rhs: Bounds) -> bool:
@@ -166,7 +180,9 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg="3006", ur
         EPSG code of the coordinates. Only "3006" is supported. Default is
         "3006".
     url : str, optional
-        Base URL of the DTCC backend, overriding the configured service URLs.
+        Base URL of a DTCC host serving LiDAR on port 8000 and GPKG on port
+        8001, overriding the configured service URLs. The ports are appended,
+        so this does not address the gateway.
 
     Returns
     -------
