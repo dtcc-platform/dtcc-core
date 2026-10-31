@@ -22,12 +22,14 @@ import pytest
 # Each is expensive and only needed by specific operations, so it belongs in
 # the functions that use it. Keep imports of these inside function bodies.
 FORBIDDEN_EAGER_IMPORTS = [
+    "dolfinx",
+    "petsc4py",
+    "scipy",
     "fiona",
     "geopandas",
     "laspy",
     "rasterio",
     "rasterstats",
-    "scipy",
     "skimage",
 ]
 

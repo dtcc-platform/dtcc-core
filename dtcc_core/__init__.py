@@ -14,6 +14,7 @@ from dtcc_core import builder
 
 register_model_method = builder.register_model_method
 Bounds = model.Bounds
+from dtcc_core.builder.geometry.create.structured import BoxMesh, RectangleMesh
 
 _LAZY_SUBMODULES = {
     "io": "dtcc_core.io",
@@ -60,6 +61,8 @@ __all__ = [
     "model",
     "builder",
     "Bounds",
+    "BoxMesh",
+    "RectangleMesh",
     *_LAZY_LOADERS,
     "register_model_method",
     "io",

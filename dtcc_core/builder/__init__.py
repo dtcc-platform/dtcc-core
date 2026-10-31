@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 
+from .geometry.create.structured import BoxMesh, RectangleMesh
 from . import model_conversion
 from . import meshing
 from . import geometry
@@ -79,6 +80,11 @@ from .meshing.surface_refinement import SurfaceRefinementOptions
 from .meshing.boundary_conformance import conform_boundary
 
 __all__ = [
+    "BoundaryCornerReport",
+    "find_boundary_corners",
+    "repair_boundary_corners",
+    "BoxMesh",
+    "RectangleMesh",
     "extract_roof_points",
     "compute_building_heights",
     "build_lod1_buildings",
@@ -113,3 +119,9 @@ __all__ = [
 ]
 
 from .meshing.compact_surface import CompactSurfaceOptions
+
+from .meshing.volume_corners import (
+    BoundaryCornerReport,
+    find_boundary_corners,
+    repair_boundary_corners,
+)
