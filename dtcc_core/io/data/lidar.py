@@ -15,6 +15,7 @@ from platformdirs import user_cache_dir
 from dtcc_core.common.progress import report_progress
 
 from .logging import debug, info, warning
+from .tls import download_ssl_context
 
 try:
     import nest_asyncio
@@ -361,7 +362,9 @@ async def download_all_lidar_files(base_url, filenames, output_dir="downloaded_l
         f"rate_limit_backoff={_DOWNLOAD_RATE_LIMIT_BACKOFF_SECONDS}s"
     )
 
-    connector = aiohttp.TCPConnector(limit=_DOWNLOAD_MAX_CONCURRENCY)
+    connector = aiohttp.TCPConnector(
+        limit=_DOWNLOAD_MAX_CONCURRENCY, ssl=download_ssl_context()
+    )
     semaphore = asyncio.Semaphore(_DOWNLOAD_MAX_CONCURRENCY)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
