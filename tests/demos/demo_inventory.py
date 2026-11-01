@@ -28,6 +28,7 @@ WORKFLOW_DEMOS = (
     "build_terrain_raster.py",
     "build_terrain_surface_mesh.py",
     "build_terrain_with_footprints.py",
+    "building_from_footprint.py",
     "clean_building_footprints.py",
     "create_cityjson.py",
     "view_cityjson.py",

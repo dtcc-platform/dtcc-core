@@ -233,7 +233,7 @@ def convert_surface(
         "boundaries": [boundary],
         "semantics": {
             "surfaces": [{"type": config.semantic_types["surface"]}],
-            "values": [[0]],
+            "values": [0],
         },
     }
 

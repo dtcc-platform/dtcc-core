@@ -1,9 +1,20 @@
+from copy import deepcopy
+from typing import Literal
+
 import numpy as np
 from shapely.geometry import Polygon
+from shapely.validation import explain_validity
 
 from dtcc_core.common.progress import report_progress
 
-from ...model import Building, GeometryType, MultiSurface, PointCloud, Raster, Surface
+from ...model import (
+    Building,
+    GeometryType,
+    MultiSurface,
+    PointCloud,
+    Raster,
+    Surface,
+)
 from .. import _dtcc_builder
 from ..cleaning.blocks import (
     invalidate_lod1,
@@ -19,6 +30,115 @@ from ..logging import error, info, warning
 from ..model_conversion import create_builder_polygon
 from .surface import extrude_surface
 from .terrain import build_terrain_raster
+
+
+def _footprint_ring_xy(ring):
+    """Copy finite XY coordinates, removing exact neighbouring duplicates."""
+    values = np.asarray(ring)
+    if values.ndim != 2 or values.shape[1] not in (2, 3):
+        raise ValueError("Footprint rings must have shape (N, 2) or (N, 3).")
+    if np.iscomplexobj(values):
+        raise ValueError("Footprint coordinates must be real and finite.")
+    values = np.asarray(values, dtype=np.float64)
+    if not np.isfinite(values).all():
+        raise ValueError("Footprint coordinates must be finite, including Z.")
+    xy = values[:, :2].copy()
+    if len(xy):
+        xy = xy[np.r_[True, np.any(xy[1:] != xy[:-1], axis=1)]]
+        if len(xy) > 1 and np.array_equal(xy[0], xy[-1]):
+            xy = xy[:-1]
+    if len(np.unique(xy, axis=0)) < 3:
+        raise ValueError("Footprint rings require at least three distinct XY points.")
+    return xy
+
+
+def _footprint_polygon(footprint):
+    """Read footprint rings without repair, filtering or simplification."""
+    if isinstance(footprint, Polygon):
+        exterior = footprint.exterior.coords
+        holes = [ring.coords for ring in footprint.interiors]
+    elif isinstance(footprint, Surface):
+        exterior, holes = footprint.vertices, footprint.holes
+    elif isinstance(footprint, np.ndarray):
+        exterior, holes = footprint, []
+    else:
+        raise TypeError("Footprint must be a Polygon, Surface or numpy array.")
+    polygon = Polygon(
+        _footprint_ring_xy(exterior), [_footprint_ring_xy(ring) for ring in holes]
+    )
+    if not polygon.is_valid or not np.isfinite(polygon.area) or polygon.area <= 0:
+        raise ValueError(
+            f"Footprint must be a valid positive-area polygon: {explain_validity(polygon)}"
+        )
+    return polygon
+
+
+def building_from_footprint(
+    footprint: Polygon | Surface | np.ndarray,
+    height: float,
+    *,
+    ground_height: float = 0.0,
+    id: str | None = None,
+    attributes: dict | None = None,
+    height_attribute: Literal[
+        "measured_height", "estimated_height"
+    ] = "measured_height",
+    lod1: bool = True,
+) -> Building:
+    """Construct one building from a valid footprint and a relative height.
+
+    XY rings and holes are preserved without repair or simplification; input Z
+    is ignored but must be finite. LOD0 is placed at the roof, at
+    ``ground_height + height``. Heights are in the local frame. A Surface's
+    transform/SRS is copied to LOD0 and each extruded face, without applying it
+    to the coordinates.
+
+    Attributes are deep-copied. Reserved keys ``measured_height``,
+    ``estimated_height``, ``ground_height``, ``lod1_extrusion``, ``merged_from``,
+    ``source_footprint`` and ``footprint_walls`` are replaced or removed because
+    they describe geometry owned by the builders. Ordinary attributes,
+    including ``source_id``, are retained. With ``lod1=False`` only LOD0 is
+    created; otherwise the closed extrusion carries a lifecycle record.
+
+    Raises ValueError for invalid rings, heights or height_attribute, and
+    TypeError for unsupported footprint types. The input is never modified.
+    """
+    if height_attribute not in ("measured_height", "estimated_height"):
+        raise ValueError(
+            "height_attribute must be measured_height or estimated_height."
+        )
+    height, ground_height = float(height), float(ground_height)
+    roof = ground_height + height
+    if not np.isfinite(height) or height <= 0:
+        raise ValueError("height must be finite and positive.")
+    if not np.isfinite(ground_height) or not np.isfinite(roof):
+        raise ValueError("ground_height and computed roof must be finite.")
+    if roof <= ground_height:
+        raise ValueError("height must produce a roof strictly above ground_height.")
+    polygon = _footprint_polygon(footprint)
+    building = Building() if id is None else Building(id=id)
+    building.attributes = deepcopy(attributes) if attributes is not None else {}
+    for key in (
+        "measured_height",
+        "estimated_height",
+        "ground_height",
+        "lod1_extrusion",
+        "merged_from",
+        "source_footprint",
+        "footprint_walls",
+    ):
+        building.attributes.pop(key, None)
+    building.attributes.update(
+        {"ground_height": ground_height, height_attribute: height}
+    )
+    surface = Surface().from_polygon(polygon, roof)
+    if isinstance(footprint, Surface):
+        surface.transform = deepcopy(footprint.transform)
+    building.add_geometry(surface, GeometryType.LOD0)
+    if lod1:
+        building.add_geometry(extrude_building(building), GeometryType.LOD1)
+        record_lod1(building)
+    return building
 
 
 def _source_vertices(part):
@@ -437,7 +557,14 @@ def build_lod1_buildings(
                 target, default_ground_height, always_use_default_ground
             )
             if geometry is not None:
-                target.add_geometry(geometry, GeometryType.LOD1)
+                matches = [
+                    record for record in target.geometry.values() if record.lod == "1"
+                ]
+                if matches:
+                    matches[0].geometry = geometry
+                    target._bounds = None
+                else:
+                    target.add_geometry(geometry, GeometryType.LOD1)
                 record_lod1(target)
             else:
                 warning(f"Building {target.id} LOD1 geometry could not be built.")
