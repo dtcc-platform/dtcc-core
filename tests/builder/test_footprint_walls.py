@@ -168,6 +168,47 @@ def test_overlap_goes_to_the_taller_building_then_the_larger():
     assert footprint(parts["small"]).equals(box(0, 0, 9.8, 10))
 
 
+def test_overlapping_parts_get_walls_when_their_union_collapses_to_a_line():
+    # Parts in map coordinates that overlap by up to 2 mm. At the wall grid,
+    # the union of the first three keeps a collapsed sliver as a line.
+    parts = [
+        "POLYGON ((359998.5736463075 4190000.809081821, "
+        "359985.4955040691 4190015.543058754, 360013.51601989847 4190012.841544436, "
+        "359998.5736463075 4190000.809081821))",
+        "POLYGON ((359990.2407062805 4190031.38408827, "
+        "360000.0498138449 4190020.721876089, 359984.39735502 4190026.0082750637, "
+        "359990.2407062805 4190031.38408827))",
+        "POLYGON ((360008.24604767305 4190025.293307532, "
+        "360017.06971682707 4190015.702237996, 360016.4311916759 4190015.1880606487, "
+        "360002.4094501404 4190019.9237076747, 360008.24604767305 4190025.293307532))",
+        "POLYGON ((359979.88811215956 4190021.860409094, "
+        "359984.39725146204 4190026.0087632714, 360000.05005541514 4190020.722247734, "
+        "360001.5299864454 4190019.1136061167, 360002.41159130033 4190019.9246720294, "
+        "360016.4318368567 4190015.189530249, 360013.5150600212 4190012.840773004, "
+        "359985.4963444458 4190015.542113756, 359979.88811215956 4190021.860409094))",
+    ]
+    heights = [15, 6, 15, 9]
+    city = city_of(
+        *(
+            building(f"p{index}", shapely.from_wkt(text), height)
+            for index, (text, height) in enumerate(zip(parts, heights))
+        )
+    )
+    (block,) = city.clean_footprints(min_building_detail=0.1, min_area=0.0).buildings
+    assert block.attributes[WALLS_KEY]["outcome"] != "fallback"
+    pieces = [footprint(part) for part in block.building_parts]
+    assert all(not piece.is_empty for piece in pieces)
+    assert all(
+        a.intersection(b).area == 0
+        for index, a in enumerate(pieces)
+        for b in pieces[index + 1 :]
+    )
+    # Overlays of map coordinates round at about 1e-9 m², so the outline is
+    # compared relative to its area.
+    outline = footprint(block)
+    assert unary_union(pieces).symmetric_difference(outline).area < 1e-9 * outline.area
+
+
 def test_a_four_way_roof_contact_is_split_within_source_fidelity():
     sources = {
         0: box(0, 0, 10, 10),
