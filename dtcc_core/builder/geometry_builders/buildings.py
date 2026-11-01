@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Literal
 
@@ -9,6 +10,7 @@ from dtcc_core.common.progress import report_progress
 
 from ...model import (
     Building,
+    City,
     GeometryType,
     MultiSurface,
     PointCloud,
@@ -139,6 +141,44 @@ def building_from_footprint(
         building.add_geometry(extrude_building(building), GeometryType.LOD1)
         record_lod1(building)
     return building
+
+
+def footprints_from_lod1(
+    buildings: City | Sequence[Building],
+    *,
+    tolerance: float = 0.002,
+    wall_angle_tolerance: float = 0.1,
+    overwrite_lod0: bool = False,
+    on_error: Literal["raise", "warn"] = "raise",
+) -> City | list[Building]:
+    """Derive roof-level footprint buildings from supported closed LOD1 solids.
+
+    Returns an independent City or list, preserving source order. Existing
+    root LOD0 is retained unless overwrite_lod0 is True. Every source requires
+    LOD1; converted pieces carry measured height, ground and versioned source
+    provenance. Splits receive deterministic collision-free IDs.
+
+    Supported solids have one flat base, horizontal roofs and vertical walls
+    per component. Slopes, overhangs, cavities, internal caps, shared-wall
+    soups, incompatible frames and untransferable metadata fail explicitly.
+    Units must be local metres. A common translation is resolved once into
+    City coordinates and recorded in provenance; SRS is preserved. Ground support is
+    a caller assumption; geometry alone cannot identify floating buildings.
+
+    on_error="raise" raises ValueError with source ID and geometry reason;
+    "warn" logs the failure and preserves a complete independent source copy.
+    Conversion is atomic per source. A City records counts, failures and
+    numerical residuals in attributes["footprints_from_lod1"].
+    """
+    from .prism_buildings import _footprints_from_lod1
+
+    return _footprints_from_lod1(
+        buildings,
+        tolerance=tolerance,
+        wall_angle_tolerance=wall_angle_tolerance,
+        overwrite_lod0=overwrite_lod0,
+        on_error=on_error,
+    )
 
 
 def _source_vertices(part):

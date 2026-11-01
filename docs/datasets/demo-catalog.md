@@ -85,6 +85,7 @@ the repository root.
 | `demos/clean_building_footprints.py` | Compare isolated and joint footprint cleaning | DTCC service |
 | `demos/build_lod1_buildings.py` | Clean three neighbours, build LOD1 geometry and mesh the block's exterior shell | synthetic, offline |
 | `demos/building_from_footprint.py` | Construct a courtyard building with explicit height and ground, triangulate LOD1 and save a native model | synthetic, offline |
+| `demos/footprints_from_lod1.py` | Decompose a closed podium/tower, clean derived footprints, rebuild the parts and save the reported City | synthetic, offline |
 | `demos/build_city_surface_mesh.py` | Estimate heights → clean footprints → mesh terrain and buildings | DTCC service |
 | `demos/build_terrain_with_footprints.py` | Terrain-only mesh conforming to cleaned footprint subdomains | DTCC service |
 | `demos/build_terrain_raster.py` | Ground points → terrain raster | DTCC service |
