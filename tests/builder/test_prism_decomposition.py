@@ -14,6 +14,7 @@ from shapely.ops import triangulate
 from dtcc_core.builder.geometry_builders.prisms import (
     _clusters,
     _decompose_prisms,
+    _node_ring,
     _PrismError,
     _PrismFace,
     _volume_budget,
@@ -365,6 +366,26 @@ def test_noise_is_bounded_and_reported_with_independent_volume(
         for a, e in zip(actual.rings, expected.rings, strict=True):
             np.testing.assert_array_equal(a, e)
     assert _signature(_decompose_prisms(faces[::-1])) == _signature((result,))
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("dimension", [2, 3])
+def test_edge_noding_emits_each_endpoint_once(dtype, dimension):
+    ring = np.array(
+        [
+            [-7.768348693847656, 16.1204891204834, -12.347917556762695],
+            [17.943483352661133, -4.046733379364014, 4.249589920043945],
+            [3.9026734828948975, -3.9385478496551514, 17.218843460083008],
+            [5.956786632537842, 3.5636281967163086, 8.662971496582031],
+        ],
+        dtype=dtype,
+    )[:, :dimension]
+    vertices = np.unique(ring, axis=0)
+    np.testing.assert_array_equal(_node_ring(ring, vertices, 1e-5), ring)
+    midpoint = (ring[0] + ring[1]) / 2
+    vertices = np.vstack([vertices, midpoint])
+    expected = np.insert(ring, 1, midpoint, axis=0)
+    np.testing.assert_array_equal(_node_ring(ring, vertices[::-1], 1e-5), expected)
 
 
 def test_close_heights_across_rounding_boundary_form_one_bounded_cluster():

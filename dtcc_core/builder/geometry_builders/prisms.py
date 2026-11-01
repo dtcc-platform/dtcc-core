@@ -403,7 +403,10 @@ def _node_ring(ring, vertices, epsilon):
             raise _PrismError("precision_loss", "collapsed edge")
         t = (vertices - a) @ edge / length2
         distance = np.linalg.norm(vertices - (a + t[:, None] * edge), axis=1)
-        indices = np.flatnonzero((t >= 0) & (t < 1) & (distance <= epsilon))
+        # Endpoints are exact ring vertices; their projection can round below 1.
+        values.append(a)
+        endpoints = np.all(vertices == a, axis=1) | np.all(vertices == b, axis=1)
+        indices = np.flatnonzero(~endpoints & (t > 0) & (t < 1) & (distance <= epsilon))
         values.extend(vertices[indices[np.argsort(t[indices], kind="stable")]])
     return np.asarray(values)
 
