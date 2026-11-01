@@ -733,7 +733,14 @@ def load_volume_mesh(path, **kwargs):
 
 
 def load_mesh_as_city(
-    path, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
+    path,
+    lod=GeometryType.LOD1,
+    merge_coplanar_surfaces=True,
+    *,
+    derive_footprints: bool = False,
+    tolerance: float = 0.002,
+    wall_angle_tolerance: float = 0.1,
+    on_error: str = "raise",
 ) -> City:
     """
     Load a mesh and wrap it as a City object.
@@ -746,13 +753,33 @@ def load_mesh_as_city(
         Level of detail assigned to the imported geometry.
     merge_coplanar_surfaces : bool, default True
         Whether to merge coplanar surfaces on load.
+    derive_footprints : bool, default False
+        Derive roof-level Buildings with ``builder.footprints_from_lod1`` after
+        loading. Requires LOD1. Input connected components are split first;
+        separate source Buildings are never recombined.
+    tolerance : float, default 0.002
+        Footprint conversion's total positional budget in local metres.
+    wall_angle_tolerance : float, default 0.1
+        Footprint conversion's wall-angle tolerance in degrees.
+    on_error : {"raise", "warn"}, default "raise"
+        Footprint conversion failure policy. "warn" keeps each failed source
+        intact and records it in the returned City's conversion report.
+        Nondefault conversion options require ``derive_footprints=True``.
 
     Returns
     -------
     City
-        City containing the mesh geometry.
+        City containing the mesh geometry, or derived footprint Buildings and
+        a conversion report when ``derive_footprints=True``.
     """
-    return generic.load(
+    if not isinstance(derive_footprints, bool):
+        raise TypeError("derive_footprints must be a bool")
+    if derive_footprints:
+        if str(lod).lower() not in ("lod1", "geometrytype.lod1"):
+            raise ValueError("derive_footprints requires LOD1")
+    elif (tolerance, wall_angle_tolerance, on_error) != (0.002, 0.1, "raise"):
+        raise ValueError("Conversion options require derive_footprints=True")
+    city = generic.load(
         path,
         "city_mesh",
         City,
@@ -760,6 +787,16 @@ def load_mesh_as_city(
         lod=lod,
         merge_coplanar_surfaces=merge_coplanar_surfaces,
     )
+    if derive_footprints:
+        from ..builder import footprints_from_lod1
+
+        return footprints_from_lod1(
+            city,
+            tolerance=tolerance,
+            wall_angle_tolerance=wall_angle_tolerance,
+            on_error=on_error,
+        )
+    return city
 
 
 def bounds_center_offset(bounds) -> tuple[float, float, float]:

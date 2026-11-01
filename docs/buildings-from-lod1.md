@@ -18,6 +18,23 @@ build_lod1_buildings(city.buildings, rebuild=False)
 city.save("buildings.dtcc")
 ```
 
+To derive footprints while loading, replace the first two lines of the workflow
+with:
+
+```python
+city = io.load_mesh_as_city(
+    "buildings.stl", derive_footprints=True,
+    tolerance=0.002, wall_angle_tolerance=0.1, on_error="raise",
+)
+```
+
+This opt-in convenience uses the same adapter and City report. The default
+loader still returns the original mesh Buildings. Nondefault conversion
+options require `derive_footprints=True`, and the assigned geometry must be
+LOD1. The loader splits connected components first; the flag neither welds
+noisy facets nor recombines source Buildings. With `on_error="warn"`, inspect
+the report's failures before treating every Building as converted.
+
 For a 20 × 20 m podium at roof 6 m and a 6 × 6 m tower at absolute roof 30 m,
 on ground zero, the derived footprints are 364 m² at roof 6 and 36 m² at roof
 30. Their total volume is **3,264 m³**. Cleaning owns merging touching Buildings
