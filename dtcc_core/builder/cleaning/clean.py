@@ -966,6 +966,11 @@ def building_cells(target) -> list[FootprintCell]:
     none. A block that keeps one footprint, and any other building, has one
     cell per piece of its footprint. The buildings are not modified.
 
+    The cells of a block tile it up to rounding: wall construction accepts
+    cells whose areas sum to the block's area within 1e-6 of it. Neighbouring
+    cells may therefore share a sliver of that order; compare them with a
+    tolerance, not exactly.
+
     Parameters
     ----------
     target : City, Building or sequence of Building
