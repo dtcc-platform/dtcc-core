@@ -6,6 +6,16 @@ Run scripts from the repository root, for example:
 python demos/build_lod1_buildings.py
 ```
 
+To construct a building directly, run [Building from a footprint](building_from_footprint.py),
+an offline courtyard example with meshing and native model saving. See the
+[constructor guide](../docs/buildings-from-footprints.md) for inputs, height
+updates and CityJSON persistence.
+
+[Footprints from LOD1](footprints_from_lod1.py) runs the reverse workflow on an
+offline podium/tower solid, retaining both roof levels through cleaning and
+rebuilding. See the [conversion guide](../docs/buildings-from-lod1.md) for
+supported geometry, copying, provenance and error handling.
+
 For footprint cleaning and building meshing, follow this short tour:
 
 1. [Original footprints](dataset_building_footprints.py) — a dataset call and plot.

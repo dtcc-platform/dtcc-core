@@ -133,7 +133,7 @@ def test_convert_surface_simple():
 
     # Check semantics
     assert result["semantics"]["surfaces"][0]["type"] == "WallSurface"
-    assert result["semantics"]["values"] == [[0]]
+    assert result["semantics"]["values"] == [0]
 
 
 def test_convert_surface_with_holes():

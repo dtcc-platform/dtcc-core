@@ -320,13 +320,17 @@ def test_new_block_ids_are_derived_from_their_parts():
 
 
 def test_a_block_read_back_without_part_attributes_is_divided_by_its_parts(tmp_path):
-    # The CityJSON reader keeps neither part IDs nor part attributes: parts
-    # then have their own footprints as their sources.
+    # External parts without provenance use their own footprints as sources.
     cleaned = city_of(
         building("a", box(0, 0, 10, 10), 10.0, height=10, ground=0),
         building("b", box(10, 0, 20, 10), 20.0, height=20, ground=0),
     ).clean_footprints()
     io.save_city(cleaned, tmp_path / "cleaned.json")
+    document = json.loads((tmp_path / "cleaned.json").read_text())
+    for obj in document["CityObjects"].values():
+        if obj["type"] == "BuildingPart":
+            obj.pop("attributes", None)
+    (tmp_path / "cleaned.json").write_text(json.dumps(document))
     loaded = io.load_city(tmp_path / "cleaned.json")
     assert all(
         SOURCE_ID_KEY not in p.attributes for p in loaded.buildings[0].building_parts

@@ -12,6 +12,7 @@ from dtcc_core.model import (
     GeometryType,
     Mesh,
     MultiSurface,
+    Solid,
     Surface,
     Terrain,
 )
@@ -148,8 +149,8 @@ def to_cityjson(
             crs = getattr(city, "crs", None)
         except Exception:
             crs = None
-        if not crs and hasattr(city, "attributes"):
-            crs = city.attributes.get("crs")
+        if not crs:
+            crs = city.transform.srs or city.attributes.get("crs")
         if strict:
             crs = city.transform.srs
         if crs:
@@ -185,7 +186,7 @@ def to_cityjson(
             data["children"] = [part.id for part in parts]
         if strict:
             from ...model import Mesh, MultiLineString, Point, Solid
-            from .converters import convert_mesh, convert_multisurface
+            from .converters import convert_mesh, convert_multisurface, convert_surface
 
             for record in feature.geometry.values():
                 geometry = record.geometry
@@ -239,7 +240,15 @@ def to_cityjson(
                     continue
                 # The converter uses the shared polygon/region representation;
                 # Solid shells are restored explicitly below.
-                encoded = convert_multisurface(
+                converter = (
+                    convert_surface
+                    if type(geometry) is Surface
+                    else convert_multisurface
+                )
+                surfaces = (
+                    [geometry] if type(geometry) is Surface else geometry.surfaces
+                )
+                encoded = converter(
                     geometry, vertices, quantize_factor, config, indexer=indexer
                 )
                 encoded["lod"] = record.lod
@@ -247,7 +256,7 @@ def to_cityjson(
 
                 if record.role == COMPOSITE_SURFACE_ROLE:
                     encoded["type"] = "CompositeSurface"
-                for surface, polygon in zip(geometry.surfaces, encoded["boundaries"]):
+                for surface, polygon in zip(surfaces, encoded["boundaries"]):
                     for source_ring, ring in zip(
                         [surface.vertices, *surface.holes], polygon
                     ):
@@ -261,18 +270,10 @@ def to_cityjson(
                 if not geometry.regions:
                     encoded["semantics"] = {
                         "surfaces": [],
-                        "values": [None] * len(geometry.surfaces),
+                        "values": [None] * len(surfaces),
                     }
                 if type(geometry) is Solid:
-                    encoded["type"] = "Solid"
-                    flat = encoded["boundaries"]
-                    encoded["boundaries"] = [
-                        [flat[i] for i in shell] for shell in geometry.shells
-                    ]
-                    values = encoded["semantics"]["values"]
-                    encoded["semantics"]["values"] = [
-                        [values[i] for i in shell] for shell in geometry.shells
-                    ]
+                    _group_solid(encoded, geometry)
                 data["geometry"].append(encoded)
         else:
             _add_object_geometries(
@@ -319,6 +320,16 @@ def to_cityjson(
     return cityjson
 
 
+def _group_solid(encoded, geometry):
+    encoded["type"] = "Solid"
+    flat = encoded["boundaries"]
+    encoded["boundaries"] = [[flat[i] for i in shell] for shell in geometry.shells]
+    values = encoded["semantics"]["values"]
+    encoded["semantics"]["values"] = [
+        [values[i] for i in shell] for shell in geometry.shells
+    ]
+
+
 def _add_object_geometries(
     obj,
     obj_data: dict,
@@ -357,10 +368,13 @@ def _add_object_geometries(
             continue
         elif isinstance(geometry, Surface) and len(geometry.vertices) == 0:
             continue
-        elif isinstance(geometry, MultiSurface) and len(geometry.surfaces) == 0:
+        elif (
+            isinstance(geometry, (MultiSurface, Solid)) and len(geometry.surfaces) == 0
+        ):
             continue
 
         lod = geometry_type_to_lod(geom_type, config)
+        lod = lod if isinstance(lod, str) else format(lod, "g")
 
         if isinstance(geometry, Mesh):
             # Use terrain-specific converter for terrain objects
@@ -382,11 +396,13 @@ def _add_object_geometries(
             geom_data["lod"] = lod
             obj_data["geometry"].append(geom_data)
 
-        elif isinstance(geometry, MultiSurface):
+        elif isinstance(geometry, (MultiSurface, Solid)):
             geom_data = to_cityjson_multisurface(
                 geometry, vertices, scale_factor, config, indexer=indexer
             )
             geom_data["lod"] = lod
+            if isinstance(geometry, Solid):
+                _group_solid(geom_data, geometry)
             obj_data["geometry"].append(geom_data)
 
 

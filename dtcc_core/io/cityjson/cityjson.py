@@ -8,7 +8,6 @@ from ...model.geometry import Bounds
 from ...model.object.city import City
 from ...model.object.object import GeometryType
 from ...model.object.terrain import Terrain
-from .attributes import _AttributeNameError
 from .utils import get_root_objects, get_terrain_mesh, set_buildings
 
 
@@ -50,6 +49,7 @@ def setup_city(cj_obj: dict):
     # Handle metadata and bounds
     if "metadata" in cj_obj:
         metadata = cj_obj["metadata"]
+        city.transform.srs = metadata.get("referenceSystem", "")
         if "geographicalExtent" in metadata:
             extent = metadata["geographicalExtent"]
             if len(extent) >= 6:
@@ -157,12 +157,7 @@ def load(
 
         # Process buildings
         if "Building" in root_objects:
-            try:
-                set_buildings(cj_obj, root_objects["Building"], verts, city)
-            except _AttributeNameError:
-                raise
-            except Exception as e:
-                print(f"Warning: Error processing buildings: {e}")
+            set_buildings(cj_obj, root_objects["Building"], verts, city)
 
         # Process terrain
         if "TINRelief" in root_objects:

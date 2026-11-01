@@ -20,6 +20,7 @@ from ...model import (
     Object,
     Point,
     Solid,
+    Surface,
     Terrain,
     exchange,
 )
@@ -51,8 +52,8 @@ FEATURE_TYPES = {
     },
 }
 FEATURE_GEOMETRIES = {
-    "Building": (MultiSurface, Solid),
-    "BuildingPart": (MultiSurface, Solid),
+    "Building": (Surface, MultiSurface, Solid),
+    "BuildingPart": (Surface, MultiSurface, Solid),
     "LandUse": (MultiSurface,),
     "SolitaryVegetationObject": (MultiSurface, Solid, Point),
     "CityFurniture": (MultiSurface, Solid, Point),
@@ -441,7 +442,11 @@ def validate_export(city):
                     )
                 stack.append(child)
         for index, (key, record) in enumerate(value.geometry.items()):
-            if key != f"cityjson-{index}" or (
+            native_slot = (
+                record.lod in ("0", "1", "2", "3")
+                and key == f"GeometryType.LOD{record.lod}"
+            )
+            if (key != f"cityjson-{index}" and not native_slot) or (
                 record.role is not None
                 and not (
                     record.role == COMPOSITE_SURFACE_ROLE
@@ -484,6 +489,8 @@ def validate_export(city):
             surfaces = (
                 []
                 if type(geometry) in (Point, Mesh, MultiLineString)
+                else [geometry]
+                if type(geometry) is Surface
                 else geometry.surfaces
             )
             if type(geometry) not in (Point, Mesh, MultiLineString) and (
@@ -491,17 +498,17 @@ def validate_export(city):
             ):
                 raise ValueError("CityJSON MultiSurface boundaries must be nonempty")
             for item in (geometry, *surfaces, *lines):
-                if (
-                    item is not geometry
-                    and type(geometry) is not MultiLineString
-                    and item.normal.size
-                ):
+                if type(item) is Surface and item.normal.size:
                     raise NotImplementedError(
                         "Stored Surface normals have no explicit CityJSON mapping"
                     )
                 if item.fields or (item is not geometry and item.regions):
                     raise NotImplementedError(
                         "Nested fields/regions require an explicit CityJSON mapping"
+                    )
+                if type(geometry) is Surface and geometry.regions:
+                    raise NotImplementedError(
+                        "Surface regions require an explicit aggregate mapping"
                     )
                 if not np.array_equal(item.transform.affine, np.eye(4)):
                     raise NotImplementedError(
