@@ -275,6 +275,13 @@ bounded witness. Construction also uses **3 degrees**:
 - afterwards, to remove up to 16 vertices at sectors below 3 degrees when the
   contract still passes.
 
+Removing the vertex of a long, narrow sector closes all of it, which can move
+the boundary by more than epsilon. A sector below 1 degree whose vertex cannot
+be removed is instead truncated: its tip is filled, or cut off, where the
+sector is (delta + 2 epsilon) / 2 wide. That moves the boundary by about half
+this width and leaves new vertices about this width from the opposite edge, so
+it fits only a budget above delta / 2: in practice the retry budget.
+
 It does not optimize angles above that target. Neither value is the requested
 mesh-triangle angle, and neither promises that generated triangles attain it.
 

@@ -7,7 +7,11 @@ from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 
 from dtcc_core.builder.cleaning import construction
-from dtcc_core.builder.cleaning.contract import FidelityBudget, check_cleaning_contract
+from dtcc_core.builder.cleaning.contract import (
+    FidelityBudget,
+    check_cleaning_contract,
+    check_mesher_handoff_profile,
+)
 from tests.builder.cleaning_fixtures import survey_merge_group, topology_examples
 
 
@@ -129,6 +133,24 @@ def test_a_conforming_result_without_preferred_angles_does_not_stop_the_search(
     assert calls == [0, 1, 2]
     assert output == variants[2]
     assert report["reason"] == "preferred_candidate"
+
+
+def test_a_sector_below_one_degree_is_truncated_when_its_vertex_cannot_go():
+    # AIJ Case E, E-079: a 0.99 degree gap, 0.077 m wide at its mouth. Removing
+    # its vertex closes the whole gap, beyond the budget.
+    raw = [
+        Polygon([(0, 24), (3, 15.5), (7.5, 17), (5.5, 21), (14, 24.5), (12, 29.5)]),
+        Polygon([(11.5, 9.5), (7, 7), (9.5, 0), (23, 7), (14, 24.5), (5.5, 21)]),
+    ]
+    output, report = construction.construct(raw, delta=0.05, epsilon=0.0375)
+    assert output is not None, report
+    assert report["outcome"] == "conforming"
+    assert [
+        operation["operator"] for operation in report["mesher_profile"]["operations"]
+    ] == ["truncate_incident_sector"]
+    assert check_mesher_handoff_profile(output)["status"] == "pass"
+    contract = check_cleaning_contract(raw, output, delta=0.05, epsilon=0.0375)
+    assert contract["status"] == "pass"
 
 
 def test_local_improvement_cannot_hide_new_distant_conflicts():

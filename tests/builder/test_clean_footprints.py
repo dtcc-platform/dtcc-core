@@ -1,11 +1,17 @@
 """The single footprint cleaning entry point for buildings and cities."""
 
+from itertools import combinations
+
 import numpy as np
 import pytest
 from shapely.geometry import Polygon, box
 
 from dtcc_core import io
-from dtcc_core.builder import UnresolvedFootprintCleaningError, clean_footprints
+from dtcc_core.builder import (
+    UnresolvedFootprintCleaningError,
+    building_cells,
+    clean_footprints,
+)
 from dtcc_core.builder.cleaning import clean as clean_module
 from dtcc_core.builder.cleaning.blocks import block_walls
 from dtcc_core.builder.cleaning.clean import (
@@ -473,3 +479,61 @@ def test_mesh_builders_reuse_a_recorded_cleaning(monkeypatch):
     assert sorted(set(mesh.markers[mesh.markers >= 0].tolist())) == [0, 1]
     surface = meshes.build_city_surface_mesh(cleaned, report_mesh_quality=False)
     assert surface.vertices[:, 2].max() == pytest.approx(20)
+
+
+# Each case has a gap or notch narrower than 1 degree, wider than 1.5 times the
+# detail at its mouth: a corner contact and a shared edge from AIJ Case E
+# (E-126 and E-079), and one building with a notch.
+SECTOR_CASES = {
+    "corner_contact": [
+        (Polygon([(10, 4), (7, 11), (0, 7.5), (3, 0)]), 6),
+        (Polygon([(17, 5), (12.5, 13.5), (7, 11), (11, 2)]), 6),
+    ],
+    "shared_edge": [
+        (
+            Polygon([(0, 24), (3, 15.5), (7.5, 17), (5.5, 21), (14, 24.5), (12, 29.5)]),
+            12,
+        ),
+        (
+            Polygon([(11.5, 9.5), (7, 7), (9.5, 0), (23, 7), (14, 24.5), (5.5, 21)]),
+            24,
+        ),
+    ],
+    "notch": [
+        (
+            Polygon(
+                [(0, 0), (6, 0), (6, 10), (3.0431, 10), (3, 5), (2.9569, 10), (0, 10)]
+            ),
+            6,
+        ),
+    ],
+}
+
+
+@pytest.mark.parametrize("detail", [0.01, 0.05])
+@pytest.mark.parametrize("case", sorted(SECTOR_CASES))
+def test_a_sector_below_one_degree_is_truncated_at_small_detail(case, detail):
+    sources = SECTOR_CASES[case]
+    city = city_of(
+        *(
+            building(f"b{index}", polygon, height)
+            for index, (polygon, height) in enumerate(sources)
+        ),
+        terrain=False,
+    )
+
+    cleaned = clean_footprints(
+        city, min_building_detail=detail, min_area=0.0, lod=GeometryType.LOD0
+    )
+
+    assert len(cleaned.buildings) == 1
+    cells = building_cells(cleaned)
+    assert sorted(cell.height for cell in cells) == sorted(h for _, h in sources)
+    assert all(
+        a.polygon.intersection(b.polygon).area == 0 for a, b in combinations(cells, 2)
+    )
+    record = cleaned.attributes[RECORD_KEY]
+    assert record["mesher_profile"]["status"] == "pass"
+    # Truncating the sector moves the boundary by about half the detail, so it
+    # needs the retry budget.
+    assert record["fidelity_budget_used"] == pytest.approx(0.75 * detail)
