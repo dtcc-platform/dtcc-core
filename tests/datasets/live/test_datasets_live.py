@@ -1,16 +1,21 @@
 """Live checks that each downloading dataset still returns data upstream.
 
 Each case builds one dataset over a small Gothenburg bbox, so a failure points
-at the dataset and the upstream service behind it. SMHI, roads and transit
-datasets have their own live test files.
+at the dataset and the upstream service behind it. SMHI, roads, orthophoto and
+transit datasets have their own live test files. Transient upstream failures
+skip, as described in ``live_policy``.
+
+Downloads are cached, so a warm local cache can answer a case without
+contacting its upstream. CI starts with an empty cache.
 
 Run with ``DTCC_LIVE_DATASET_TESTS=1 pytest tests/datasets/live``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -25,12 +30,12 @@ from dtcc_core.model import (
     RoadNetwork,
     TreeCollection,
 )
-
+from tests.datasets.live.live_policy import skip_if_transient
 
 pytestmark = pytest.mark.live
 
-# 200 m x 200 m in central Gothenburg (EPSG:3006).
-SMALL_BBOX = (319_900.0, 6_397_800.0, 320_100.0, 6_398_000.0)
+# 200 m x 200 m in central Gothenburg (EPSG:3006), inside one LiDAR tile.
+SMALL_BBOX = (319_700.0, 6_397_800.0, 319_900.0, 6_398_000.0)
 
 
 @dataclass(frozen=True)
@@ -92,7 +97,7 @@ CASES = [
         dataset="trees",
         upstream="DTCC LiDAR server (Lantmäteriet)",
         expected_type=TreeCollection,
-        is_populated=lambda trees: trees is not None,
+        is_populated=lambda trees: len(trees) > 0,
     ),
     LiveDatasetCase(
         dataset="space_syntax",
@@ -102,9 +107,14 @@ CASES = [
     ),
     LiveDatasetCase(
         dataset="deso",
-        upstream="SCB DeSO",
+        upstream="SCB DeSO geometry + statistics API",
         expected_type=DeSO,
-        is_populated=lambda deso: len(deso) > 0,
+        # SCB suppresses some area values (NaN, stored as None), so one
+        # published value is enough to show the statistics API answered.
+        is_populated=lambda deso: any(
+            area.attributes.get("population_total") is not None for area in deso.areas
+        ),
+        kwargs={"statistics": ["population"]},
     ),
 ]
 
@@ -113,7 +123,13 @@ CASES = [
 def test_dataset_live(case: LiveDatasetCase) -> None:
     """Build the dataset from live upstream data and check it is not empty."""
     build = getattr(datasets, case.dataset)
-    result = build(bounds=SMALL_BBOX, strict_live=True, **case.kwargs)
+    # strict_live makes datasets that support it raise instead of returning a
+    # partial result. The others ignore it and raise on upstream failures anyway.
+    try:
+        result = build(bounds=SMALL_BBOX, strict_live=True, **case.kwargs)
+    except Exception as exc:
+        skip_if_transient(exc, f"{case.id} ({case.upstream})")
+        raise
 
     assert isinstance(result, case.expected_type), (
         f"{case.id} ({case.upstream}) returned {type(result).__name__}, "

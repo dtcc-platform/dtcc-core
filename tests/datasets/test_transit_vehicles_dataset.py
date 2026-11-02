@@ -489,3 +489,36 @@ def test_missing_trafiklab_key_strict_raises(monkeypatch):
             modes=("bus",),
             strict_live=True,
         )
+
+
+@pytest.mark.parametrize("fetch", ["_fetch_realtime_payload", "_fetch_route_metadata"])
+def test_trafiklab_request_errors_do_not_expose_the_api_key(
+    fetch, tmp_path, monkeypatch
+):
+    import requests
+
+    module = importlib.import_module("dtcc_core.datasets.transport.trafiklab_gtfs")
+    monkeypatch.setattr(
+        module, "_cached_routes_path", lambda operator, feed: tmp_path / "routes.csv"
+    )
+
+    def get(url, params=None, timeout=None):
+        prepared = requests.Request("GET", url, params=params).prepare()
+        response = requests.Response()
+        response.status_code = 403
+        response.url = prepared.url
+        response.reason = "Forbidden"
+        return response
+
+    monkeypatch.setattr(requests, "get", get)
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        getattr(module, fetch)(
+            requests, operator="sl", feed="sl", api_key="s3cr3t-key", timeout_s=1.0
+        )
+
+    assert exc.value.status_code == 403
+    assert "s3cr3t-key" not in str(exc.value)
+    assert "key=REDACTED" in str(exc.value)
+    assert exc.value.__cause__ is None
+    assert exc.value.__suppress_context__

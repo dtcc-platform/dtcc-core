@@ -6,6 +6,7 @@ the first line of any failure or skip message.
 
 Usage:
   python scripts/summarize_live_tests.py live-results.xml >> "$GITHUB_STEP_SUMMARY"
+  python scripts/summarize_live_tests.py --counts live-results.xml
 """
 
 from __future__ import annotations
@@ -19,7 +20,11 @@ STATUS_ICONS = {"passed": "✅", "failed": "❌", "skipped": "⏭️"}
 
 
 def _case_status(case: ET.Element) -> tuple[str, str]:
-    for tag, status in (("failure", "failed"), ("error", "failed"), ("skipped", "skipped")):
+    for tag, status in (
+        ("failure", "failed"),
+        ("error", "failed"),
+        ("skipped", "skipped"),
+    ):
         node = case.find(tag)
         if node is not None:
             message = node.get("message") or (node.text or "")
@@ -27,28 +32,46 @@ def _case_status(case: ET.Element) -> tuple[str, str]:
     return "passed", ""
 
 
-def _escape(text: str, limit: int = 200) -> str:
-    text = text.replace("|", "\\|").replace("\n", " ")
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+def _code_span(text: str, limit: int = 200) -> str:
+    """Show upstream text verbatim in a table cell, without Markdown or HTML."""
+    text = " ".join(text.split()).replace("`", "'").replace("|", "\\|")
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return f"`{text}`" if text else ""
+
+
+def _read_cases(report: Path) -> list[tuple[str, str, str, str]]:
+    """Return (status, module, test name, message) for each test case."""
+    cases = []
+    for case in ET.parse(report).getroot().iter("testcase"):
+        status, message = _case_status(case)
+        module = case.get("classname", "").rsplit(".", 1)[-1]
+        cases.append((status, module, case.get("name", ""), message))
+    return cases
+
+
+def _count_line(cases: list[tuple[str, str, str, str]]) -> str:
+    counts = {"passed": 0, "failed": 0, "skipped": 0}
+    for status, *_ in cases:
+        counts[status] += 1
+    return (
+        f"{counts['passed']} passed, {counts['failed']} failed, "
+        f"{counts['skipped']} skipped"
+    )
 
 
 def summarize(report: Path) -> str:
     """Return a Markdown summary of the JUnit XML report."""
-    rows = []
-    counts = {"passed": 0, "failed": 0, "skipped": 0}
-    for case in ET.parse(report).getroot().iter("testcase"):
-        status, message = _case_status(case)
-        counts[status] += 1
-        module = case.get("classname", "").rsplit(".", 1)[-1]
-        rows.append(
-            f"| {STATUS_ICONS[status]} {status} | `{module}` | `{case.get('name', '')}` "
-            f"| {_escape(message)} |"
-        )
-
+    cases = _read_cases(report)
+    rows = [
+        f"| {STATUS_ICONS[status]} {status} | `{module}` | `{name}` "
+        f"| {_code_span(message)} |"
+        for status, module, name, message in cases
+    ]
     lines = [
         "## Live dataset checks",
         "",
-        f"{counts['passed']} passed, {counts['failed']} failed, {counts['skipped']} skipped",
+        _count_line(cases),
         "",
         "| Status | File | Test | Message |",
         "|---|---|---|---|",
@@ -60,11 +83,33 @@ def summarize(report: Path) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     parser.add_argument("report", type=Path, help="pytest --junitxml report")
+    parser.add_argument(
+        "--counts",
+        action="store_true",
+        help="print only the passed/failed/skipped counts as one line",
+    )
     args = parser.parse_args(argv)
+
+    problem = None
     if not args.report.is_file():
-        print(f"## Live dataset checks\n\nNo report found at `{args.report}`.")
+        problem = f"No report found at `{args.report}`."
+    else:
+        try:
+            output = (
+                _count_line(_read_cases(args.report)) + "\n"
+                if args.counts
+                else summarize(args.report)
+            )
+        except ET.ParseError as exc:
+            problem = f"Could not read the report at `{args.report}`: {exc}."
+
+    if problem is not None:
+        if args.counts:
+            print(problem.replace("`", ""))
+        else:
+            print(f"## Live dataset checks\n\n{problem}")
         return 0
-    sys.stdout.write(summarize(args.report))
+    sys.stdout.write(output)
     return 0
 
 

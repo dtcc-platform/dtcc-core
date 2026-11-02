@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   live-datasets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Check out repository
@@ -28,6 +28,8 @@ jobs:
         run: uv sync --locked
 
       # Tests that need a provider key skip themselves when the secret is unset.
+      # The JUnit report stays on the runner: failure text can include request
+      # details, and uploaded artifacts are not masked.
       - name: Run live dataset tests
         env:
           DTCC_LIVE_DATASET_TESTS: "1"
@@ -35,19 +37,30 @@ jobs:
           VASTTRAFIK_AUTHENTICATION_KEY: ${{ secrets.VASTTRAFIK_AUTHENTICATION_KEY }}
         run: |
           cd tests
-          uv run --locked pytest datasets/live --run-live -rA \
+          uv run --locked pytest datasets/live --run-live -ra --tb=short \
             --junitxml=live-results.xml
 
       - name: Write summary
         if: always()
         run: |
-          uv run --locked python scripts/summarize_live_tests.py \
+          uv run --no-project python scripts/summarize_live_tests.py \
             tests/live-results.xml >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: live-dataset-results
-          path: tests/live-results.xml
-          if-no-files-found: ignore
+      # Every run posts its counts, so skipped (transient) cases stay visible.
+      # Passed runs go to the CI success channel; failed or timed-out runs go
+      # to the CI failure channel. A failed post does not fail the run.
+      - name: Slack notification on success
+        if: success()
+        continue-on-error: true
+        env:
+          NOTIFICATION_TITLE: "✅ *Live dataset checks passed*"
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_GITHUB }}
+        run: bash scripts/notify_live_tests.sh
+
+      - name: Slack notification on failure
+        if: failure() || cancelled()
+        continue-on-error: true
+        env:
+          NOTIFICATION_TITLE: "❌ *Live dataset checks failed*"
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_DEVELOPMENT }}
+        run: bash scripts/notify_live_tests.sh

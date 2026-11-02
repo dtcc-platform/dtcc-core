@@ -1812,6 +1812,25 @@ def test_live_test_skips_transient_failures(failure_class):
 
 
 @pytest.mark.parametrize(
+    ("failure_class", "status_code", "reason"),
+    [
+        ("connection", None, "Chalmers network or VPN"),
+        ("timeout", None, "Chalmers network or VPN"),
+        ("http_5xx", 503, "temporarily unavailable"),
+        ("http_4xx", 429, "temporarily unavailable"),
+    ],
+)
+def test_live_test_skip_reason_names_the_cause(failure_class, status_code, reason):
+    error = upstream_error(failure_class)
+    error.status_code = status_code
+    with pytest.raises(pytest.skip.Exception) as skipped:
+        live._skip_if_transient(error)
+    assert reason in str(skipped.value)
+    if reason == "temporarily unavailable":
+        assert "VPN" not in str(skipped.value)
+
+
+@pytest.mark.parametrize(
     "failure_class", ["http_4xx", "invalid_payload", "configuration"]
 )
 def test_live_test_fails_on_other_failures(failure_class):
@@ -2015,6 +2034,7 @@ LIVE_FAILURES = {
     "http_5xx": lambda: FakeResponse(503, "busy"),
     "http_4xx": lambda: FakeResponse(404, "missing"),
 }
+LIVE_TRANSIENT = {"connection", "timeout", "http_5xx"}
 
 
 @pytest.mark.parametrize("call_number", [1, 2], ids=["mosaic call", "tiles call"])
@@ -2035,10 +2055,10 @@ def test_live_test_classifies_failures_of_both_calls(
     try:
         live.test_orthophoto_live_mosaic_and_tiles(monkeypatch)
     except pytest.skip.Exception as skip:
-        assert failure_class in live.TRANSIENT, f"{failure_class} was skipped"
+        assert failure_class in LIVE_TRANSIENT, f"{failure_class} was skipped"
         assert failure_class in str(skip)
     except DatasetUpstreamError as error:
-        assert failure_class not in live.TRANSIENT, f"{failure_class} failed"
+        assert failure_class not in LIVE_TRANSIENT, f"{failure_class} failed"
         assert error.failure_class == failure_class
     else:
         pytest.fail("the failure must skip or fail the live test")
