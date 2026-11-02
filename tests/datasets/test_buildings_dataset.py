@@ -97,7 +97,9 @@ def test_buildings_default_build_returns_lod1_buildings(
         ground_only=True,
         _report_progress=False,
     )
-    mock_extract_roof_points.assert_called_once_with(initial_buildings, filtered_pointcloud)
+    mock_extract_roof_points.assert_called_once_with(
+        initial_buildings, filtered_pointcloud
+    )
     mock_compute_building_heights.assert_called_once_with(
         roof_buildings,
         terrain_raster,
@@ -138,8 +140,8 @@ def test_buildings_obj_export_returns_bytes(
     building_mesh_2 = Mock(name="building_mesh_2")
     lod1_building_1 = Mock(name="lod1_building_1")
     lod1_building_2 = Mock(name="lod1_building_2")
-    lod1_building_1.lod1.mesh.return_value = building_mesh_1
-    lod1_building_2.lod1.mesh.return_value = building_mesh_2
+    lod1_building_1.flatten_geometry.return_value.mesh.return_value = building_mesh_1
+    lod1_building_2.flatten_geometry.return_value.mesh.return_value = building_mesh_2
     mock_build_lod1_buildings.return_value = [lod1_building_1, lod1_building_2]
 
     city = Mock(name="city")
@@ -149,7 +151,9 @@ def test_buildings_obj_export_returns_bytes(
     mock_city_cls.return_value = city
 
     dataset = BuildingDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"obj-bytes") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"obj-bytes"
+    ) as mock_export:
         result = dataset.build(
             BuildingArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -159,8 +163,11 @@ def test_buildings_obj_export_returns_bytes(
         )
 
     assert result == b"obj-bytes"
-    lod1_building_1.lod1.mesh.assert_called_once_with(weld=True, snap=0.005)
-    lod1_building_2.lod1.mesh.assert_called_once_with(weld=True, snap=0.005)
+    for lod1_building in (lod1_building_1, lod1_building_2):
+        lod1_building.flatten_geometry.assert_called_once_with(GeometryType.LOD1)
+        lod1_building.flatten_geometry.return_value.mesh.assert_called_once_with(
+            weld=True, snap=0.005
+        )
     mock_merge_meshes.assert_called_once_with([building_mesh_1, building_mesh_2])
     mock_export.assert_called_once_with(merged_mesh, "obj")
 
@@ -194,8 +201,8 @@ def test_buildings_place_on_zero_offsets_meshes_before_merge(
     building_mesh_2.bounds = SimpleNamespace(zmin=-1.0)
     lod1_building_1 = Mock(name="lod1_building_1")
     lod1_building_2 = Mock(name="lod1_building_2")
-    lod1_building_1.lod1.mesh.return_value = building_mesh_1
-    lod1_building_2.lod1.mesh.return_value = building_mesh_2
+    lod1_building_1.flatten_geometry.return_value.mesh.return_value = building_mesh_1
+    lod1_building_2.flatten_geometry.return_value.mesh.return_value = building_mesh_2
     mock_build_lod1_buildings.return_value = [lod1_building_1, lod1_building_2]
 
     city = Mock(name="city")
@@ -329,12 +336,18 @@ def test_buildings_context_documents_lod1_lineage_and_limitations():
         "point_cloud",
         "building_footprints",
     }
-    assert any("smallest_building_size" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "smallest_building_size" in step
+        for step in manifest.provenance.processing_steps
+    )
     assert any("roof points" in step for step in manifest.provenance.processing_steps)
     assert manifest.presentation.headline == "LoD1 Building Blocks"
     assert manifest.presentation.legend["title"] == "LoD1 buildings"
     assert manifest.presentation.view_hints["level_of_detail"] == "LoD1"
-    assert any("not contain roof geometry" in warning for warning in manifest.presentation.warnings)
+    assert any(
+        "not contain roof geometry" in warning
+        for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["source"] == "OSM"
     assert manifest.request.parameters["place_on_zero"] is True

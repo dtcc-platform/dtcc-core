@@ -1,25 +1,23 @@
-"""Public-boundary tests for the authoritative footprint constructor."""
+"""Polygon-level tests for the authoritative footprint constructor.
+
+The entry point for buildings and cities, ``clean_footprints``, is tested in
+``test_clean_footprints.py``.
+"""
 
 import pytest
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
-import dtcc_core.builder.cleaning as cleaning
+import dtcc_core.builder.cleaning as cleaning_package
 from dtcc_core.builder.cleaning import construction
+from dtcc_core.builder.cleaning import footprints as cleaning
 from dtcc_core.builder.cleaning.contract import (
     check_cleaning_contract,
     check_mesher_handoff_profile,
 )
-from dtcc_core.model import Building, GeometryType, Surface
+from dtcc_core.builder.cleaning.plotting import plot_footprint_cleaning_comparison
+from dtcc_core.builder.cleaning.selection import select_footprints
 from dtcc_core.plotting.style import DTCC_THEMES
-
-
-def make_building(polygon, height=10.0):
-    surface = Surface()
-    surface.from_polygon(polygon, height)
-    building = Building()
-    building.add_geometry(surface, GeometryType.LOD0)
-    return building
 
 
 @pytest.mark.parametrize("show_changes", [False, True])
@@ -29,7 +27,7 @@ def test_plot_footprint_cleaning_comparison_returns_figure(show_changes):
     to_rgba = pytest.importorskip("matplotlib.colors").to_rgba
     plt = pytest.importorskip("matplotlib.pyplot")
 
-    figure, axes = cleaning.plot_footprint_cleaning_comparison(
+    figure, axes = plot_footprint_cleaning_comparison(
         [box(0.0, 0.0, 4.0, 4.0)],
         [box(0.0, 0.0, 3.5, 3.5)],
         show=False,
@@ -50,12 +48,7 @@ def test_plot_footprint_cleaning_comparison_returns_figure(show_changes):
 
 def test_unscaled_identity_preserves_parts_sources_and_is_deterministic():
     raw = [MultiPolygon([box(4, 0, 6, 2), box(0, 0, 2, 2)]), box(8, 0, 10, 2)]
-    options = cleaning.ConditioningOptions(
-        min_feature_size=0.0,
-        merge_distance=0.0,
-        min_hole_area=0.0,
-        enable_logging=False,
-    )
+    options = cleaning.ConditioningOptions(min_feature_size=0.0, enable_logging=False)
 
     first = cleaning.condition_polygon_coverage(
         raw, source_map=[[7, 3, 7], [2]], options=options
@@ -97,30 +90,22 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
         delta,
         epsilon,
         retry_epsilon,
-        merge_distance,
-        allow_source_merging,
         allow_residual_separation,
     ):
         assert allow_residual_separation is True
-        calls.append(
-            (
-                raw,
-                source_map,
-                delta,
-                epsilon,
-                retry_epsilon,
-                merge_distance,
-                allow_source_merging,
-            )
-        )
-        return [polygon], [[4]], {
-            "outcome": "unchanged",
-            "before_selection_contract": {
-                "status": "pass",
-                "fidelity": {"status": "pass"},
+        calls.append((raw, source_map, delta, epsilon, retry_epsilon))
+        return (
+            [polygon],
+            [[4]],
+            {
+                "outcome": "unchanged",
+                "before_selection_contract": {
+                    "status": "pass",
+                    "fidelity": {"status": "pass"},
+                },
+                "mesher_profile": {"status": "pass"},
             },
-            "mesher_profile": {"status": "pass"},
-        }
+        )
 
     monkeypatch.setattr(construction, "construct_coverage", fake_construct)
     result = cleaning.condition_polygon_coverage(
@@ -128,13 +113,12 @@ def test_positive_scale_uses_authoritative_constructor_and_reports_contract(
         source_map=[[4]],
         options=cleaning.ConditioningOptions(
             min_feature_size=0.5,
-            merge_distance=0.0,
             fidelity_budget=0.2,
             enable_logging=False,
         ),
     )
 
-    assert calls == [([polygon], [[4]], 0.5, 0.2, pytest.approx(0.3), 0.0, False)]
+    assert calls == [([polygon], [[4]], 0.5, 0.2, pytest.approx(0.3))]
     assert result.polygons == [polygon]
     assert result.source_map == [[4]]
     assert result.diagnostics["fidelity"]["status"] == "pass"
@@ -197,14 +181,18 @@ def test_warning_policy_does_not_admit_other_contract_failures(monkeypatch, fail
         def failed_fidelity(*args, **kwargs):
             report = original(*args, **kwargs)
             report["status"] = "fail"
-            report["fidelity"]["status"] = "fail" if failure == "fidelity" else "borderline"
+            report["fidelity"]["status"] = (
+                "fail" if failure == "fidelity" else "borderline"
+            )
             return report
 
         monkeypatch.setattr(construction, "check_cleaning_contract", failed_fidelity)
     with pytest.raises(cleaning.UnresolvedFootprintCleaningError):
         cleaning.condition_polygon_coverage(
-            raw, options=cleaning.ConditioningOptions(
-                fidelity_budget=0, enable_logging=False,
+            raw,
+            options=cleaning.ConditioningOptions(
+                fidelity_budget=0,
+                enable_logging=False,
             ),
         )
 
@@ -215,7 +203,6 @@ def test_simple_positive_scale_result_satisfies_shared_contracts():
         raw,
         options=cleaning.ConditioningOptions(
             min_feature_size=0.5,
-            merge_distance=0.0,
             enable_logging=False,
         ),
     )
@@ -231,13 +218,12 @@ def test_area_selection_is_explicit_and_does_not_change_cleaned_geometry():
         source_map=[[7], [9]],
         options=cleaning.ConditioningOptions(
             min_feature_size=0.0,
-            merge_distance=0.0,
             enable_logging=False,
         ),
     )
     original_wkb = [polygon.wkb for polygon in result.polygons]
 
-    selected = cleaning.select_footprints(result, min_area=2.0)
+    selected = select_footprints(result, min_area=2.0)
 
     assert [polygon.wkb for polygon in result.polygons] == original_wkb
     assert selected.source_map == [[9]]
@@ -245,30 +231,11 @@ def test_area_selection_is_explicit_and_does_not_change_cleaned_geometry():
     assert selected.diagnostics["selection"]["removed_area"] == pytest.approx(1.0)
 
 
-def test_building_adapter_keeps_original_building_indices():
-    buildings = [
-        make_building(box(0, 0, 2, 2)),
-        Building(),
-        make_building(box(4, 0, 6, 2)),
-    ]
-    result = cleaning.condition_building_footprints(
-        buildings,
-        lod=GeometryType.LOD0,
-        options=cleaning.ConditioningOptions(
-            min_feature_size=0.0,
-            merge_distance=0.0,
-            enable_logging=False,
-        ),
-    )
-    assert sorted(result.source_map) == [[0], [2]]
-
-
 @pytest.mark.parametrize(
     "options",
     [
         cleaning.ConditioningOptions(min_feature_size=-1.0),
-        cleaning.ConditioningOptions(merge_distance=float("nan")),
-        cleaning.ConditioningOptions(precision_grid=0.0),
+        cleaning.ConditioningOptions(min_feature_size=float("nan")),
         cleaning.ConditioningOptions(fidelity_budget=float("inf")),
     ],
 )
@@ -301,46 +268,35 @@ def test_condition_polygon_coverage_rejects_bad_source_maps():
         )
 
 
-@pytest.mark.parametrize("name", ["allow_source_merging", "allow_residual_separation"])
-def test_condition_polygon_coverage_rejects_nonboolean_permissions(name):
+def test_condition_polygon_coverage_rejects_nonboolean_permissions():
     with pytest.raises(TypeError, match="boolean"):
         cleaning.condition_polygon_coverage(
             [box(0, 0, 1, 1)],
-            options=cleaning.ConditioningOptions(**{name: "false"}),
+            options=cleaning.ConditioningOptions(allow_residual_separation="false"),
         )
 
 
 def test_cleaning_public_api_contains_only_supported_entry_points():
-    assert set(cleaning.__all__) == {
-        "ConditioningOptions",
-        "ConditioningResult",
+    assert set(cleaning_package.__all__) == {
+        "clean_footprints",
         "UnresolvedFootprintCleaningError",
-        "condition_polygon_coverage",
-        "condition_building_footprints",
         "plot_footprint_cleaning_comparison",
-        "select_footprints",
     }
 
 
-def test_merge_distance_controls_original_source_merge_eligibility():
+def test_the_scale_is_the_merge_distance():
     raw = [box(0, 0, 4, 4), box(4.2, 0, 8.2, 4)]
 
     separate = cleaning.condition_polygon_coverage(
         raw,
         options=cleaning.ConditioningOptions(
-            min_feature_size=0.5,
-            merge_distance=0.01,
-            collect_stage_metrics=False,
-            enable_logging=False,
+            min_feature_size=0.1, enable_logging=False
         ),
     )
     merged = cleaning.condition_polygon_coverage(
         raw,
         options=cleaning.ConditioningOptions(
-            min_feature_size=0.5,
-            merge_distance=0.5,
-            collect_stage_metrics=False,
-            enable_logging=False,
+            min_feature_size=0.5, enable_logging=False
         ),
     )
 
@@ -352,48 +308,40 @@ def test_merge_distance_controls_original_source_merge_eligibility():
 
 def test_merge_eligibility_does_not_assign_disconnected_sources():
     raw = [box(0, 0, 4, 4), box(5, 0, 9, 4)]
+    # The 1 m gap equals the scale: the sources are eligible (inclusive) and
+    # already conforming, so they stay separate regions.
     result = cleaning.condition_polygon_coverage(
-        raw, source_map=[[3], [7]],
-        options=cleaning.ConditioningOptions(merge_distance=2, enable_logging=False),
+        raw,
+        source_map=[[3], [7]],
+        options=cleaning.ConditioningOptions(min_feature_size=1, enable_logging=False),
     )
     assert result.diagnostics["outcome"] == "unchanged"
     assert result.diagnostics["groups"] == 1
-    assert {polygon.bounds: owners for polygon, owners in zip(
-        result.polygons, result.source_map
-    )} == {raw[0].bounds: [3], raw[1].bounds: [7]}
+    assert {
+        polygon.bounds: owners
+        for polygon, owners in zip(result.polygons, result.source_map)
+    } == {raw[0].bounds: [3], raw[1].bounds: [7]}
 
 
 def test_source_attribution_retains_resolved_small_scale_input():
     result = cleaning.condition_polygon_coverage(
-        [box(0, 0, 1e-6, 1e-6)], source_map=[[7]],
+        [box(0, 0, 1e-6, 1e-6)],
+        source_map=[[7]],
         options=cleaning.ConditioningOptions(
-            min_feature_size=1e-7, enable_logging=False,
+            min_feature_size=1e-7,
+            enable_logging=False,
         ),
     )
     assert result.source_map == [[7]]
 
 
-def test_merge_policy_handles_zero_touching_and_explicit_disable():
+def test_touching_sources_merge_and_report_the_merged_graph():
     raw = [box(0, 0, 4, 4), box(4, 0, 8, 4)]
 
     touching = cleaning.condition_polygon_coverage(
         raw,
         options=cleaning.ConditioningOptions(
-            min_feature_size=0.5,
-            merge_distance=0.0,
-            allow_source_merging=True,
-            collect_stage_metrics=False,
-            enable_logging=False,
-        ),
-    )
-    disabled = cleaning.condition_polygon_coverage(
-        raw,
-        options=cleaning.ConditioningOptions(
-            min_feature_size=0.5,
-            merge_distance=0.5,
-            allow_source_merging=False,
-            collect_stage_metrics=False,
-            enable_logging=False,
+            min_feature_size=0.5, enable_logging=False
         ),
     )
 
@@ -403,8 +351,6 @@ def test_merge_policy_handles_zero_touching_and_explicit_disable():
         **check_cleaning_contract(raw, touching.polygons, delta=0.5, achieved=True),
         "mesher_profile": check_mesher_handoff_profile(touching.polygons),
     }
-    assert len(disabled.polygons) == 2
-    assert sorted(disabled.source_map) == [[0], [1]]
 
 
 def test_merge_distance_is_inclusive_and_transitive():
@@ -414,13 +360,22 @@ def test_merge_distance_is_inclusive_and_transitive():
         box(9.0, 0.0, 13.0, 4.0),
     ]
 
+    # Gaps equal to the scale are eligible (inclusive) and transitive, but
+    # conforming input is returned unchanged.
+    at_scale = cleaning.condition_polygon_coverage(
+        raw,
+        options=cleaning.ConditioningOptions(
+            min_feature_size=0.5, enable_logging=False
+        ),
+    )
+    assert at_scale.diagnostics["outcome"] == "unchanged"
+    assert at_scale.diagnostics["merge_eligibility_groups"] == [[0, 1, 2]]
+    assert len(at_scale.polygons) == 3
+
     result = cleaning.condition_polygon_coverage(
         raw,
         options=cleaning.ConditioningOptions(
-            min_feature_size=0.6,
-            merge_distance=0.5,
-            collect_stage_metrics=False,
-            enable_logging=False,
+            min_feature_size=0.6, enable_logging=False
         ),
     )
 

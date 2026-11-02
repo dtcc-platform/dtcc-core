@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from copy import deepcopy
 import heapq
 import math
-from typing import TYPE_CHECKING, Callable, Literal, Sequence
+from collections import defaultdict
+from collections.abc import Callable, Sequence
+from copy import deepcopy
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -338,9 +339,7 @@ def _shortest_path_statistics(
                 for predecessor in predecessors[node]:
                     if sigma[node] > 0.0:
                         dependency[predecessor] += (
-                            sigma[predecessor]
-                            / sigma[node]
-                            * (1.0 + dependency[node])
+                            sigma[predecessor] / sigma[node] * (1.0 + dependency[node])
                         )
                 if node != source:
                     choice[node] += dependency[node]

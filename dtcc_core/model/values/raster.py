@@ -1,17 +1,14 @@
 # Copyright(C) 2023 Dag Wästberg
 # Licensed under the MIT License
-from email.headerregistry import Address
+from copy import deepcopy
+from dataclasses import dataclass, field
 
 import numpy as np
-from typing import Union
-from dataclasses import dataclass, field
 from affine import Affine
-from copy import deepcopy
 
 from ..geometry.bounds import Bounds
-from ..logging import info, warning, error
+from ..logging import error
 from ..model import Model
-
 
 # FIXME: Make Raster fit the UML diagram
 # FIXME: Make Raster own a Grid that holds Transform and Bounds
@@ -46,13 +43,19 @@ class Raster(Model):
 
     def _info_sections(self):
         sections = super()._info_sections()
-        sections[0][2].extend([("No data", self.nodata), ("Georeference", str(self.georef))])
+        sections[0][2].extend(
+            [("No data", self.nodata), ("Georeference", str(self.georef))]
+        )
         if self.data.ndim >= 2:
             sections[0][2].append(("Bounds", self.bounds.bndstr))
         return sections
 
     def _summary_items(self):
-        return [("shape", self.data.shape), ("dtype", str(self.data.dtype)), ("crs", self.crs)]
+        return [
+            ("shape", self.data.shape),
+            ("dtype", str(self.data.dtype)),
+            ("crs", self.crs),
+        ]
 
     @property
     def shape(self):
@@ -129,7 +132,12 @@ class Raster(Model):
 
         corners = [
             self.georef * (x, y)
-            for x, y in ((0, 0), (self.width, 0), (0, self.height), (self.width, self.height))
+            for x, y in (
+                (0, 0),
+                (self.width, 0),
+                (0, self.height),
+                (self.width, self.height),
+            )
         ]
         x, y = zip(*corners)
         return Bounds(min(x), min(y), max(x), max(y), 0, 0)
