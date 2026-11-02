@@ -177,6 +177,9 @@ def test_upstream_error_message_redacts_credential_query_params() -> None:
         requests.HTTPError(f"403 for url: {url}?X-Amz-Signature=s3cr3t-value"),
         requests.HTTPError(f"401 for url: {url}?a=1&db_password=s3cr3t-value"),
         requests.HTTPError(f"401 for url: {url}?client_auth=s3cr3t-value"),
+        requests.HTTPError(f"401 for url: {url}?apikey=s3cr3t-value"),
+        requests.HTTPError(f"401 for url: {url}?a=1&key=s3cr3t-value&b=2"),
+        requests.HTTPError(f"403 for url: {url}?X-Amz-Credential=s3cr3t-value"),
         requests.HTTPError(f"401 for url: {url}?a=1&x-api-key=s3cr3t-value"),
     ]
     for exc in errors:
@@ -190,9 +193,14 @@ def test_upstream_error_message_redacts_credential_query_params() -> None:
 
 
 def test_upstream_error_message_keeps_ordinary_query_params() -> None:
-    url = "https://example.test/wfs?bbox=1,2,3,4&typeName=deso&authority=EPSG&author=x"
+    query = (
+        "bbox=1,2,3,4&typeName=deso&authority=EPSG&author=x&monkey=1"
+        "&sortkey=name&tokenizer=word&keys=a,b"
+    )
+    url = f"https://example.test/wfs?{query}"
     error = DatasetDescriptor.build_upstream_error(
         "deso", "fetch", url, requests.HTTPError(f"500 for url: {url}")
     )
 
-    assert "bbox=1,2,3,4&typeName=deso&authority=EPSG&author=x" in str(error)
+    assert query in str(error)
+    assert "REDACTED" not in str(error)

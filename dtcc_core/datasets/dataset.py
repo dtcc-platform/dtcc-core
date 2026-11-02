@@ -116,10 +116,14 @@ class DatasetBaseArgs(BaseModel):
         return v
 
 
-# Query parameters that carry credentials, such as Trafiklab's ``?key=``.
+# Query parameters that carry credentials, such as Trafiklab's ``?key=``. The
+# secret word must start the name or follow a separator or a known prefix, so
+# ``api_key``, ``apikey`` and ``X-Amz-Signature`` match but ``monkey`` does not.
 _SECRET_QUERY_PARAM = re.compile(
-    r"([?&](?:[a-z_-]*(?:key|token|secret|password|passwd|signature)"
-    r"|(?:[a-z_-]*[_-])?(?:auth|authorization|sig))=)[^&#\s'\"]+",
+    r"([?&](?:[a-z0-9]+[_-])*"
+    r"(?:api|access|client|private|refresh|secret|session|subscription)?"
+    r"(?:key|token|secret|password|passwd|signature|credential|auth|authorization"
+    r"|sig)=)[^&#\s'\"]+",
     re.IGNORECASE,
 )
 
