@@ -29,7 +29,7 @@ def _load_rasterio(path: Path | list, **kwargs):
 
             raster.data = np.squeeze(data)
             raster.georef = src.transform
-            raster.crs = str(src.crs)
+            raster.crs = str(src.crs) if src.crs else ""
     else:
         if "merge_method" in kwargs:
             merge_method = kwargs["merge_method"]
@@ -42,7 +42,7 @@ def _load_rasterio(path: Path | list, **kwargs):
         raster.data = data.squeeze()
         raster.georef = transform
         with rasterio.open(path[0]) as src:
-            raster.crs = str(src.crs)
+            raster.crs = str(src.crs) if src.crs else ""
 
     return raster
 
