@@ -34,13 +34,15 @@ POPULATION_GRID_YEARS = tuple(range(2015, 2026))
 POPULATION_GRID_DEFAULT_YEAR = 2025
 POPULATION_GRID_CELL_SIZE = 1000.0
 POPULATION_GRID_PAGE_SIZE = 10000
-POPULATION_GRID_CACHE_VERSION = 2
+POPULATION_GRID_CACHE_VERSION = 3
 # DeSO areas tile all of Sweden, including its territorial sea, so they define
 # which cells lie in Sweden.
 COVERAGE_DESO_YEAR = 2025
-# SCB cell corners are up to a few millimetres off whole kilometres, so a cell
-# that only touches the bounds can overlap them by a sliver. Cells are 1 km².
+# A cell overlapping Sweden by less than this (in m², of 1 km²) counts as
+# outside it, so a DeSO boundary running along a cell edge adds no sliver.
 _MIN_OVERLAP_M2 = 1.0
+# SCB cell corners are up to a few millimetres off whole kilometres.
+_CELL_SIZE_TOLERANCE_M = 0.1
 
 # dtcc-core variable names mapped to SCB WFS fields.
 POPULATION_GRID_VARIABLES = {
@@ -100,7 +102,7 @@ def download_population_grid(
 def download_population_grid_geodataframe(
     bounds: Bounds, year: int = POPULATION_GRID_DEFAULT_YEAR, use_cache: bool = True
 ):
-    """Download SCB 1 km population cells overlapping ``bounds`` as a GeoDataFrame.
+    """Download the SCB 1 km population cells covering ``bounds`` as a GeoDataFrame.
 
     The result is in EPSG:3006 with one row per inhabited cell, a ``cell_id``
     (SCB ruta id), a ``reference_date`` and one column per variable in
@@ -124,7 +126,7 @@ def download_population_grid_geodataframe(
         return gpd.read_file(cache_path)
 
     info(f"Downloading SCB 1 km population grid {year}")
-    gdf = _cells_overlapping(_query_cells(cells, year), cells, year)
+    gdf = _cells_inside(_query_cells(cells, year), cells, year)
     if len(gdf) == 0:
         warning(
             f"No SCB population grid {year} cells in bounds {bounds.tuple}. "
@@ -164,13 +166,10 @@ def population_grid_raster(
     data = np.zeros((height, width), dtype=np.float32)
     inhabited = np.zeros((height, width), dtype=bool)
     for geometry, value in zip(gdf.geometry, gdf[variable], strict=True):
-        # Rounding absorbs the millimetre offsets of SCB cell corners.
-        cell_xmin, _, _, cell_ymax = geometry.bounds
-        col = round((cell_xmin - cells.xmin) / cell)
-        row = round((cells.ymax - cell_ymax) / cell)
-        if 0 <= row < height and 0 <= col < width:
-            data[row, col] = value
-            inhabited[row, col] = True
+        index = _grid_index(geometry, cells)
+        if index is not None:
+            data[index] = value
+            inhabited[index] = True
 
     boundaries = None
     if sweden is not None:
@@ -178,16 +177,7 @@ def population_grid_raster(
         coverage = (
             shapely.union_all(polygons) if polygons else shapely.geometry.Polygon()
         )
-        for row in range(height):
-            for col in range(width):
-                x = cells.xmin + col * cell
-                y = cells.ymax - (row + 1) * cell
-                outside = (
-                    coverage.intersection(box(x, y, x + cell, y + cell)).area
-                    < _MIN_OVERLAP_M2
-                )
-                if outside and not inhabited[row, col]:
-                    data[row, col] = np.nan
+        data[_outside(coverage, cells, height, width) & ~inhabited] = np.nan
         extent = box(*cells.tuple)
         boundaries = (
             shapely.union_all([p.boundary for p in polygons]).intersection(extent)
@@ -206,6 +196,39 @@ def population_grid_raster(
         requested_bounds=Bounds(*bounds.tuple),
         area_boundaries=boundaries,
     )
+
+
+def _grid_index(geometry, cells: Bounds) -> tuple[int, int] | None:
+    """Return the (row, col) of a cell polygon in the whole-cell bounds ``cells``.
+
+    Rows run north to south. Rounding absorbs the millimetre offsets of SCB
+    cell corners. Returns None for a cell outside ``cells``.
+    """
+    cell = POPULATION_GRID_CELL_SIZE
+    xmin, _, _, ymax = geometry.bounds
+    col = round((xmin - cells.xmin) / cell)
+    row = round((cells.ymax - ymax) / cell)
+    width = round((cells.xmax - cells.xmin) / cell)
+    height = round((cells.ymax - cells.ymin) / cell)
+    if 0 <= row < height and 0 <= col < width:
+        return row, col
+    return None
+
+
+def _outside(coverage, cells: Bounds, height: int, width: int) -> np.ndarray:
+    """Return a (height, width) mask of grid cells with no part in ``coverage``."""
+    cell = POPULATION_GRID_CELL_SIZE
+    cols, rows = np.meshgrid(np.arange(width), np.arange(height))
+    x = cells.xmin + cols * cell
+    y = cells.ymax - (rows + 1) * cell
+    boxes = shapely.box(x, y, x + cell, y + cell)
+    shapely.prepare(coverage)
+    outside = ~shapely.intersects(coverage, boxes)
+    # Only cells crossing the coverage boundary need an exact overlap area.
+    edge = ~outside & ~shapely.contains_properly(coverage, boxes)
+    overlap = shapely.area(shapely.intersection(coverage, boxes[edge]))
+    outside[edge] = overlap < _MIN_OVERLAP_M2
+    return outside
 
 
 def _sweden_areas(cells: Bounds, use_cache: bool = True):
@@ -233,6 +256,8 @@ def _query_cells(bounds: Bounds, year: int) -> list:
         "count": POPULATION_GRID_PAGE_SIZE,
     }
     features = []
+    seen = set()
+    total = None
     while True:
         params["startIndex"] = len(features)
         try:
@@ -253,14 +278,42 @@ def _query_cells(bounds: Bounds, year: int) -> list:
         ):
             raise _invalid_response(year, "the response has no 'features' list")
         page = payload["features"]
+        # A server that ignores startIndex repeats cells, so stop at the first repeat.
+        for cell_id in _cell_ids(page):
+            if cell_id in seen:
+                raise _invalid_response(year, f"cell {cell_id} appears more than once")
+            seen.add(cell_id)
         features.extend(page)
-        if len(page) < POPULATION_GRID_PAGE_SIZE:
-            matched = payload.get("numberMatched")
-            if isinstance(matched, int) and matched != len(features):
-                raise _invalid_response(
-                    year, f"SCB reported {matched} cells but returned {len(features)}"
-                )
-            return features
+        # The server may cap pages below the requested count, so a short page
+        # does not mark the end: paging stops at SCB's reported total.
+        matched = payload.get("numberMatched")
+        if isinstance(matched, bool) or not isinstance(matched, int):
+            raise _invalid_response(
+                year, f"the response has no cell count (numberMatched={matched!r})"
+            )
+        if total is None:
+            total = matched
+        elif matched != total:
+            raise _invalid_response(
+                year, f"SCB's cell count changed from {total} to {matched} while paging"
+            )
+        if page and len(features) < total:
+            continue
+        if len(features) != total:
+            raise _invalid_response(
+                year, f"SCB reported {total} cells but returned {len(features)}"
+            )
+        return features
+
+
+def _cell_ids(page: list) -> list[str]:
+    """Return the cell ids of the features in ``page`` that have one."""
+    ids = []
+    for feature in page:
+        props = feature.get("properties") if isinstance(feature, dict) else None
+        if isinstance(props, dict) and props.get("rutid_scb"):
+            ids.append(str(props["rutid_scb"]))
+    return ids
 
 
 def _invalid_response(year: int, problem: str) -> RuntimeError:
@@ -270,13 +323,16 @@ def _invalid_response(year: int, problem: str) -> RuntimeError:
     )
 
 
-def _cells_overlapping(features: list, bounds: Bounds, year: int):
-    """Keep cells whose area overlaps ``bounds``, not those only touching an edge.
+def _cells_inside(features: list, cells: Bounds, year: int):
+    """Keep the cells whose north-west corner, rounded to whole kilometres,
+    lies inside the whole-cell bounds ``cells``.
 
-    Raises RuntimeError if a feature lacks a polygon geometry, a cell id or a
-    non-negative count for any variable.
+    Neighbouring cells that only touch ``cells`` are dropped.
+
+    Raises RuntimeError if a feature lacks a cell id, a 1 km square polygon
+    geometry or a finite, non-negative count for any variable.
     """
-    area = box(*bounds.tuple)
+    size = POPULATION_GRID_CELL_SIZE
     rows = []
     for index, feature in enumerate(features):
         if not isinstance(feature, dict):
@@ -291,19 +347,29 @@ def _cells_overlapping(features: list, bounds: Bounds, year: int):
             shape = None
         if shape is None or shape.geom_type != "Polygon" or shape.is_empty:
             raise _invalid_response(year, f"cell {cell_id} has no polygon geometry")
+        xmin, ymin, xmax, ymax = shape.bounds
+        if (
+            abs(xmax - xmin - size) > _CELL_SIZE_TOLERANCE_M
+            or abs(ymax - ymin - size) > _CELL_SIZE_TOLERANCE_M
+        ):
+            raise _invalid_response(
+                year,
+                f"cell {cell_id} is not a 1 km cell "
+                f"({xmax - xmin:.3f} m x {ymax - ymin:.3f} m)",
+            )
         values = {}
         for variable, field in POPULATION_GRID_VARIABLES.items():
             value = props.get(field)
             if (
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
-                or not value >= 0
+                or not 0 <= value < math.inf
             ):
                 raise _invalid_response(
                     year, f"cell {cell_id} has no valid count for {field!r} ({value!r})"
                 )
             values[variable] = value
-        if shape.intersection(area).area < _MIN_OVERLAP_M2:
+        if _grid_index(shape, cells) is None:
             continue
         row = {
             "cell_id": cell_id,

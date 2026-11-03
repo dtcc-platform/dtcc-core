@@ -106,7 +106,7 @@ class PopulationGridDataset(DatasetDescriptor):
     processing_steps = [
         "Extend the requested bounds outward to whole 1 km SCB grid cells",
         "Query the SCB WFS for those cells in pages, rejecting incomplete or malformed responses",
-        "Keep cells whose area overlaps the whole-cell bounds, not those only touching an edge",
+        "Keep the cells of the whole-cell bounds, placing each by its corner rounded to whole kilometres",
         "Rename SCB fields to total, men, women and age_<from>_<to> variables",
         "Place the selected variable on the 1 km SCB grid, extended outward to whole cells",
         "Set cells that SCB omits (no residents) to 0",

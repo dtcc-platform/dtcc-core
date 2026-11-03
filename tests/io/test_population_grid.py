@@ -1,6 +1,9 @@
+import json
+
 import geopandas as gpd
 import numpy as np
 import pytest
+import shapely
 from affine import Affine
 from shapely.geometry import box, mapping
 
@@ -24,8 +27,9 @@ def _cell(x, y, total, **fields):
         "referenstid": "20251231",
         **fields,
     }
-    # SCB cell corners are a fraction of a millimetre off whole kilometres.
-    geometry = box(x - 0.0004, y + 0.001, x + 999.998, y + 999.997)
+    # SCB cell corners are up to about 5 mm off whole kilometres, so a cell that
+    # only touches the bounds overlaps them by a few m².
+    geometry = box(x - 0.005, y - 0.004, x + 1000.005, y + 1000.004)
     return {"type": "Feature", "properties": props, "geometry": mapping(geometry)}
 
 
@@ -33,8 +37,9 @@ CELLS = [
     _cell(319000, 6398000, 100),
     _cell(320000, 6398000, 200),
     _cell(320000, 6397000, 300),
-    # Shares only the east edge x = 321000 with BOUNDS.
+    # Share only the east edge x = 321000 or the north edge y = 6399000 with BOUNDS.
     _cell(321000, 6398000, 999),
+    _cell(320000, 6399000, 888),
 ]
 
 
@@ -118,15 +123,28 @@ def test_raster_selects_variable(fake_wfs):
     assert raster.data.tolist() == [[50.0, 100.0], [0.0, 150.0]]
 
 
-def test_pages_until_short_page(fake_wfs, monkeypatch):
+def test_pages_until_scb_total(fake_wfs, monkeypatch):
     monkeypatch.setattr(population_grid, "POPULATION_GRID_PAGE_SIZE", 2)
 
     gdf = population_grid.download_population_grid_geodataframe(BOUNDS)
 
-    # The second page is full, so a third request confirms the end.
+    # SCB reports 5 cells, so paging stops once all 5 are in.
     assert [c["startIndex"] for c in fake_wfs.calls] == [0, 2, 4]
     assert all(c["sortBy"] == "objectid" for c in fake_wfs.calls)
     assert len(gdf) == 3
+
+
+def test_pages_past_a_server_cap(fake_wfs, monkeypatch):
+    # The server returns at most 2 cells per page, whatever count is requested.
+    def capped_get(url, params, headers, timeout):
+        return fake_wfs(url, {**params, "count": 2}, headers, timeout)
+
+    monkeypatch.setattr(population_grid.requests, "get", capped_get)
+
+    gdf = population_grid.download_population_grid_geodataframe(BOUNDS)
+
+    assert [c["startIndex"] for c in fake_wfs.calls] == [0, 2, 4]
+    assert gdf["total"].tolist() == [100, 200, 300]
 
 
 def test_uses_cache_on_second_call(fake_wfs):
@@ -198,7 +216,7 @@ def test_bounds_covering_the_same_cells_share_a_cache_entry(fake_wfs):
     [
         ({"type": "FeatureCollection"}, "no 'features' list"),
         ([], "no 'features' list"),
-        ({"features": ["oops"]}, "feature 0 is not an object"),
+        ({"features": ["oops"], "numberMatched": 1}, "feature 0 is not an object"),
         (
             {
                 "features": [
@@ -207,9 +225,15 @@ def test_bounds_covering_the_same_cells_share_a_cache_entry(fake_wfs):
                         "properties": {"beftotalt": 5},
                         "geometry": None,
                     }
-                ]
+                ],
+                "numberMatched": 1,
             },
             "no cell id",
+        ),
+        ({"features": CELLS[:2]}, r"no cell count \(numberMatched=None\)"),
+        (
+            {"features": CELLS[:2], "numberMatched": "unknown"},
+            "no cell count \\(numberMatched='unknown'\\)",
         ),
     ],
 )
@@ -246,6 +270,15 @@ def _with(**props):
         (_with(man=None), "no valid count for 'man'"),
         (_with(kvinna=-1), "no valid count for 'kvinna'"),
         (_with(beftotalt="12"), "no valid count for 'beftotalt'"),
+        (_with(beftotalt=float("inf")), "no valid count for 'beftotalt'"),
+        (_with(man=float("nan")), "no valid count for 'man'"),
+        (
+            {
+                **_cell(320000, 6397000, 300),
+                "geometry": mapping(box(320000, 6397000, 323000, 6398000)),
+            },
+            r"not a 1 km cell \(3000.000 m x 1000.000 m\)",
+        ),
         ({**_cell(320000, 6397000, 300), "geometry": None}, "no polygon geometry"),
         (
             {
@@ -267,14 +300,129 @@ def test_missing_required_fields_raise_and_are_not_cached(
 
 
 def test_incomplete_paging_raises_and_is_not_cached(fake_wfs, monkeypatch, tmp_path):
+    # SCB reports 4 cells but stops after 2.
     def short_get(url, params, headers, timeout):
-        return FakeResponse({"features": CELLS[:2], "numberMatched": 4})
+        page = CELLS[:2] if params["startIndex"] == 0 else []
+        return FakeResponse({"features": page, "numberMatched": 4})
 
     monkeypatch.setattr(population_grid.requests, "get", short_get)
 
     with pytest.raises(RuntimeError, match="reported 4 cells but returned 2"):
         population_grid.download_population_grid_geodataframe(BOUNDS)
     assert list(tmp_path.rglob("*.gpkg")) == []
+
+
+def test_server_cap_without_total_raises_and_is_not_cached(
+    fake_wfs, monkeypatch, tmp_path
+):
+    # A server that caps pages below the page size and omits numberMatched.
+    def capped_get(url, params, headers, timeout):
+        start = params["startIndex"]
+        return FakeResponse({"features": CELLS[start : start + 2]})
+
+    monkeypatch.setattr(population_grid.requests, "get", capped_get)
+
+    with pytest.raises(RuntimeError, match="no cell count"):
+        population_grid.download_population_grid_geodataframe(BOUNDS)
+    assert list(tmp_path.rglob("*.gpkg")) == []
+
+
+def test_server_repeating_a_page_raises_and_is_not_cached(
+    fake_wfs, monkeypatch, tmp_path
+):
+    # SCB reports 400 cells but ignores startIndex and sends the first 2 every time.
+    calls = []
+
+    def repeating_get(url, params, headers, timeout):
+        calls.append(params["startIndex"])
+        return FakeResponse({"features": CELLS[:2], "numberMatched": 400})
+
+    monkeypatch.setattr(population_grid.requests, "get", repeating_get)
+
+    with pytest.raises(RuntimeError, match="appears more than once"):
+        population_grid.download_population_grid_geodataframe(BOUNDS)
+    assert calls == [0, 2]
+    assert list(tmp_path.rglob("*.gpkg")) == []
+
+
+def test_total_changing_while_paging_raises_and_is_not_cached(
+    fake_wfs, monkeypatch, tmp_path
+):
+    # The layer is updated between pages: 5 cells, then 3.
+    def changing_get(url, params, headers, timeout):
+        start = params["startIndex"]
+        total = 5 if start == 0 else 3
+        return FakeResponse(
+            {"features": CELLS[start : start + 2], "numberMatched": total}
+        )
+
+    monkeypatch.setattr(population_grid.requests, "get", changing_get)
+
+    with pytest.raises(RuntimeError, match="changed from 5 to 3 while paging"):
+        population_grid.download_population_grid_geodataframe(BOUNDS)
+    assert list(tmp_path.rglob("*.gpkg")) == []
+
+
+def test_infinite_count_from_json_raises(fake_wfs):
+    cell = json.loads(
+        json.dumps(_cell(320000, 6397000, 300)).replace(
+            '"beftotalt": 300', '"beftotalt": Infinity'
+        )
+    )
+    fake_wfs.state["cells"] = [cell]
+
+    with pytest.raises(RuntimeError, match="no valid count for 'beftotalt'"):
+        population_grid.download_population_grid_geodataframe(BOUNDS)
+
+
+def test_geodataframe_matches_raster_cells(fake_wfs):
+    gdf = population_grid.download_population_grid_geodataframe(BOUNDS)
+    raster = population_grid.download_population_grid(BOUNDS)
+
+    # The same cells, by grid position, in both outputs.
+    cells = population_grid.grid_bounds(BOUNDS)
+    placed = {
+        population_grid._grid_index(g, cells): v
+        for g, v in zip(gdf.geometry, gdf["total"], strict=True)
+    }
+    assert placed == {(0, 0): 100, (0, 1): 200, (1, 1): 300}
+    assert all(raster.data[index] == value for index, value in placed.items())
+    assert np.nansum(raster.data) == sum(placed.values())
+
+
+def test_outside_mask_matches_exact_overlap():
+    # A diagonal coastline, a 1 m sliver along a cell edge, and an empty coverage.
+    cells = Bounds(0.0, 0.0, 5000.0, 4000.0)
+    coverage = shapely.union_all(
+        [
+            shapely.Polygon([(0, 0), (5000, 0), (0, 4000)]),
+            box(4999.5, 0, 5000, 4000),
+        ]
+    )
+    size = population_grid.POPULATION_GRID_CELL_SIZE
+    expected = np.array(
+        [
+            [
+                coverage.intersection(
+                    box(
+                        col * size,
+                        4000 - (row + 1) * size,
+                        (col + 1) * size,
+                        4000 - row * size,
+                    )
+                ).area
+                < population_grid._MIN_OVERLAP_M2
+                for col in range(5)
+            ]
+            for row in range(4)
+        ]
+    )
+
+    outside = population_grid._outside(coverage, cells, 4, 5)
+
+    assert outside.tolist() == expected.tolist()
+    assert outside.any() and not outside.all()
+    assert population_grid._outside(shapely.Polygon(), cells, 4, 5).all()
 
 
 def test_empty_area_warns(fake_wfs, monkeypatch):
