@@ -1,7 +1,7 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -162,7 +162,7 @@ class VolumeGrid(Geometry):
     width: int = 0
     height: int = 0
     depth: int = 0
-    z_levels: ArrayLike | None = field(default=None, kw_only=True)
+    z_levels: ArrayLike | None = field(default=None, kw_only=True, compare=False)
 
     def _summary_items(self):
         return [
@@ -180,6 +180,21 @@ class VolumeGrid(Geometry):
                 self.depth = self.z_levels.size - 1
             self._validate_z_levels()
             self.z_levels = self.z_levels.astype(float, copy=True)
+
+    def __eq__(self, other):
+        # Layer boundaries compare by value; other fields compare as dataclass fields.
+        if other.__class__ is not self.__class__:
+            return NotImplemented
+        if (self.z_levels is None) != (other.z_levels is None):
+            return False
+        if self.z_levels is not None and not np.array_equal(
+            self.z_levels, other.z_levels
+        ):
+            return False
+        compared = [f.name for f in fields(self) if f.compare]
+        return tuple(getattr(self, name) for name in compared) == tuple(
+            getattr(other, name) for name in compared
+        )
 
     @classmethod
     def from_zsteps(

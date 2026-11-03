@@ -1,5 +1,7 @@
 """Regression tests for geometry metadata and mutation contracts."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -346,6 +348,17 @@ def test_volume_grid_layer_boundaries_roundtrip_and_clear():
     assert restored.z_levels is None
     assert restored.zstep == 1
 
+
+def test_volume_grid_equality_compares_layer_boundaries_by_value():
+    grid = VolumeGrid(width=1, height=1, z_levels=[0, 1, 3])
+    assert grid == replace(grid)
+    assert grid != replace(grid, z_levels=[0, 2, 3])
+
+
+def test_volume_grid_equality_distinguishes_explicit_and_uniform_layers():
+    grid = VolumeGrid(width=1, height=1, depth=2)
+    assert grid == replace(grid)
+    assert grid != replace(grid, z_levels=[0, 1, 2])
 
 def test_volume_grid_rejects_layer_boundaries_inconsistent_with_wire_depth():
     pb = VolumeGrid(width=1, height=1, z_levels=[0, 1, 3]).to_proto()
