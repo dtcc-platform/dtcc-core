@@ -370,6 +370,7 @@ def test_volume_grid_equality_distinguishes_explicit_and_uniform_layers():
     assert grid == replace(grid)
     assert grid != replace(grid, z_levels=[0, 1, 2])
 
+
 def test_volume_grid_rejects_layer_boundaries_inconsistent_with_wire_depth():
     pb = VolumeGrid(width=1, height=1, z_levels=[0, 1, 3]).to_proto()
     pb.geometry.volume_grid.depth = 0
