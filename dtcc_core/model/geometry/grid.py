@@ -237,6 +237,11 @@ class VolumeGrid(Geometry):
             raise ValueError("VolumeGrid z_levels must have depth + 1 entries.")
         if levels.dtype.kind not in "iuf" or not np.isfinite(levels).all():
             raise ValueError("VolumeGrid z_levels must contain finite real numbers.")
+        # Float16/32/64 values are exact as doubles; integers and wider floats may round.
+        if not (levels.dtype.kind == "f" and levels.dtype.itemsize <= 8) and any(
+            float(level) != level for level in levels.tolist()
+        ):
+            raise ValueError("VolumeGrid z_levels would lose precision in a double.")
         if not np.all(levels[1:] > levels[:-1]):
             raise ValueError("VolumeGrid z_levels must be strictly increasing.")
         if self._bounds is not None and (

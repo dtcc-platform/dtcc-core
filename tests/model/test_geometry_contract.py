@@ -303,6 +303,8 @@ def test_volume_grid_uniform_layers_keep_scalar_step(levels):
         ([False, True, True], "finite real"),
         ([0, 1, 1], "strictly increasing"),
         ([2, 1, 0], "strictly increasing"),
+        ([2**53, 2**53 + 1, 2**53 + 2], "lose precision"),
+        ([0, 2**53 + 1, 2**54], "lose precision"),
     ],
 )
 def test_volume_grid_rejects_invalid_layer_boundaries(levels, message):
@@ -315,6 +317,14 @@ def test_volume_grid_rejects_invalid_layer_boundaries(levels, message):
         grid.coordinates()
     with pytest.raises(ValueError, match=message):
         grid.to_proto()
+
+
+def test_volume_grid_large_exact_layer_boundaries_roundtrip():
+    levels = np.array([0, 2**53, 2**54], dtype=np.int64)
+    grid = VolumeGrid(width=1, height=1, z_levels=levels)
+    restored = VolumeGrid()
+    restored.from_proto(grid.to_proto().SerializeToString())
+    assert restored.z_levels.tolist() == levels.tolist()
 
 
 def test_volume_grid_rejects_conflicting_vertical_bounds():
