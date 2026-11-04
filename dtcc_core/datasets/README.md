@@ -144,12 +144,12 @@ Current Built-In Datasets
 | --- | --- | --- | --- | --- |
 | `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmäteriet/DTCC backend point cloud with classification presets and optional outlier removal. |
 | `orthophoto` | raw | `Raster` (RGBA); `RasterTileCollection` with `product="tiles"` | `tif` | Lantmäteriet orthophotos through the DTCC LM tile server; needs `server_url` or `DTCC_ORTHOPHOTO_URL`. See [the orthophoto guide](../../docs/datasets/orthophoto.md). |
+| `imperviousness` | raw | `Raster` | `tif` | Copernicus HRL Imperviousness Density for 2018, 2021 or 2024: sealed share of each 10 m cell in percent (0-100). Sea is NaN; outside the product, only 2018 is NaN (2021 and 2024 read as 0). |
 | `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider/cache footprints for context and table alignment; use `crs="EPSG:3006"` for table GeoJSON. |
 | `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 block buildings from selected footprints and point-cloud-derived heights. |
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
 | `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
-| `imperviousness` | raw | `Raster` | `tif` | Copernicus HRL Imperviousness Density for 2018, 2021 or 2024: sealed share of each 10 m cell in percent (0-100), NaN over sea and outside coverage. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |

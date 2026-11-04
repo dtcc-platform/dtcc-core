@@ -11,6 +11,7 @@ DATASET_DEMOS = (
     "dataset_city_volume_mesh.py",
     "dataset_deso.py",
     "dataset_hydrology.py",
+    "dataset_imperviousness.py",
     "dataset_ocean.py",
     "dataset_roads.py",
     "dataset_smoke.py",

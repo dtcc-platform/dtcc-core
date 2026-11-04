@@ -1,14 +1,18 @@
-from typing import Literal, Optional
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.io.data.imperviousness import (
     IMPERVIOUSNESS_DEFAULT_YEAR,
     IMPERVIOUSNESS_DOI,
+    empty_imperviousness_raster,
 )
 from dtcc_core.model import Raster
-from pydantic import Field
 
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from ..common import warning
+from .context import attach_dataset_context
+from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
 from .providers import provider_entry
 
 
@@ -19,7 +23,7 @@ class ImperviousnessArgs(DatasetBaseArgs):
         IMPERVIOUSNESS_DEFAULT_YEAR,
         description="Reference year of the Imperviousness Density layer.",
     )
-    format: Optional[Literal["tif"]] = Field(
+    format: Literal["tif"] | None = Field(
         None, description="Output format (tif for GeoTIFF bytes)"
     )
 
@@ -72,7 +76,7 @@ class ImperviousnessDataset(DatasetDescriptor):
     license = (
         "Copernicus full, free and open data policy (Regulation (EU) 2021/696). "
         "Attribution: \"Generated using European Union's Copernicus Land "
-        "Monitoring Service information; <DOI>\", with the DOI of the requested "
+        'Monitoring Service information; <DOI>", with the DOI of the requested '
         "year. State any modification and do not "
         "imply EU endorsement. Requires review before redistribution."
     )
@@ -92,8 +96,16 @@ class ImperviousnessDataset(DatasetDescriptor):
             "the CLMS GeoServer WMS, where each pixel index is the density"
         ),
         "Split large areas into tiles within each service's request size limit",
-        "Set values above 100 (sea and areas outside the product) to NaN",
+        (
+            "Check each image's size, CRS, grid and, for 2021 and 2024, the "
+            "palette before reading it"
+        ),
+        "Set values above 100 (sea, and outside the product for 2018) to NaN",
         "Reproject EPSG:3035 data onto the 10 m EPSG:3006 grid with nearest neighbour",
+        (
+            "On service failure, raise a typed upstream error with strict_live, "
+            "otherwise warn and return an all-NaN, uncached Raster marked partial"
+        ),
         "Return a Raster or serialize it as GeoTIFF bytes",
     ]
     presentation_headline = "Imperviousness Density"
@@ -129,7 +141,7 @@ class ImperviousnessDataset(DatasetDescriptor):
     key_points = [
         "10 m cells with sealed share in percent (0-100)",
         "Reference years 2018, 2021 and 2024; 2024 by default",
-        "No account needed; sea and areas outside the product are NaN",
+        "No account needed; sea is NaN",
         "Useful as a sealing input for land use, runoff and heat studies",
     ]
     presentation_legend = {
@@ -137,7 +149,10 @@ class ImperviousnessDataset(DatasetDescriptor):
         "entries": [
             {"label": "0", "meaning": "No sealed surface in the cell"},
             {"label": "100", "meaning": "Cell fully sealed"},
-            {"label": "NaN", "meaning": "Sea or outside the product coverage"},
+            {
+                "label": "NaN",
+                "meaning": "Sea, outside the product (2018 only), or no data",
+            },
         ],
     }
     view_hints = {
@@ -150,23 +165,73 @@ class ImperviousnessDataset(DatasetDescriptor):
         "Copernicus attribution and the DOI of the requested year must accompany redistributed data.",
         "Neither service is documented for programmatic use or has an SLA.",
         (
-            "2021 and 2024 values are read from WMS map images; a change to the "
-            "map style makes the download fail with an error."
+            "2021 and 2024 values are read from WMS map images. The download "
+            "checks the image palette and fails with an error if the map "
+            "style changes."
         ),
     ]
     presentation_limitations = [
         "The 10 m grid blurs narrow features such as paths and single trees over pavement.",
         "2021 and 2024 are resampled from the EPSG:3035 product grid.",
+        (
+            "Outside the product footprint, 2021 and 2024 read as 0 % because "
+            "the map images draw it the same as unsealed ground; only 2018 "
+            "returns NaN there."
+        ),
+        "A request is limited to 50 km x 50 km (25 million 10 m cells).",
     ]
 
+    def __call__(self, **kwargs):
+        args = self.validate(kwargs)
+        result, errors = self._realize(args)
+        result = self.prepare_result(result, args)
+        return attach_dataset_context(result, self._context(args, errors))
+
     def build(self, args: ImperviousnessArgs):
+        return self._realize(args)[0]
+
+    def _export_payload(self, args):
+        result, errors = self._realize(args)
+        context = self._context(args, errors)
+        return result, {"dataset_context": context.model_dump(mode="json")}
+
+    def _realize(self, args: ImperviousnessArgs):
+        """Return the Raster or GeoTIFF bytes and any upstream errors."""
         bounds = self.parse_bounds(args.bounds)
-        raster: Raster = dtcc_core.io.data.download_imperviousness(
-            bounds=bounds, year=args.year
-        )
+        errors: list[DatasetUpstreamError] = []
+        try:
+            raster: Raster = dtcc_core.io.data.download_imperviousness(
+                bounds=bounds, year=args.year
+            )
+        except DatasetUpstreamError as exc:
+            if args.strict_live:
+                raise
+            warning(
+                f"{exc} Returning an all-NaN, uncached imperviousness raster; "
+                "pass strict_live=True to raise instead."
+            )
+            errors.append(exc)
+            raster = empty_imperviousness_raster(bounds)
         if args.format == "tif":
-            return self.export_to_bytes(raster, "tif")
-        return raster
+            return self.export_to_bytes(raster, "tif"), errors
+        return raster, errors
+
+    def _context(self, args: ImperviousnessArgs, errors):
+        context = self.create_context(args)
+        # A failed tile discards the whole download, so any error means no data.
+        health: dict = {"status": "failed" if errors else "complete"}
+        self.apply_result_health_metadata(health, upstream_errors=errors)
+        warnings = [str(exc) for exc in errors]
+        presentation = context.presentation.model_copy(
+            update={"warnings": warnings + list(context.presentation.warnings)}
+        )
+        return context.model_copy(
+            update={
+                "health": health,
+                "warnings": warnings,
+                "presentation": presentation,
+            }
+        )
 
 
 __all__ = ["ImperviousnessArgs", "ImperviousnessDataset"]
