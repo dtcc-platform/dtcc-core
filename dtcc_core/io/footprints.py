@@ -4,32 +4,25 @@
 import json
 from pathlib import Path
 
+import fiona
+import numpy as np
+import shapely.affinity
 import shapely.geometry
 import shapely.ops
-import shapely.affinity
-import fiona
-import pyproj
-from ..model import City, Building, GeometryType, Surface
-import numpy as np
 
+from ..model import Building, City, GeometryType, Surface
+from ..model.geometry import Bounds
 from . import generic
+from .logging import error, info, warning
 from .utils import get_epsg
 from .vector_utils import (
-    validate_vector_file,
     create_bounds_filter,
-    get_vector_driver,
     determine_io_crs,
-    safe_reproject_geometry,
-    get_format_required_crs,
     get_geometry_crs,
+    get_vector_driver,
+    safe_reproject_geometry,
+    validate_vector_file,
 )
-
-from ..model import Building
-from ..model.geometry import Bounds
-
-from .logging import info, warning, error
-
-from typing import Union, List
 
 
 def building_bounds(footprint_file, buffer=0):
@@ -151,7 +144,7 @@ def _load_fiona(
                 building = _building_from_fiona(
                     s, uuid_field, height_field, target_crs, geometry=building_shape
                 )
-
+                building.attributes["source_bounds"] = list(building_shape.bounds)
                 buildings.append(building)
             if geom_type == "MultiPolygon":
                 for idx, polygon in enumerate(list(building_shape.geoms)):
@@ -168,7 +161,7 @@ def _load_fiona(
                         target_crs,
                         geometry=polygon,
                     )
-
+                    building.attributes["source_bounds"] = list(building_shape.bounds)
                     buildings.append(building)
 
     info(f"Loaded {len(buildings)} building footprints in {target_crs}")
@@ -176,7 +169,7 @@ def _load_fiona(
 
 
 def load(
-    filename: Union[str, List[str], Path, List[Path]],
+    filename: str | list[str] | Path | list[Path],
     uuid_field="id",
     height_field="",
     area_filter=None,
@@ -185,7 +178,7 @@ def load(
     target_crs=None,
 ) -> list[Building]:
     """
-    Load the buildings from a supported file and return a `City` object.
+    Load building footprints from supported vector files.
 
     Parameters
     ----------
@@ -208,8 +201,31 @@ def load(
 
     Returns
     -------
-    City
-        A `City` object representing the city loaded from the shapefile.
+    list[Building]
+        Buildings representing the loaded footprints.
+
+    Notes
+    -----
+    Multipart features are split into separate buildings. Repeated source IDs
+    receive unique ``<id>#<n>`` model IDs, ordered by normalized footprint
+    geometry, while ``attributes["source_id"]`` retains their source identity
+    (or existing provenance). Provider attributes are preserved. Unique input
+    IDs are unchanged and reserved so generated suffixes cannot collide with
+    them. Allocation covers all files in this call and is independent of their
+    order and of multipart component order. IDs may change if the set of inputs
+    sharing or reserving an ID changes; load related files together.
+
+    Each building has a computed ``attributes["source_bounds"]`` list containing
+    ``[minx, miny, maxx, maxy]`` for its whole source feature in the load's target
+    CRS, before multipart splitting or invalid-polygon repair. All parts carry
+    the same source extent even if dataset area filters later remove some parts.
+    This key replaces any source property of the same name.
+
+    These bounds preserve the extent used for source-feature containment tests;
+    they are not the current building's bounds and are not updated by later
+    geometry changes. Compare them only with query bounds in the load's CRS.
+    Native model serialization preserves the numeric list. Vector-file reloads
+    compute new source bounds from the features in that file.
     """
     if isinstance(filename, (list, tuple)):
         buildings = []
@@ -229,10 +245,10 @@ def load(
                 min_edge_distance=min_edge_distance,
                 target_crs=target_crs,
             )
-        return buildings
+        return _unique_building_ids(buildings)
 
     filename = validate_vector_file(filename, allow_multiple=True)
-    return generic.load(
+    buildings = generic.load(
         filename,
         "city",
         City,
@@ -244,10 +260,35 @@ def load(
         min_edge_distance=min_edge_distance,
         target_crs=target_crs,
     )
+    return _unique_building_ids(buildings)
 
 
-
-
+def _unique_building_ids(buildings):
+    """Separate model identity from shared source IDs across one complete load."""
+    groups = {}
+    for building in buildings:
+        groups.setdefault(building.id, []).append(building)
+    used = set(groups)
+    for source_id, group in sorted(groups.items()):
+        if len(group) == 1:
+            continue
+        group = sorted(
+            group,
+            key=lambda b: (
+                shapely.geometry.Polygon(b.lod0.vertices, b.lod0.holes).normalize().wkb,
+                json.dumps(b.attributes, sort_keys=True, default=str),
+            ),
+        )
+        number = 1
+        for building in group:
+            while f"{source_id}#{number}" in used:
+                number += 1
+            if building.attributes.get("source_id") is None:
+                building.attributes["source_id"] = source_id
+            building.id = f"{source_id}#{number}"
+            used.add(building.id)
+            number += 1
+    return buildings
 
 
 def _save_json_city(city: City, filename):
@@ -346,6 +387,15 @@ def save(city, filename, output_crs=None):
         automatically reprojected. If None:
         - GeoJSON files use EPSG:4326 (WGS84) per spec
         - Other formats use data's current CRS
+
+    Notes
+    -----
+    GeoJSON, Shapefile and GeoPackage exports serialize list attributes,
+    including ``source_bounds``, as comma-separated strings. Attributes are not
+    reprojected with the geometry, so ``source_bounds`` remains in the CRS used
+    when the footprints were loaded.
+    Use native model serialization to preserve the numeric list. Reloading an
+    exported vector file computes source bounds from its exported geometry.
     """
     generic.save(city, filename, "city", _save_formats, output_crs=output_crs)
 

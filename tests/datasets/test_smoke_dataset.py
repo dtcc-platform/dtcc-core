@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import importlib
 import hashlib
+import importlib
+import json
 from io import BytesIO
 
 import numpy as np
@@ -250,11 +250,11 @@ def test_smoke_streamlines_geojson_format_returns_lines():
     assert {feature["geometry"]["type"] for feature in data["features"]} == {
         "LineString"
     }
-    assert all(len(feature["geometry"]["coordinates"]) >= 2 for feature in data["features"])
-    assert {"velocity", "speed", "pressure"} <= set(data["metadata"]["fields"])
-    assert {"velocity", "speed", "pressure"} <= set(
-        data["features"][0]["properties"]
+    assert all(
+        len(feature["geometry"]["coordinates"]) >= 2 for feature in data["features"]
     )
+    assert {"velocity", "speed", "pressure"} <= set(data["metadata"]["fields"])
+    assert {"velocity", "speed", "pressure"} <= set(data["features"][0]["properties"])
 
 
 def test_smoke_slice_png_format_returns_exact_size_image():
@@ -499,6 +499,8 @@ def test_smoke_streamlines_png_export_writes_visualization_manifest(tmp_path):
     assert manifest["data_kind"] == "raster"
     assert manifest["product"] == "streamlines"
     assert manifest["fields"] == ["velocity", "speed", "pressure"]
+    # Only datasets that supply per-call context add it to the sidecar.
+    assert "dataset_context" not in manifest
 
     visualization = manifest["visualization"]
     assert visualization["profile"] == "table"

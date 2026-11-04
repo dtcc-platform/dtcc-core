@@ -1,20 +1,19 @@
 """Tests for the weather dataset (SMHI metobs latest-hour)."""
 
-from pathlib import Path
-import pytest
 import math
-import numpy as np
-from unittest.mock import patch, Mock
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.weather import (
+    PARAMETER_NAMES,
     WeatherDataset,
     WeatherDatasetArgs,
     _parse_latest_hour_csv,
     _resolve_parameter,
-    PARAMETER_NAMES,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -459,13 +458,14 @@ class TestWeatherDatasetRegistration:
         assert "Latest-hour snapshot" in manifest.metadata.collection_period
         assert "weather_observations" in manifest.metadata.data_types
         assert any(
-            "quality codes" in step
-            for step in manifest.provenance.processing_steps
+            "quality codes" in step for step in manifest.provenance.processing_steps
         )
         assert manifest.presentation.headline == "Latest-Hour SMHI Weather Stations"
         assert manifest.presentation.legend["title"] == "Weather station fields"
         assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
-        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert any(
+            "partial results" in warning for warning in manifest.presentation.warnings
+        )
         assert manifest.presentation.limitations
         assert manifest.request.parameters["field_name_style"] == "smhi"
 

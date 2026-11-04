@@ -1,8 +1,9 @@
-import pytest
-from pathlib import Path
-import json
 import tempfile
+from pathlib import Path
+
 import numpy as np
+import pytest
+
 from dtcc_core import builder, io
 from dtcc_core.model import Bounds, PointCloud
 
@@ -39,9 +40,7 @@ def test_load_pointcloud_from_dir(data_dir):
     assert len(pc.points) == 8148
 
 
-def test_load_pointcloud_from_dir_uses_stable_filename_order(
-    monkeypatch, tmp_path
-):
+def test_load_pointcloud_from_dir_uses_stable_filename_order(monkeypatch, tmp_path):
     (tmp_path / "tile_b.laz").write_bytes(b"")
     (tmp_path / "tile_a.las").write_bytes(b"")
     captured = {}

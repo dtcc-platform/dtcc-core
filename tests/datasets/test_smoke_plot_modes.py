@@ -22,7 +22,6 @@ from matplotlib.figure import Figure
 
 import dtcc_core.datasets as datasets
 
-
 BOUNDS = (0.0, 0.0, 10.0, 20.0)
 
 

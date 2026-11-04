@@ -11,7 +11,6 @@ from pathlib import Path
 
 from dtcc_core.datasets import DatasetManifest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "scripts" / "generate_dataset_contract.py"
 ARTIFACT_NAMES = (
@@ -37,9 +36,7 @@ def test_contract_artifacts_are_complete_and_reproducible(tmp_path):
     assert contract["schema_version"] == "dtcc-dataset-contract-v1"
     assert contract["dataset_names"] == expected_names
     assert sorted(contract["datasets"]) == expected_names
-    assert all(
-        contract["datasets"][name]["name"] == name for name in expected_names
-    )
+    assert all(contract["datasets"][name]["name"] == name for name in expected_names)
 
     manifest_schema = json.loads(
         (first / "manifest-v2.schema.json").read_text(encoding="utf-8")

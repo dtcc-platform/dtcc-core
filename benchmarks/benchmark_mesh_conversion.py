@@ -26,8 +26,13 @@ def main():
         vertices = rng.random((count, 3))
         for cls, width, field, to_native, to_python in (
             (Mesh, 3, "faces", mesh_to_builder_mesh, builder_mesh_to_mesh),
-            (VolumeMesh, 4, "cells", volume_mesh_to_builder_volume_mesh,
-             builder_volume_mesh_to_volume_mesh),
+            (
+                VolumeMesh,
+                4,
+                "cells",
+                volume_mesh_to_builder_volume_mesh,
+                builder_volume_mesh_to_volume_mesh,
+            ),
         ):
             mesh = cls(
                 vertices=vertices,
@@ -46,7 +51,9 @@ def main():
                     result = convert(source)
                     timings.append(time.perf_counter() - start)
                     del result
-                results[f"{cls.__name__}/{count}/{direction}"] = statistics.median(timings)
+                results[f"{cls.__name__}/{count}/{direction}"] = statistics.median(
+                    timings
+                )
     print(json.dumps({"median_seconds": results}, indent=2))
 
 

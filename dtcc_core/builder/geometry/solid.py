@@ -1,8 +1,8 @@
 """Boundary triangulation of native solids using the existing surface mesher."""
 
 from ...model import Mesh, Solid
-from ..register import register_model_method
 from ..meshing.meshing import _mesh_surface_collection
+from ..register import register_model_method
 
 
 @register_model_method
