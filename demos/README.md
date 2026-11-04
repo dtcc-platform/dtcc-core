@@ -6,6 +6,12 @@ Run scripts from the repository root, for example:
 python demos/build_lod1_buildings.py
 ```
 
+Geographic geometry demos use a 250 × 250 m box at Chalmers Johanneberg,
+centred at EPSG:3006 `(319970, 6397910)`: bounds
+`(319845, 6397785, 320095, 6398035)`. Regional station/vehicle queries use a
+45 km window around that centre; live buses use a 2 km window. Supplied
+CityJSON and synthetic examples retain their own geometry.
+
 For footprint cleaning and building meshing, follow this short tour:
 
 1. [Original footprints](dataset_building_footprints.py) — a dataset call and plot.

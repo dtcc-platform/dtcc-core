@@ -3,7 +3,7 @@
 import dtcc_core as dtcc
 
 city = dtcc.model.City()
-city.bounds = dtcc.Bounds(319720, 6397660, 320220, 6398160)
+city.bounds = dtcc.Bounds(319845, 6397785, 320095, 6398035)
 city.download_footprints()
 
 # Clean each building independently, keeping buildings separate.
