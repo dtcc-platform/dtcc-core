@@ -91,8 +91,7 @@ def audited_datasets(
 ) -> dict[str, DatasetDescriptor]:
     """Return public built-in ``dtcc-core`` datasets selected for static QA.
 
-    Test datasets, remote descriptors, and third-party registrations are not
-    part of this audit. The first implementation pass is intentionally scoped
+    Test datasets and third-party registrations are not part of this audit. The first implementation pass is intentionally scoped
     to built-in dataset definitions shipped by ``dtcc-core``.
     """
 
@@ -705,10 +704,7 @@ def _dataset_label(dataset: DatasetDescriptor) -> str:
 
 def _is_builtin_public_dataset(dataset: DatasetDescriptor) -> bool:
     module = dataset.__class__.__module__
-    return (
-        module.startswith("dtcc_core.datasets.")
-        and module != "dtcc_core.datasets.remote"
-    )
+    return module.startswith("dtcc_core.datasets.")
 
 
 def _normalize_patterns(patterns: str | Sequence[str] | None) -> tuple[str, ...]:
