@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -30,10 +31,11 @@ URBAN_ATLAS_SERVICE_URL = (
     "UA_UrbanAtlas_{year}/MapServer/2/query"
 )
 URBAN_ATLAS_DOI = {2018: "https://doi.org/10.2909/fb4dffa1-6ceb-4cc0-8372-1ed354c285e6"}
-URBAN_ATLAS_ATTRIBUTION = (
-    "Generated using European Union's Copernicus Land Monitoring Service information; {doi}"
-)
+URBAN_ATLAS_ATTRIBUTION = "Generated using European Union's Copernicus Land Monitoring Service information; {doi}"
 URBAN_ATLAS_PAGE_SIZE = 1000
+# Stops paging if the service keeps reporting more results (a million features).
+URBAN_ATLAS_MAX_PAGES = 1000
+URBAN_ATLAS_CACHE_VERSION = 2
 # "Other roads" is one polygon per Functional Urban Area (Göteborg: 8,284 ha,
 # 1.1 M vertices). Unsimplified bbox queries that include it fail with HTTP 500,
 # so it is fetched separately with server-side simplification.
@@ -46,6 +48,7 @@ URBAN_ATLAS_READ_TIMEOUT_SECONDS = float(
     os.environ.get("DTCC_URBAN_ATLAS_READ_TIMEOUT", "120")
 )
 _MIN_PIECE_AREA_M2 = 0.01
+URBAN_ATLAS_COLUMNS = ["ua_code", "ua_class", "fua_name", "geometry"]
 
 # The 27 Urban Atlas 2018 classes mapped onto the coarser LanduseClasses.
 # The original code and label are kept as surface-aligned attributes.
@@ -98,10 +101,21 @@ def download_urban_atlas(
     -------
     Landuse
         One surface per Urban Atlas polygon piece, clipped to ``bounds``, with
-        surface-aligned ``ua_code``, ``ua_class`` and ``fua_name`` attributes.
+        surface-aligned ``ua_code``, ``ua_class`` and ``fua_name`` attributes
+        and a ``requested_bounds`` attribute.
+
+    Raises
+    ------
+    DatasetUpstreamError
+        If the EEA service cannot be reached or returns an error or an
+        invalid response. Its ``failure_class`` tells transient failures
+        (connection, timeout, HTTP 5xx) from others.
     """
+    bounds = _ensure_bounds(bounds)
     gdf = download_urban_atlas_geodataframe(bounds, year=year, use_cache=use_cache)
-    return landuse_from_urban_atlas(gdf, year=year)
+    landuse = landuse_from_urban_atlas(gdf, year=year)
+    landuse.attributes["requested_bounds"] = list(bounds.tuple)
+    return landuse
 
 
 def download_urban_atlas_geodataframe(
@@ -110,7 +124,9 @@ def download_urban_atlas_geodataframe(
     """Download Urban Atlas polygons clipped to ``bounds`` as a GeoDataFrame.
 
     The result is in EPSG:3006 with columns ``ua_code``, ``ua_class`` and
-    ``fua_name``, one row per polygon piece.
+    ``fua_name``, one row per polygon piece. Only complete downloads are
+    cached, keyed by the exact bounds. Raises :class:`DatasetUpstreamError`
+    as :func:`download_urban_atlas` does.
     """
     if not HAS_GEOPANDAS:
         raise ImportError("GeoPandas is required to download Urban Atlas data.")
@@ -127,7 +143,9 @@ def download_urban_atlas_geodataframe(
         return gpd.read_file(cache_path)
 
     info(f"Downloading Urban Atlas {year} land use from the EEA service")
-    features = _query_features(bounds, year, f"code_{year} <> '{URBAN_ATLAS_ROAD_CODE}'")
+    features = _query_features(
+        bounds, year, f"code_{year} <> '{URBAN_ATLAS_ROAD_CODE}'"
+    )
     features += _query_features(
         bounds,
         year,
@@ -156,7 +174,9 @@ def landuse_from_urban_atlas(gdf, year: int = 2018) -> Landuse:
     for row in gdf.itertuples(index=False):
         code = str(row.ua_code)
         surfaces.surfaces.append(Surface().from_polygon(row.geometry, 0))
-        landuse.landuses.append(URBAN_ATLAS_LANDUSE_MAP.get(code, LanduseClasses.UNKNOWN))
+        landuse.landuses.append(
+            URBAN_ATLAS_LANDUSE_MAP.get(code, LanduseClasses.UNKNOWN)
+        )
         codes.append(code)
         classes.append(row.ua_class)
         fua_names.append(row.fua_name)
@@ -175,7 +195,26 @@ def landuse_from_urban_atlas(gdf, year: int = 2018) -> Landuse:
     return landuse
 
 
-def _query_features(bounds: Bounds, year: int, where: str, simplify: float | None = None):
+def _upstream_error(
+    year: int, url: str, failure_class: str, message: str, status_code=None
+):
+    from ...datasets.dataset import DatasetUpstreamError
+
+    return DatasetUpstreamError(
+        dataset="urban_atlas",
+        operation="query_features",
+        target=url,
+        failure_class=failure_class,
+        status_code=status_code,
+        message=f"Urban Atlas {year} query failed: {message}",
+    )
+
+
+def _query_features(
+    bounds: Bounds, year: int, where: str, simplify: float | None = None
+):
+    from ...datasets.dataset import DatasetDescriptor
+
     url = URBAN_ATLAS_SERVICE_URL.format(year=year)
     params = {
         "geometry": ",".join(str(v) for v in bounds.tuple),
@@ -193,29 +232,78 @@ def _query_features(bounds: Bounds, year: int, where: str, simplify: float | Non
         params["maxAllowableOffset"] = simplify
 
     features = []
-    offset = 0
-    while True:
-        params["resultOffset"] = offset
+    for _ in range(URBAN_ATLAS_MAX_PAGES):
+        params["resultOffset"] = len(features)
         try:
             response = requests.get(
                 url,
                 params=params,
-                timeout=(URBAN_ATLAS_CONNECT_TIMEOUT_SECONDS, URBAN_ATLAS_READ_TIMEOUT_SECONDS),
+                timeout=(
+                    URBAN_ATLAS_CONNECT_TIMEOUT_SECONDS,
+                    URBAN_ATLAS_READ_TIMEOUT_SECONDS,
+                ),
             )
             response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            raise DatasetDescriptor.build_upstream_error(
+                "urban_atlas", "query_features", url, exc
+            ) from exc
+        try:
             payload = response.json()
-        except (requests.exceptions.RequestException, ValueError) as exc:
-            raise RuntimeError(f"Failed to download Urban Atlas {year} data: {exc}") from exc
-        if "error" in payload:
-            raise RuntimeError(f"Urban Atlas service error: {payload['error']}")
-        page = payload.get("features", [])
+        except ValueError as exc:
+            raise _upstream_error(
+                year, url, "invalid_json", f"invalid JSON: {exc}"
+            ) from exc
+        page = _checked_page(payload, year, url)
         features.extend(page)
-        exceeded = payload.get("exceededTransferLimit") or payload.get(
-            "properties", {}
+        exceeded = payload.get("exceededTransferLimit") or (
+            payload.get("properties") or {}
         ).get("exceededTransferLimit")
         if not exceeded or not page:
             return features
-        offset += len(page)
+    raise _upstream_error(
+        year,
+        url,
+        "invalid_payload",
+        f"the service still reported more results after {URBAN_ATLAS_MAX_PAGES} pages",
+    )
+
+
+def _checked_page(payload, year: int, url: str) -> list:
+    """Return the features of one response page, or raise for an error or invalid page."""
+    if not isinstance(payload, dict):
+        raise _upstream_error(
+            year, url, "invalid_payload", "the response is not a JSON object"
+        )
+    if "error" in payload:
+        error = payload["error"]
+        code = error.get("code") if isinstance(error, dict) else None
+        failure_class = (
+            "http_5xx" if isinstance(code, int) and code >= 500 else "invalid_payload"
+        )
+        raise _upstream_error(
+            year,
+            url,
+            failure_class,
+            f"service error: {error}",
+            status_code=code if isinstance(code, int) else None,
+        )
+    page = payload.get("features")
+    if not isinstance(page, list):
+        raise _upstream_error(
+            year, url, "invalid_payload", "the response has no 'features' list"
+        )
+    for index, feature in enumerate(page):
+        props = feature.get("properties") if isinstance(feature, dict) else None
+        if not isinstance(props, dict) or not props.get(f"code_{year}"):
+            raise _upstream_error(
+                year, url, "invalid_payload", f"feature {index} has no code_{year}"
+            )
+        if not feature.get("geometry"):
+            raise _upstream_error(
+                year, url, "invalid_payload", f"feature {index} has no geometry"
+            )
+    return page
 
 
 def _clip_features(features, bounds: Bounds, year: int):
@@ -238,23 +326,39 @@ def _clip_features(features, bounds: Bounds, year: int):
                     "geometry": piece,
                 }
             )
+    return gpd.GeoDataFrame(rows, columns=URBAN_ATLAS_COLUMNS, crs="EPSG:3006")
+
+
+def empty_urban_atlas_geodataframe():
+    """Return an empty Urban Atlas GeoDataFrame with the usual columns, in EPSG:3006."""
     return gpd.GeoDataFrame(
-        rows, columns=["ua_code", "ua_class", "fua_name", "geometry"], crs="EPSG:3006"
+        columns=URBAN_ATLAS_COLUMNS, geometry="geometry", crs="EPSG:3006"
     )
 
 
 def _ensure_bounds(bounds) -> Bounds:
+    """Return ``bounds`` as Bounds; sequences are [minx, miny, maxx, maxy] or 3D."""
     if isinstance(bounds, Bounds):
         return bounds
-    return Bounds(*bounds)
+    values = list(bounds)
+    if len(values) == 4:
+        return Bounds(*values)
+    if len(values) == 6:
+        minx, miny, _, maxx, maxy, _ = values
+        return Bounds(minx, miny, maxx, maxy)
+    raise ValueError(
+        "bounds must be [minx, miny, maxx, maxy] or [minx, miny, minz, maxx, maxy, maxz], "
+        f"got {len(values)} values"
+    )
 
 
 def _cache_path(bounds: Bounds, year: int) -> Path:
-    xmin, ymin, xmax, ymax = (round(value) for value in bounds.tuple)
+    exact = ",".join(repr(float(value)) for value in bounds.tuple)
+    digest = hashlib.sha256(exact.encode("ascii")).hexdigest()[:16]
     return (
         Path(cache_dir)
         / "downloaded_urban_atlas"
-        / f"urban_atlas_{year}_{xmin}_{ymin}_{xmax}_{ymax}.gpkg"
+        / f"urban_atlas_v{URBAN_ATLAS_CACHE_VERSION}_{year}_{digest}.gpkg"
     )
 
 
@@ -263,5 +367,6 @@ __all__ = [
     "URBAN_ATLAS_SUPPORTED_YEARS",
     "download_urban_atlas",
     "download_urban_atlas_geodataframe",
+    "empty_urban_atlas_geodataframe",
     "landuse_from_urban_atlas",
 ]

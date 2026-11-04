@@ -1,6 +1,8 @@
 import pytest
+import requests
 from shapely.geometry import box, mapping
 
+from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.io.data import urban_atlas
 from dtcc_core.model import Bounds, Landuse, LanduseClasses
 
@@ -32,7 +34,9 @@ def fake_service(monkeypatch, tmp_path):
     calls = []
     pages = [
         {
-            "features": [_feature("11210", "Discontinuous dense urban fabric", box(0, 0, 50, 50))],
+            "features": [
+                _feature("11210", "Discontinuous dense urban fabric", box(0, 0, 50, 50))
+            ],
             "properties": {"exceededTransferLimit": True},
         },
         {"features": [_feature("14100", "Green urban areas", box(50, 0, 150, 50))]},
@@ -99,8 +103,14 @@ def test_landuse_keeps_holes():
 
     block = box(0, 0, 10, 10).difference(box(4, 4, 6, 6))
     gdf = gpd.GeoDataFrame(
-        [{"ua_code": "11100", "ua_class": "Continuous urban fabric", "fua_name": "X",
-          "geometry": block}],
+        [
+            {
+                "ua_code": "11100",
+                "ua_class": "Continuous urban fabric",
+                "fua_name": "X",
+                "geometry": block,
+            }
+        ],
         crs="EPSG:3006",
     )
 
@@ -117,7 +127,9 @@ def test_every_urban_atlas_class_is_mapped():
 
 def test_empty_area_warns(monkeypatch, tmp_path):
     warnings = []
-    monkeypatch.setattr(urban_atlas.requests, "get", lambda *a, **k: FakeResponse({"features": []}))
+    monkeypatch.setattr(
+        urban_atlas.requests, "get", lambda *a, **k: FakeResponse({"features": []})
+    )
     monkeypatch.setattr(urban_atlas, "cache_dir", tmp_path)
     monkeypatch.setattr(urban_atlas, "warning", warnings.append)
 
@@ -127,16 +139,154 @@ def test_empty_area_warns(monkeypatch, tmp_path):
     assert "Functional Urban Areas" in warnings[0]
 
 
-def test_service_error_raises(monkeypatch, tmp_path):
+class ErrorResponse(FakeResponse):
+    def __init__(self, status_code):
+        super().__init__({})
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        response = requests.Response()
+        response.status_code = self.status_code
+        raise requests.HTTPError(f"HTTP {self.status_code}", response=response)
+
+
+class BadJsonResponse(FakeResponse):
+    def json(self):
+        raise ValueError("Expecting value")
+
+
+def _raise(exc):
+    def fail(*args, **kwargs):
+        raise exc
+
+    return fail
+
+
+@pytest.mark.parametrize(
+    "get, failure_class, status_code",
+    [
+        (
+            lambda *a, **k: FakeResponse({"error": {"code": 500, "message": "boom"}}),
+            "http_5xx",
+            500,
+        ),
+        (
+            lambda *a, **k: FakeResponse(
+                {"error": {"code": 400, "message": "bad where"}}
+            ),
+            "invalid_payload",
+            400,
+        ),
+        (_raise(requests.exceptions.Timeout("read timed out")), "timeout", None),
+        (_raise(requests.exceptions.ConnectionError("no route")), "connection", None),
+        (lambda *a, **k: ErrorResponse(503), "http_5xx", 503),
+        (lambda *a, **k: ErrorResponse(404), "http_4xx", 404),
+        (lambda *a, **k: BadJsonResponse({}), "invalid_json", None),
+        (
+            lambda *a, **k: FakeResponse({"type": "FeatureCollection"}),
+            "invalid_payload",
+            None,
+        ),
+        (lambda *a, **k: FakeResponse([]), "invalid_payload", None),
+        (
+            lambda *a, **k: FakeResponse(
+                {"features": [{"properties": {}, "geometry": {}}]}
+            ),
+            "invalid_payload",
+            None,
+        ),
+        (
+            lambda *a, **k: FakeResponse(
+                {
+                    "features": [
+                        {**_feature("11100", "X", box(0, 0, 1, 1)), "geometry": None}
+                    ]
+                }
+            ),
+            "invalid_payload",
+            None,
+        ),
+    ],
+)
+def test_upstream_failures_raise_typed_errors_and_are_not_cached(
+    monkeypatch, tmp_path, get, failure_class, status_code
+):
+    monkeypatch.setattr(urban_atlas.requests, "get", get)
+    monkeypatch.setattr(urban_atlas, "cache_dir", tmp_path)
+
+    with pytest.raises(DatasetUpstreamError) as error:
+        urban_atlas.download_urban_atlas_geodataframe(BOUNDS)
+
+    assert error.value.dataset == "urban_atlas"
+    assert error.value.failure_class == failure_class
+    assert error.value.status_code == status_code
+    assert list(tmp_path.rglob("*.gpkg")) == []
+
+
+def test_paging_stops_after_the_page_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(urban_atlas, "URBAN_ATLAS_MAX_PAGES", 3)
+    monkeypatch.setattr(urban_atlas, "cache_dir", tmp_path)
+    page = {
+        "features": [_feature("11100", "X", box(0, 0, 1, 1))],
+        "exceededTransferLimit": True,
+    }
+    calls = []
     monkeypatch.setattr(
         urban_atlas.requests,
         "get",
-        lambda *a, **k: FakeResponse({"error": {"code": 500, "message": "boom"}}),
+        lambda *a, **k: calls.append(1) or FakeResponse(page),
+    )
+
+    with pytest.raises(DatasetUpstreamError, match="after 3 pages") as error:
+        urban_atlas.download_urban_atlas_geodataframe(BOUNDS)
+
+    assert error.value.failure_class == "invalid_payload"
+    assert len(calls) == 3
+
+
+def test_nearby_bounds_do_not_share_a_cache_entry(fake_service):
+    # These round to the same whole metres; the cached clip must not be reused.
+    first = urban_atlas.download_urban_atlas_geodataframe(Bounds(0.0, 0.0, 99.6, 100.0))
+    calls = len(fake_service)
+
+    second = urban_atlas.download_urban_atlas_geodataframe(
+        Bounds(0.0, 0.0, 100.4, 100.0)
+    )
+
+    assert len(fake_service) > calls
+    assert first.total_bounds[2] == pytest.approx(99.6)
+    assert second.total_bounds[2] == pytest.approx(100.4)
+
+
+def test_empty_result_round_trips_through_the_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        urban_atlas.requests, "get", lambda *a, **k: FakeResponse({"features": []})
     )
     monkeypatch.setattr(urban_atlas, "cache_dir", tmp_path)
+    urban_atlas.download_urban_atlas_geodataframe(BOUNDS)
+    monkeypatch.setattr(
+        urban_atlas.requests, "get", _raise(AssertionError("cache not used"))
+    )
 
-    with pytest.raises(RuntimeError, match="Urban Atlas service error"):
-        urban_atlas.download_urban_atlas_geodataframe(BOUNDS)
+    cached = urban_atlas.download_urban_atlas_geodataframe(BOUNDS)
+    landuse = urban_atlas.landuse_from_urban_atlas(cached)
+
+    assert len(cached) == 0
+    assert list(cached.columns) == urban_atlas.URBAN_ATLAS_COLUMNS
+    assert landuse.surfaces == [] and landuse.attributes["ua_code"] == []
+
+
+def test_landuse_records_requested_bounds(fake_service):
+    landuse = urban_atlas.download_urban_atlas(BOUNDS)
+
+    assert landuse.attributes["requested_bounds"] == [0.0, 0.0, 100.0, 100.0]
+
+
+def test_bounds_accept_four_or_six_values():
+    assert urban_atlas._ensure_bounds([0, 1, 2, 3]).tuple == (0, 1, 2, 3)
+    assert urban_atlas._ensure_bounds([0, 1, -5, 2, 3, 50]).tuple == (0, 1, 2, 3)
+    with pytest.raises(ValueError, match="got 5 values"):
+        urban_atlas._ensure_bounds([0, 1, 2, 3, 4])
 
 
 def test_unsupported_year_raises():
