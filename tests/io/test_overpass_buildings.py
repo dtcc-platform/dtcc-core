@@ -81,7 +81,12 @@ def test_overpass_buildings_assemble_multipolygon_relations(monkeypatch):
                     "members": [
                         {"type": "way", "ref": 1, "role": "outer", "geometry": outer_a},
                         {"type": "way", "ref": 2, "role": "outer", "geometry": outer_b},
-                        {"type": "way", "ref": 3, "role": "inner", "geometry": courtyard},
+                        {
+                            "type": "way",
+                            "ref": 3,
+                            "role": "inner",
+                            "geometry": courtyard,
+                        },
                         {"type": "node", "ref": 9, "role": "entrance"},
                     ],
                     "tags": {

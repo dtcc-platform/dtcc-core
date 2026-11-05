@@ -35,7 +35,12 @@ DRIVE_HIGHWAYS = frozenset(
 _NOT_ROADS = frozenset(
     {"construction", "proposed", "abandoned", "raceway", "bus_guideway", "busway"}
 )
-WALK_EXCLUDED_HIGHWAYS = _NOT_ROADS | {"motorway", "motorway_link", "trunk", "trunk_link"}
+WALK_EXCLUDED_HIGHWAYS = _NOT_ROADS | {
+    "motorway",
+    "motorway_link",
+    "trunk",
+    "trunk_link",
+}
 BIKE_EXCLUDED_HIGHWAYS = _NOT_ROADS | {"motorway", "motorway_link", "steps"}
 # Pedestrian ways that cyclists may use only when explicitly allowed.
 BIKE_PERMISSION_HIGHWAYS = frozenset({"footway", "pedestrian"})
@@ -167,7 +172,8 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
     result.edges = remap[edges] if len(edges) else np.empty((0, 2), dtype=np.int64)
     result.length = np.asarray(roads.length)[keep]
     result.attributes = {
-        key: [values[i] for i in keep] for key, values in (roads.attributes or {}).items()
+        key: [values[i] for i in keep]
+        for key, values in (roads.attributes or {}).items()
     }
     geometry = result.multilinestrings
     if geometry is not None and len(geometry.linestrings) == len(mask):

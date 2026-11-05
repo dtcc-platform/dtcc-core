@@ -325,7 +325,11 @@ def test_building_footprints_osm_keeps_courtyards_end_to_end(monkeypatch, tmp_pa
                     "id": 77,
                     "members": [
                         {"type": "way", "role": "outer", "geometry": ring(x0, y0, 100)},
-                        {"type": "way", "role": "inner", "geometry": ring(x0 + 30, y0 + 30, 40)},
+                        {
+                            "type": "way",
+                            "role": "inner",
+                            "geometry": ring(x0 + 30, y0 + 30, 40),
+                        },
                     ],
                     "tags": {"type": "multipolygon", "building": "yes"},
                 }

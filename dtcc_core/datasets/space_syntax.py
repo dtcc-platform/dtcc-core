@@ -287,9 +287,7 @@ class SpaceSyntaxDataset(DatasetDescriptor):
         import dtcc_core.datasets as datasets
 
         bounds = self.parse_bounds(args.bounds)
-        roads = datasets.roads(
-            bounds=bounds, source=args.source, network=args.network
-        )
+        roads = datasets.roads(bounds=bounds, source=args.source, network=args.network)
         result = analyze_space_syntax(
             roads,
             cost=args.cost,

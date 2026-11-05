@@ -3,9 +3,8 @@ from typing import Literal
 from pydantic import Field
 
 import dtcc_core
-from dtcc_core.model import RoadNetwork
-
 from dtcc_core.builder.roadnetwork import filter_road_network
+from dtcc_core.model import RoadNetwork
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
