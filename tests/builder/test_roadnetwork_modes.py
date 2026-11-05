@@ -202,3 +202,43 @@ def test_filter_drops_geometry_not_aligned_with_edges():
 def test_vehicle_tag_does_not_open_restricted_ways_to_bikes(tags):
     mask = road_network_mode_mask(_roads([tags]), "bike")
     assert not mask[0]
+
+
+def test_all_network_copies_even_with_misaligned_attributes():
+    roads = _roads([{"highway": "residential"}, {"highway": "primary"}])
+    roads.attributes["name"] = ["only one"]
+
+    copy = filter_road_network(roads, "all")
+
+    assert copy is not roads
+    assert copy.attributes["name"] == ["only one"]
+
+
+def test_mode_mask_rejects_attributes_not_aligned_with_edges():
+    roads = _roads([{"highway": "residential"}, {"highway": "primary"}])
+    roads.attributes["highway"] = ["residential"]
+
+    with pytest.raises(ValueError, match="'highway' has 1 values for 2 edges"):
+        road_network_mode_mask(roads, "walk")
+
+
+def test_filter_rejects_length_not_aligned_with_edges():
+    roads = _roads([{"highway": "residential"}, {"highway": "primary"}])
+    roads.length = np.ones(5)
+
+    with pytest.raises(ValueError, match="Length has 5 values for 2 edges"):
+        filter_road_network(roads, "drive")
+
+
+@pytest.mark.parametrize(
+    "tags, network, allowed",
+    [
+        ({"highway": "residential", "foot": "no;"}, "walk", False),
+        ({"highway": "residential", "foot": ";"}, "walk", True),
+        ({"highway": "footway", "bicycle": "yes;designated"}, "bike", True),
+        ({"highway": "residential", "vehicle": "no;yes"}, "bike", True),
+    ],
+)
+def test_mode_mask_reads_semicolon_separated_values(tags, network, allowed):
+    mask = road_network_mode_mask(_roads([tags]), network)
+    assert bool(mask[0]) is allowed

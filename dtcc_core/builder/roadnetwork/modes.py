@@ -87,11 +87,15 @@ def _access(attributes: dict, index: int, network: str):
     return None, None
 
 
-def _forbidden(value: str | None) -> bool:
-    """Whether an access value closes the way; ``a;b`` must close for every part."""
+def _all_parts_in(value: str | None, allowed_values: frozenset) -> bool:
+    """Whether every part of a ``;``-separated tag value is in ``allowed_values``.
+
+    Empty parts, as in ``no;``, are ignored; a value with no parts is not.
+    """
     if value is None:
         return False
-    return all(part.strip() in _FORBIDDEN for part in value.split(";"))
+    parts = [part.strip() for part in value.split(";") if part.strip()]
+    return bool(parts) and all(part in allowed_values for part in parts)
 
 
 def _edge_allowed(attributes: dict, index: int, network: str) -> bool:
@@ -100,13 +104,13 @@ def _edge_allowed(attributes: dict, index: int, network: str) -> bool:
         return False
 
     access_key, access_value = _access(attributes, index, network)
-    if _forbidden(access_value):
+    if _all_parts_in(access_value, _FORBIDDEN):
         return False
     # Only the mode's own tag (``foot`` or ``bicycle``), not ``vehicle`` or
     # ``access``, opens ways the mode may not use by default (motorways,
     # motorroads, steps and footways for bikes).
-    explicitly_allowed = (
-        access_key == _ACCESS_TAGS[network][0] and access_value in _ALLOWED
+    explicitly_allowed = access_key == _ACCESS_TAGS[network][0] and _all_parts_in(
+        access_value, _ALLOWED
     )
 
     if network == "drive":
@@ -140,6 +144,12 @@ def road_network_mode_mask(roads: RoadNetwork, network: RoadNetworkMode) -> np.n
     -------
     np.ndarray
         Boolean array with one entry per edge.
+
+    Raises
+    ------
+    ValueError
+        If ``network`` is unknown, or an attribute does not have one value
+        per edge.
     """
     edge_count = len(roads.edges)
     if network == "all":
@@ -149,6 +159,11 @@ def road_network_mode_mask(roads: RoadNetwork, network: RoadNetworkMode) -> np.n
             f"Invalid network '{network}'. Must be one of 'all', 'drive', 'walk', 'bike'."
         )
     attributes = roads.attributes or {}
+    for key, values in attributes.items():
+        if len(values) != edge_count:
+            raise ValueError(
+                f"Attribute '{key}' has {len(values)} values for {edge_count} edges."
+            )
     return np.array(
         [_edge_allowed(attributes, i, network) for i in range(edge_count)], dtype=bool
     )
@@ -158,16 +173,20 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
     """Return a copy of ``roads`` with only the edges usable by ``network``.
 
     The rules follow OpenStreetMap tagging: ``drive`` keeps motor roads,
-    ``walk`` drops motorways and trunk roads, and ``bike`` drops motorways,
-    steps, and footways unless cycling is explicitly allowed; a mode tag
-    such as ``foot=yes`` also opens a motorway. Access follows
+    ``walk`` drops motorways, and ``bike`` drops motorways, steps, and
+    footways, unless the mode's own tag (``foot`` or ``bicycle``) allows
+    them. ``motorroad=yes`` closes a road to walking and cycling. Access follows
     the OSM hierarchy, where the most specific tag present decides: ``foot``
     then ``access`` for walking, ``bicycle``, ``vehicle``, ``access`` for
     cycling, and ``motorcar``, ``motor_vehicle``, ``vehicle``, ``access`` for
     driving. ``no``, ``private`` and restricted values such as
     ``agricultural``, ``delivery`` or ``use_sidepath`` remove the edge.
-    Vertices no longer used by any edge are removed. Geometry that does not
-    have one linestring per edge cannot be filtered and is dropped.
+    Values may be ``;``-separated lists, which count when every part
+    does. Vertices no longer used by any edge are removed. Geometry that
+    does not have one linestring per edge cannot be filtered and is
+    dropped. An empty ``length`` array stays empty; attributes and any
+    other ``length`` must have one value per edge, or ``ValueError`` is
+    raised.
 
     Parameters
     ----------
@@ -181,16 +200,14 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
     RoadNetwork
         Filtered road network.
     """
+    if network == "all":
+        return deepcopy(roads)
     edge_count = len(roads.edges)
-    for key, values in (roads.attributes or {}).items():
-        if len(values) != edge_count:
-            raise ValueError(
-                f"Attribute '{key}' has {len(values)} values for {edge_count} edges."
-            )
+    length = np.asarray(roads.length)
+    if len(length) not in (0, edge_count):
+        raise ValueError(f"Length has {len(length)} values for {edge_count} edges.")
     mask = road_network_mode_mask(roads, network)
     result = deepcopy(roads)
-    if network == "all":
-        return result
 
     keep = np.flatnonzero(mask)
     # An empty network may store its edges as floats.
@@ -201,8 +218,7 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
 
     result.vertices = np.asarray(roads.vertices)[used]
     result.edges = remap[edges] if len(edges) else np.empty((0, 2), dtype=np.int64)
-    length = np.asarray(roads.length)
-    result.length = length[keep] if len(length) == edge_count else length
+    result.length = length[keep] if len(length) else length
     result.attributes = {
         key: [values[i] for i in keep]
         for key, values in (roads.attributes or {}).items()
