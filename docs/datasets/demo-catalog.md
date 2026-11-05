@@ -10,7 +10,8 @@ Geographic geometry demos use a 250 × 250 m Chalmers Johanneberg domain,
 centred at EPSG:3006 `(319970, 6397910)`, with bounds
 `(319845, 6397785, 320095, 6398035)`. The city model and LOD2 surface/volume
 examples share this area. Volume meshing uses an 80 m height and 12.5 m target
-edge length; surface examples use a 10 m target.
+edge length. City surface and flat mesh examples use a 10 m target; the terrain
+surface mesh example uses a 25 m target.
 
 Sparse station and transit-vehicle queries use a 45 km window around the same
 centre, `(297470, 6375410, 342470, 6420410)`, because the geometry domain has
