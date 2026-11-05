@@ -385,3 +385,16 @@ def test_way_sharing_an_id_with_a_relation_is_kept(monkeypatch):
         ("relation", 9),
         ("way", 9),
     ]
+
+
+@pytest.mark.parametrize(
+    "download", ["download_overpass_buildings", "download_overpass_roads"]
+)
+def test_overpass_rejects_invalid_bbox_before_querying(monkeypatch, download):
+    def fail_query(query):
+        raise AssertionError("an invalid bbox must not reach Overpass")
+
+    monkeypatch.setattr(overpass, "query_overpass_with_failover", fail_query)
+
+    with pytest.raises(ValueError, match="xmin < xmax"):
+        getattr(overpass, download)((320000.0, 6398000.0, 320000.0, 6398100.0))

@@ -5,7 +5,6 @@ import os
 import re
 
 import geopandas as gpd
-import numpy as np
 import requests
 from platformdirs import user_cache_dir
 from requests.adapters import HTTPAdapter
@@ -13,7 +12,7 @@ from shapely.geometry import LineString, Polygon, box
 from shapely.ops import polygonize, unary_union
 from urllib3.util.retry import Retry
 
-from ...reproject.reproject import reproject_array
+from ...reproject.bounds import bounds_to_wgs84
 
 # ``warning`` is re-exported for tests that assert nothing warns here.
 from .logging import debug, error, info, warning  # noqa: F401
@@ -200,13 +199,7 @@ def _bbox_3006_to_wgs84(bbox_3006):
     Uses all four corners; transforming only two diagonal corners clips the
     requested area.
     """
-    xmin, ymin, xmax, ymax = (float(value) for value in bbox_3006)
-    corners = np.array(
-        [[xmin, ymin, 0.0], [xmin, ymax, 0.0], [xmax, ymin, 0.0], [xmax, ymax, 0.0]]
-    )
-    lonlat = reproject_array(corners, "EPSG:3006", "EPSG:4326")
-    lons, lats = lonlat[:, 0], lonlat[:, 1]
-    return float(lons.min()), float(lats.min()), float(lons.max()), float(lats.max())
+    return bounds_to_wgs84(bbox_3006, "EPSG:3006")
 
 
 def filter_gdf_to_bbox(gdf, bbox_3006):
