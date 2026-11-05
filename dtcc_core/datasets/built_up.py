@@ -76,9 +76,9 @@ class BuiltUpDataset(DatasetDescriptor):
     update_frequency = "GHSL releases every few years (current: R2023A)"
     processing_steps = [
         "Read the requested window of the global 100 m Mollweide GeoTIFF directly from the remote zip",
-        "Convert built-up m² per cell to a built-up share",
-        "Average the share onto the 100 m EPSG:3006 grid, which preserves area totals",
-        "Convert back to m² per EPSG:3006 cell",
+        "Split each source cell's built-up m² over the 100 m EPSG:3006 cells it "
+        "overlaps, in proportion to the overlap (sum resampling), which preserves "
+        "area totals",
         "Return a Raster or serialize it as GeoTIFF bytes",
     ]
     presentation_headline = "Built-up Surface Over Time"
