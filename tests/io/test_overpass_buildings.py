@@ -184,3 +184,29 @@ def test_overpass_query_box_covers_all_bbox_corners(monkeypatch, download):
             lon, lat = to_wgs84.transform(x, y)
             assert west <= lon <= east
             assert south <= lat <= north
+
+
+def test_relation_keeps_outer_ring_inside_courtyard():
+    def ring(x0, y0, size):
+        return [
+            {"lon": x0, "lat": y0},
+            {"lon": x0 + size, "lat": y0},
+            {"lon": x0 + size, "lat": y0 + size},
+            {"lon": x0, "lat": y0 + size},
+            {"lon": x0, "lat": y0},
+        ]
+
+    relation = {
+        "type": "relation",
+        "id": 1,
+        "members": [
+            {"type": "way", "role": "outer", "geometry": ring(0, 0, 10)},
+            {"type": "way", "role": "inner", "geometry": ring(2, 2, 6)},
+            {"type": "way", "role": "outer", "geometry": ring(4, 4, 2)},
+        ],
+    }
+
+    shape = overpass._relation_polygon_lonlat(relation)
+
+    assert shape.area == pytest.approx(100 - 36 + 4)
+    assert shape.geom_type == "MultiPolygon"

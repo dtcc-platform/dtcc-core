@@ -6,6 +6,7 @@ import json
 from unittest.mock import Mock, patch
 
 import numpy as np
+import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
@@ -297,3 +298,49 @@ def test_building_footprints_geojson_default_remains_wgs84(mock_city_cls):
     data = json.loads(payload)
     x, y = data["features"][0]["geometry"]["coordinates"][0][0][:2]
     assert abs(x) <= 180 and abs(y) <= 90, (x, y)
+
+
+def test_building_footprints_osm_keeps_courtyards_end_to_end(monkeypatch, tmp_path):
+    """An OSM building with a courtyard keeps its hole through the dataset."""
+    import pyproj
+
+    from dtcc_core.io.data import overpass
+
+    to_wgs84 = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
+
+    def ring(x0, y0, size):
+        corners = [(x0, y0), (x0 + size, y0), (x0 + size, y0 + size), (x0, y0 + size)]
+        points = [to_wgs84.transform(x, y) for x, y in corners + corners[:1]]
+        return [{"lon": lon, "lat": lat} for lon, lat in points]
+
+    x0, y0 = 319950.0, 6398850.0
+
+    def fake_query(query):
+        return {
+            "elements": [
+                {
+                    "type": "relation",
+                    "id": 77,
+                    "members": [
+                        {"type": "way", "role": "outer", "geometry": ring(x0, y0, 100)},
+                        {"type": "way", "role": "inner", "geometry": ring(x0 + 30, y0 + 30, 40)},
+                    ],
+                    "tags": {"type": "multipolygon", "building": "yes"},
+                }
+            ]
+        }
+
+    monkeypatch.setattr(overpass, "query_overpass_with_failover", fake_query)
+    monkeypatch.setattr(overpass, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(overpass, "load_cache_metadata", list)
+    monkeypatch.setattr(overpass, "save_cache_metadata", lambda records: None)
+
+    footprints = datasets.building_footprints(
+        bounds=(319800.0, 6398700.0, 320200.0, 6399100.0), source="OSM"
+    )
+
+    assert isinstance(footprints, FootprintCollection)
+    assert len(footprints) == 1
+    footprint = footprints[0]
+    assert len(footprint.holes) == 1
+    assert footprint.to_polygon().area == pytest.approx(100 * 100 - 40 * 40, rel=1e-3)

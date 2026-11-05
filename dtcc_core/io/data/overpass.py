@@ -27,8 +27,8 @@ OVERPASS_ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
-ROAD_CACHE_VERSION = 3
-BUILDING_CACHE_VERSION = 2
+ROAD_CACHE_VERSION = 4
+BUILDING_CACHE_VERSION = 3
 OVERPASS_ENDPOINT_METADATA_KEY = "_dtcc_overpass_endpoint"
 OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
 OVERPASS_CONNECT_TIMEOUT_SECONDS = float(
@@ -227,7 +227,9 @@ ROAD_EXTRA_TAG_COLUMNS = {
     "service": "service",
     "foot": "foot",
     "bicycle": "bicycle",
+    "vehicle": "vehicle",
     "motor_vehicle": "motor_vehicle",
+    "motorcar": "motorcar",
     "motorroad": "motorroad",
 }
 
@@ -553,8 +555,11 @@ def _relation_polygon_lonlat(elem):
     """Build a (Multi)Polygon in lon/lat from a multipolygon relation.
 
     Outer and inner rings may each be split over several member ways, so
-    the member lines are joined with ``polygonize`` before inner rings are
-    cut out. Returns ``None`` when no closed outer ring can be formed.
+    the member lines are joined with ``polygonize`` first. Each inner ring
+    is cut from the smallest outer ring that contains it, so an outer ring
+    inside a courtyard stays part of the building. An inner ring that no
+    outer ring contains is cut from every outer ring it overlaps. Returns
+    ``None`` when no closed outer ring can be formed.
     """
     outer_lines = []
     inner_lines = []
@@ -567,14 +572,32 @@ def _relation_polygon_lonlat(elem):
         lines = inner_lines if member.get("role") == "inner" else outer_lines
         lines.append(LineString(points))
 
-    outer = list(polygonize(unary_union(outer_lines))) if outer_lines else []
+    # ``polygonize`` turns nested rings into separate faces with holes, so
+    # keep each face's exterior to recover the rings as drawn.
+    outer = (
+        [Polygon(face.exterior) for face in polygonize(unary_union(outer_lines))]
+        if outer_lines
+        else []
+    )
     if not outer:
         return None
-    shape = unary_union(outer)
-    if inner_lines:
-        inner = list(polygonize(unary_union(inner_lines)))
-        if inner:
-            shape = shape.difference(unary_union(inner))
+    inner = list(polygonize(unary_union(inner_lines))) if inner_lines else []
+
+    holes = [[] for _ in outer]
+    for ring in inner:
+        containing = [i for i, polygon in enumerate(outer) if polygon.covers(ring)]
+        if containing:
+            holes[min(containing, key=lambda i: outer[i].area)].append(ring)
+        else:
+            for i, polygon in enumerate(outer):
+                if polygon.intersects(ring):
+                    holes[i].append(ring)
+
+    parts = [
+        polygon.difference(unary_union(rings)) if rings else polygon
+        for polygon, rings in zip(outer, holes)
+    ]
+    shape = unary_union(parts)
     if shape.is_empty:
         return None
     return shape

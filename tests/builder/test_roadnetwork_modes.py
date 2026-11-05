@@ -72,3 +72,49 @@ def test_filter_keeps_attributes_and_drops_unused_vertices():
 def test_filter_rejects_unknown_network():
     with pytest.raises(ValueError):
         filter_road_network(_roads(EDGES), "boat")
+
+
+ACCESS_EDGES = [
+    {"highway": "residential", "vehicle": "no"},  # 0
+    {"highway": "residential", "vehicle": "no", "bicycle": "yes"},  # 1
+    {"highway": "residential", "vehicle": "no", "motor_vehicle": "yes"},  # 2
+    {"highway": "residential", "access": "no", "vehicle": "yes"},  # 3
+    {"highway": "residential", "motor_vehicle": "no", "motorcar": "yes"},  # 4
+    {"highway": "residential", "access": "no"},  # 5
+]
+
+
+@pytest.mark.parametrize(
+    "network, expected",
+    [
+        ("drive", [2, 3, 4]),
+        ("walk", [0, 1, 2, 4]),
+        ("bike", [1, 3, 4]),
+    ],
+)
+def test_mode_mask_follows_access_hierarchy(network, expected):
+    mask = road_network_mode_mask(_roads(ACCESS_EDGES), network)
+    assert np.flatnonzero(mask).tolist() == expected
+
+
+def test_filter_refreshes_geometry_bounds():
+    from dtcc_core.model import GeometryType, LineString, MultiLineString
+
+    roads = RoadNetwork()
+    roads.vertices = np.array([[0.0, 0.0], [1.0, 0.0], [100.0, 0.0], [101.0, 0.0]])
+    roads.edges = np.array([[0, 1], [2, 3]])
+    roads.length = np.ones(2)
+    roads.attributes = {"highway": ["residential", "motorway"]}
+    lines = MultiLineString(
+        linestrings=[
+            LineString(vertices=np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])),
+            LineString(vertices=np.array([[100.0, 0.0, 0.0], [101.0, 1.0, 0.0]])),
+        ]
+    )
+    roads.add_geometry(lines, GeometryType.MULTILINESTRING)
+    assert roads.bounds.xmax == 101.0
+
+    walk = filter_road_network(roads, "walk")
+
+    assert walk.bounds.xmax == 1.0
+    assert walk.multilinestrings.bounds.xmax == 1.0

@@ -43,8 +43,13 @@ BIKE_PERMISSION_HIGHWAYS = frozenset({"footway", "pedestrian"})
 _ALLOWED = frozenset({"yes", "designated", "permissive"})
 _FORBIDDEN = frozenset({"no", "private"})
 
-# The OSM tag that overrides general ``access`` for each mode.
-_MODE_TAG = {"drive": "motor_vehicle", "walk": "foot", "bike": "bicycle"}
+# OSM access tags that apply to each mode, most specific first. The first
+# tag present on a way decides; ``access`` is the general fallback.
+_ACCESS_TAGS = {
+    "drive": ("motorcar", "motor_vehicle", "vehicle", "access"),
+    "walk": ("foot", "access"),
+    "bike": ("bicycle", "vehicle", "access"),
+}
 
 
 def _tag(attributes: dict, key: str, index: int):
@@ -57,17 +62,26 @@ def _tag(attributes: dict, key: str, index: int):
     return str(value).strip().lower()
 
 
+def _access(attributes: dict, index: int, network: str):
+    """Return the most specific access tag set on an edge and its value."""
+    for key in _ACCESS_TAGS[network]:
+        value = _tag(attributes, key, index)
+        if value is not None:
+            return key, value
+    return None, None
+
+
 def _edge_allowed(attributes: dict, index: int, network: str) -> bool:
     highway = _tag(attributes, "highway", index)
     if highway is None:
         return False
 
-    mode_value = _tag(attributes, _MODE_TAG[network], index)
-    if mode_value in _FORBIDDEN:
+    access_key, access_value = _access(attributes, index, network)
+    if access_value in _FORBIDDEN:
         return False
-    explicitly_allowed = mode_value in _ALLOWED
-    if not explicitly_allowed and _tag(attributes, "access", index) in _FORBIDDEN:
-        return False
+    # Only a mode-specific tag, not general ``access``, opens ways the mode
+    # may not use by default (footways for bikes, motorroads, steps).
+    explicitly_allowed = access_key != "access" and access_value in _ALLOWED
 
     if network == "drive":
         return highway in DRIVE_HIGHWAYS
@@ -91,7 +105,8 @@ def road_network_mode_mask(roads: RoadNetwork, network: RoadNetworkMode) -> np.n
     ----------
     roads : RoadNetwork
         Road network with OpenStreetMap edge attributes (``highway``,
-        ``access``, ``foot``, ``bicycle``, ``motor_vehicle``, ``motorroad``).
+        ``access``, ``vehicle``, ``motor_vehicle``, ``motorcar``, ``foot``,
+        ``bicycle``, ``motorroad``).
     network : {"all", "drive", "walk", "bike"}
         Travel mode. ``"all"`` keeps every edge.
 
@@ -103,7 +118,7 @@ def road_network_mode_mask(roads: RoadNetwork, network: RoadNetworkMode) -> np.n
     edge_count = len(roads.edges)
     if network == "all":
         return np.ones(edge_count, dtype=bool)
-    if network not in _MODE_TAG:
+    if network not in _ACCESS_TAGS:
         raise ValueError(
             f"Invalid network '{network}'. Must be one of 'all', 'drive', 'walk', 'bike'."
         )
@@ -118,10 +133,12 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
 
     The rules follow OpenStreetMap tagging: ``drive`` keeps motor roads,
     ``walk`` drops motorways and trunk roads, and ``bike`` drops motorways,
-    steps, and footways unless cycling is explicitly allowed. ``access=no``
-    or ``private`` removes an edge unless the mode tag (``foot``,
-    ``bicycle`` or ``motor_vehicle``) allows it. Vertices no longer used by
-    any edge are removed.
+    steps, and footways unless cycling is explicitly allowed. Access follows
+    the OSM hierarchy, where the most specific tag present decides: ``foot``
+    then ``access`` for walking, ``bicycle``, ``vehicle``, ``access`` for
+    cycling, and ``motorcar``, ``motor_vehicle``, ``vehicle``, ``access`` for
+    driving. ``no`` or ``private`` removes the edge. Vertices no longer used
+    by any edge are removed.
 
     Parameters
     ----------
@@ -155,6 +172,8 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
     geometry = result.multilinestrings
     if geometry is not None and len(geometry.linestrings) == len(mask):
         geometry.linestrings = [geometry.linestrings[i] for i in keep]
+    if geometry is not None:
+        geometry.bounds = geometry.calculate_bounds()
     result._bounds = None
     return result
 

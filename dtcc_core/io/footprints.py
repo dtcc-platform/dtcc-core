@@ -57,6 +57,17 @@ def building_bounds(footprint_file, buffer=0):
     return bbox
 
 
+def _ring_vertices(ring, height, overwrite_height):
+    """Return a polygon ring as open (n, 3) vertices at ``height`` when 2D."""
+    vertices = np.array(ring.coords)
+    if np.allclose(vertices[0], vertices[-1]):
+        vertices = vertices[:-1]
+    if vertices.shape[1] == 2 or overwrite_height:
+        z = np.full((vertices.shape[0], 1), height, dtype=float)
+        vertices = np.hstack((vertices[:, :2], z))
+    return vertices
+
+
 def _building_from_fiona(
     s, uuid_field="id", height_field="", crs="", overwrite_height=False, geometry=None
 ):
@@ -87,14 +98,13 @@ def _building_from_fiona(
 
     footprint_surface = Surface()
 
-    surface_verts = np.array(polygon_footprint.exterior.coords)
-    if np.allclose(surface_verts[0], surface_verts[-1]):
-        surface_verts = surface_verts[:-1]
-    if surface_verts.shape[1] == 2 or overwrite_height:
-        height = np.zeros(surface_verts.shape[0]) + height
-        height = height.reshape(-1, 1)
-        surface_verts = np.hstack((surface_verts, height))
-    footprint_surface.vertices = surface_verts
+    footprint_surface.vertices = _ring_vertices(
+        polygon_footprint.exterior, height, overwrite_height
+    )
+    footprint_surface.holes = [
+        _ring_vertices(ring, height, overwrite_height)
+        for ring in polygon_footprint.interiors
+    ]
     footprint_surface.transform.srs = crs
     building.add_geometry(footprint_surface, GeometryType.LOD0)
 
