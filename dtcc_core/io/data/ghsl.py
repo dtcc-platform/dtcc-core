@@ -148,23 +148,24 @@ def _reproject_preserving_totals(
 ):
     """Reproject m² per cell so that area totals are preserved.
 
-    Values are converted to a built-up share, averaged onto the target grid
-    and converted back to m² per target cell.
+    Each source cell's area is split over the target cells it overlaps, in
+    proportion to the overlap (GDAL ``sum`` resampling), so a built-up cell
+    keeps its full area wherever it lands. Target cells without any source
+    data stay NaN.
     """
-    source_cell_area = abs(source_transform.a * source_transform.e)
-    share = np.full((height, width), np.nan, dtype=np.float32)
+    data = np.full((height, width), np.nan, dtype=np.float32)
     reproject(
-        source / source_cell_area,
-        share,
+        source,
+        data,
         src_transform=source_transform,
         src_crs=source_crs,
         src_nodata=np.nan,
         dst_transform=transform,
         dst_crs="EPSG:3006",
         dst_nodata=np.nan,
-        resampling=Resampling.average,
+        resampling=Resampling.sum,
     )
-    return share * abs(transform.a * transform.e)
+    return data
 
 
 def _target_grid(bounds: Bounds):

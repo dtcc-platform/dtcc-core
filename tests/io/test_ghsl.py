@@ -51,9 +51,81 @@ def test_returns_100m_raster_preserving_totals(fake_read):
     assert raster.data.shape == (10, 10)
     assert raster.crs == "EPSG:3006"
     assert raster.georef == Affine(100.0, 0, 319000.0, 0, -100.0, 6398000.0)
-    # A uniform 25% built-up share stays 2,500 m² per 100 m cell after reprojection.
-    assert raster.data == pytest.approx(np.full((10, 10), 2500.0), rel=1e-4)
-    assert np.nansum(raster.data) == pytest.approx(250_000.0, rel=1e-4)
+    # Uniform input stays uniform, and the total matches the exact overlap
+    # total. A 100 m Mollweide cell measures about 10,029 m² in EPSG:3006
+    # units here, so 2,500 m² per source cell is about 2,493 m² per target cell.
+    data, transform, _ = _mollweide_window()
+    assert raster.data == pytest.approx(np.full((10, 10), raster.data[5, 5]), rel=1e-4)
+    assert np.nansum(raster.data) == pytest.approx(
+        _exact_total(data, transform), rel=1e-4
+    )
+
+
+def _cells_inside_bounds(transform, shape, margin=150.0):
+    """Indices of source cells whose EPSG:3006 footprint lies well inside BOUNDS."""
+    to_3006 = Transformer.from_crs(MOLLWEIDE, "EPSG:3006", always_xy=True)
+    cells = []
+    for row in range(shape[0]):
+        for col in range(shape[1]):
+            corners = [
+                transform @ (col + dc, row + dr) for dc in (0, 1) for dr in (0, 1)
+            ]
+            xs, ys = to_3006.transform(*zip(*corners, strict=True))
+            if (
+                min(xs) > BOUNDS.xmin + margin
+                and max(xs) < BOUNDS.xmax - margin
+                and min(ys) > BOUNDS.ymin + margin
+                and max(ys) < BOUNDS.ymax - margin
+            ):
+                cells.append((row, col))
+    return cells
+
+
+def _exact_total(data, transform):
+    """Built-up m² inside BOUNDS, splitting each source cell by overlap area."""
+    from shapely.geometry import Polygon, box
+
+    to_3006 = Transformer.from_crs(MOLLWEIDE, "EPSG:3006", always_xy=True)
+    target = box(*BOUNDS.tuple)
+    total = 0.0
+    for row, col in zip(*np.nonzero(data), strict=True):
+        ring = [
+            transform @ (col + dc, row + dr)
+            for dc, dr in ((0, 0), (1, 0), (1, 1), (0, 1))
+        ]
+        cell = Polygon([to_3006.transform(x, y) for x, y in ring])
+        total += float(data[row, col]) * cell.intersection(target).area / cell.area
+    return total
+
+
+def test_isolated_built_up_cells_keep_their_full_area(fake_read):
+    _, transform, crs = _mollweide_window()
+    shape = _mollweide_window()[0].shape
+    cells = _cells_inside_bounds(transform, shape)
+    assert len(cells) > 20
+
+    for row, col in cells[:: max(1, len(cells) // 8)]:
+        data = np.zeros(shape, dtype=np.float32)
+        data[row, col] = 10_000.0
+        fake_read.state["window"] = (data, transform, crs)
+
+        raster = ghsl.download_built_up(BOUNDS, use_cache=False)
+
+        assert np.nansum(raster.data) == pytest.approx(10_000.0, abs=1.0)
+
+
+def test_non_uniform_built_up_keeps_the_exact_total(fake_read):
+    _, transform, crs = _mollweide_window()
+    rng = np.random.default_rng(118)
+    data = rng.uniform(0.0, 10_000.0, _mollweide_window()[0].shape).astype(np.float32)
+    data[rng.random(data.shape) < 0.5] = 0.0
+    fake_read.state["window"] = (data, transform, crs)
+
+    raster = ghsl.download_built_up(BOUNDS, use_cache=False)
+
+    assert np.nansum(raster.data) == pytest.approx(
+        _exact_total(data, transform), rel=1e-3
+    )
 
 
 @pytest.mark.parametrize(
