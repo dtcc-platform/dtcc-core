@@ -11,13 +11,18 @@ from dtcc_core.model import PointCloud, Raster
 
 def test_tree_workflow_preserves_ground_height_and_world_coordinates():
     rows, cols = np.indices((32, 32))
-    heights = (10 * np.exp(-((rows - 10)**2 + (cols - 10)**2) / 12)
-               + 8 * np.exp(-((rows - 22)**2 + (cols - 22)**2) / 12))
-    terrain = Raster(data=np.full((32, 32), 15.0),
-                     georef=Affine.translation(100, 200) * Affine.scale(0.5, -0.5))
+    heights = 10 * np.exp(-((rows - 10) ** 2 + (cols - 10) ** 2) / 12) + 8 * np.exp(
+        -((rows - 22) ** 2 + (cols - 22) ** 2) / 12
+    )
+    terrain = Raster(
+        data=np.full((32, 32), 15.0),
+        georef=Affine.translation(100, 200) * Affine.scale(0.5, -0.5),
+    )
     x, y = terrain.georef * (cols.ravel() + 0.5, rows.ravel() + 0.5)
-    pc = PointCloud(points=np.column_stack((x, y, 15 + heights.ravel())),
-                    classification=np.full(rows.size, 5, dtype=np.uint8))
+    pc = PointCloud(
+        points=np.column_stack((x, y, 15 + heights.ravel())),
+        classification=np.full(rows.size, 5, dtype=np.uint8),
+    )
     original = pc.points.copy()
     canopy = builder.tree_raster_from_pointcloud(pc, terrain)
     coords, tops, radii = builder.find_tree_tops(canopy)

@@ -3,11 +3,9 @@ from __future__ import annotations
 import importlib
 
 import numpy as np
-
 from shapely.geometry import Polygon
 
 from ...model import Mesh, Surface
-
 
 _DTCC_MESHER_MODULE = None
 _FLAT_COVERAGE_MAX_PROTECTION_LEVELS = 1
@@ -20,7 +18,9 @@ def _load_dtcc_mesher():
     return _DTCC_MESHER_MODULE
 
 
-def _surface_basis(surface: Surface) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _surface_basis(
+    surface: Surface,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if surface.normal.shape != (3,):
         surface.calculate_normal()
 
@@ -32,7 +32,9 @@ def _surface_basis(surface: Surface) -> tuple[np.ndarray, np.ndarray, np.ndarray
     tangent = None
     for index in range(len(surface.vertices)):
         start = np.asarray(surface.vertices[index], dtype=np.float64)
-        end = np.asarray(surface.vertices[(index + 1) % len(surface.vertices)], dtype=np.float64)
+        end = np.asarray(
+            surface.vertices[(index + 1) % len(surface.vertices)], dtype=np.float64
+        )
         candidate = end - start
         candidate = candidate - np.dot(candidate, normal) * normal
         if np.linalg.norm(candidate) > 1e-10:
@@ -52,14 +54,18 @@ def _surface_basis(surface: Surface) -> tuple[np.ndarray, np.ndarray, np.ndarray
     return origin, tangent, bitangent, normal
 
 
-def _project_surface(surface: Surface) -> tuple[np.ndarray, list[np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+def _project_surface(
+    surface: Surface,
+) -> tuple[
+    np.ndarray, list[np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+]:
     origin, tangent, bitangent, normal = _surface_basis(surface)
 
     def project(points: np.ndarray) -> np.ndarray:
         vectors = np.asarray(points, dtype=np.float64) - origin
-        return np.column_stack(
-            [vectors @ tangent, vectors @ bitangent]
-        ).astype(np.float64, copy=False)
+        return np.column_stack([vectors @ tangent, vectors @ bitangent]).astype(
+            np.float64, copy=False
+        )
 
     outer = project(surface.vertices)
     holes = [project(hole) for hole in surface.holes if len(hole) >= 3]
@@ -72,10 +78,16 @@ def _lift_vertices(
     transform: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
 ) -> np.ndarray:
     origin, tangent, bitangent, _normal = transform
-    return origin + np.outer(vertices_2d[:, 0], tangent) + np.outer(vertices_2d[:, 1], bitangent)
+    return (
+        origin
+        + np.outer(vertices_2d[:, 0], tangent)
+        + np.outer(vertices_2d[:, 1], bitangent)
+    )
 
 
-def _orient_faces(vertices: np.ndarray, faces: np.ndarray, normal: np.ndarray) -> np.ndarray:
+def _orient_faces(
+    vertices: np.ndarray, faces: np.ndarray, normal: np.ndarray
+) -> np.ndarray:
     if len(faces) == 0:
         return faces
 
@@ -144,7 +156,9 @@ def mesh_surface_with_dtcc_mesher(
 
     dtcc_mesher = _load_dtcc_mesher()
     outer_loop, hole_loops, transform = _project_surface(surface)
-    max_edge_length = triangle_size if triangle_size is not None and triangle_size > 0 else None
+    max_edge_length = (
+        triangle_size if triangle_size is not None and triangle_size > 0 else None
+    )
 
     raw_mesh = dtcc_mesher.mesh(
         dtcc_mesher.Domain.from_loops(outer_loop, hole_loops),
@@ -174,6 +188,7 @@ def build_city_flat_mesh_with_dtcc_mesher(
     region_points: list[np.ndarray] | None = None,
     max_mesh_size: float | None,
     min_mesh_angle: float,
+    coordinate_tolerance: float | None = None,
 ) -> Mesh:
     """Mesh a flat polygon coverage at z=0 with dtcc_mesher.
 
@@ -233,7 +248,9 @@ def build_city_flat_mesh_with_dtcc_mesher(
     if not valid_polygons:
         return Mesh()
 
-    geometry = dtcc_mesher.Coverage(valid_polygons, valid_markers)
+    geometry = dtcc_mesher.Coverage(
+        valid_polygons, valid_markers, tolerance=coordinate_tolerance
+    )
     if region_points is not None:
         coverage_graph = geometry.graph(max_edge_length=max_edge_length)
         geometry = dtcc_mesher.CoverageGraph(

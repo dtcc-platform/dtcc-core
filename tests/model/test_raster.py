@@ -1,7 +1,7 @@
-import pytest
-
 import numpy as np
+import pytest
 from affine import Affine
+
 from dtcc_core.model import Raster
 
 

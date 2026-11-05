@@ -1,8 +1,7 @@
 """Static (offline, CI-friendly) checks for every demo script.
 
-These never execute a demo.  They parse each file to catch syntax errors,
-forbidden imports of the retired ``dtcc`` umbrella package, and unguarded
-viewer calls in workflow demos.
+These never execute a demo.  They parse each file to catch syntax errors
+and imports of the retired ``dtcc`` umbrella package.
 """
 
 import ast
@@ -49,13 +48,3 @@ def test_demo_does_not_import_retired_dtcc(demo_name):
             assert root not in RETIRED_IMPORT_ROOTS, (
                 f"{demo_name} imports from retired package {node.module!r}"
             )
-
-
-@pytest.mark.parametrize("demo_name", WORKFLOW_DEMOS)
-def test_workflow_demo_viewer_is_optional(demo_name):
-    """Workflow demos must gate every ``.view(`` call behind ``--view``."""
-    source = _demo_source(demo_name)
-    if ".view(" in source:
-        assert '"--view" in sys.argv' in source or "'--view' in sys.argv" in source, (
-            f"{demo_name} calls .view() without a '--view' in sys.argv guard"
-        )

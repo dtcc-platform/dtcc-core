@@ -17,10 +17,13 @@ L_SHAPE = [(0.0, 0.0), (20.0, 0.0), (20.0, 8.0), (8.0, 8.0), (8.0, 20.0), (0.0, 
 def _lod1_mesh(footprint, roof_z=10.0, holes=None):
     vertices = np.array([[x, y, roof_z] for x, y in footprint], dtype=float)
     hole_rings = [
-        np.array([[x, y, roof_z] for x, y in hole], dtype=float) for hole in (holes or [])
+        np.array([[x, y, roof_z] for x, y in hole], dtype=float)
+        for hole in (holes or [])
     ]
     building = Building()
-    building.add_geometry(Surface(vertices=vertices, holes=hole_rings), GeometryType.LOD0)
+    building.add_geometry(
+        Surface(vertices=vertices, holes=hole_rings), GeometryType.LOD0
+    )
     building.attributes["ground_height"] = 0.0
     build_lod1_buildings([building])
     return building.lod1.mesh(weld=True, snap=0.005)
@@ -67,7 +70,11 @@ def _face_normals(vertices, faces):
         ("square", SQUARE, None),
         ("square wound the other way", SQUARE_REVERSED, None),
         ("l-shape", L_SHAPE, None),
-        ("square with a hole", SQUARE, [[(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0)]]),
+        (
+            "square with a hole",
+            SQUARE,
+            [[(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0)]],
+        ),
     ],
 )
 def test_lod1_building_mesh_is_wound_outwards(name, footprint, holes):
@@ -99,18 +106,30 @@ def test_lod1_building_mesh_is_closed():
 def _box_mesh():
     vertices = np.array(
         [
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
         ]
     )
     faces = np.array(
         [
-            [0, 2, 1], [0, 3, 2],  # bottom, facing down
-            [4, 5, 6], [4, 6, 7],  # top, facing up
-            [0, 1, 5], [0, 5, 4],
-            [1, 2, 6], [1, 6, 5],
-            [2, 3, 7], [2, 7, 6],
-            [3, 0, 4], [3, 4, 7],
+            [0, 2, 1],
+            [0, 3, 2],  # bottom, facing down
+            [4, 5, 6],
+            [4, 6, 7],  # top, facing up
+            [0, 1, 5],
+            [0, 5, 4],
+            [1, 2, 6],
+            [1, 6, 5],
+            [2, 3, 7],
+            [2, 7, 6],
+            [3, 0, 4],
+            [3, 4, 7],
         ]
     )
     return Mesh(vertices=vertices, faces=faces)
@@ -125,7 +144,9 @@ def test_orient_faces_consistently_repairs_flipped_faces():
     oriented = orient_faces_consistently(mesh)
 
     assert _inconsistent_edges(oriented.faces) == []
-    assert _signed_volume(np.asarray(oriented.vertices), np.asarray(oriented.faces)) > 0.0
+    assert (
+        _signed_volume(np.asarray(oriented.vertices), np.asarray(oriented.faces)) > 0.0
+    )
 
 
 def test_orient_faces_consistently_turns_an_inside_out_solid_outwards():
@@ -136,11 +157,15 @@ def test_orient_faces_consistently_turns_an_inside_out_solid_outwards():
     oriented = orient_faces_consistently(mesh)
 
     assert _inconsistent_edges(oriented.faces) == []
-    assert _signed_volume(np.asarray(oriented.vertices), np.asarray(oriented.faces)) > 0.0
+    assert (
+        _signed_volume(np.asarray(oriented.vertices), np.asarray(oriented.faces)) > 0.0
+    )
 
 
 def test_orient_faces_consistently_keeps_the_majority_side_of_an_open_mesh():
-    vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+    vertices = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+    )
     mesh = Mesh(vertices=vertices, faces=np.array([[0, 1, 2], [0, 2, 3]]))
     mesh.faces[1] = mesh.faces[1][::-1]
 

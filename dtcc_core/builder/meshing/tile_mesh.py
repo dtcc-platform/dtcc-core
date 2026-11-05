@@ -1,12 +1,11 @@
-from dtcc_core.model import Mesh, Bounds
-from typing import Tuple, Union, List
-
 from tqdm import tqdm
+
+from dtcc_core.model import Mesh
 
 
 def tile_surface_mesh(
     mesh: Mesh,
-    tile_size: Union[float, Tuple[float, float]] = 100.0,
+    tile_size: float | tuple[float, float] = 100.0,
     progress: bool = False,
 ) -> list[Mesh]:
     """

@@ -194,3 +194,6 @@ sandbox/*.city.json
 # Local agent plans and working documents
 /.agent/plans/
 /.agent/work/
+
+# Session transcripts written next to the checkout
+transcript*.jsonl

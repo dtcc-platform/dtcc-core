@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
-import dtcc_core.datasets as datasets
 import pytest
+from pydantic import ValidationError
+
+import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.terrain_surface_mesh import (
     TerrainSurfaceMeshArgs,
     TerrainSurfaceMeshDataset,
 )
-from pydantic import ValidationError
 
 
 def test_terrain_surface_mesh_registered_name():
@@ -41,7 +42,9 @@ def test_terrain_surface_mesh_rejects_mesh_resolution_argument():
         )
 
 
-@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch(
+    "dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh"
+)
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
 def test_terrain_surface_mesh_default_build_uses_surface_mesh_path(
     mock_download,
@@ -66,7 +69,9 @@ def test_terrain_surface_mesh_default_build_uses_surface_mesh_path(
     )
 
 
-@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch(
+    "dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh"
+)
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
 def test_terrain_surface_mesh_remove_outliers_false_skips_filtering(
     mock_download,
@@ -96,7 +101,9 @@ def test_terrain_surface_mesh_remove_outliers_false_skips_filtering(
     )
 
 
-@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch(
+    "dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh"
+)
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
 def test_terrain_surface_mesh_mesher_is_forwarded(
     mock_download,
@@ -125,7 +132,9 @@ def test_terrain_surface_mesh_mesher_is_forwarded(
     )
 
 
-@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch(
+    "dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh"
+)
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
 def test_terrain_surface_mesh_max_mesh_size_is_forwarded(
     mock_download,
@@ -156,7 +165,9 @@ def test_terrain_surface_mesh_max_mesh_size_is_forwarded(
 
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_raster")
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
-def test_terrain_surface_mesh_tif_export_uses_raster_path(mock_download, mock_build_raster):
+def test_terrain_surface_mesh_tif_export_uses_raster_path(
+    mock_download, mock_build_raster
+):
     """format='tif' should use the terrain-raster build path and export bytes."""
     downloaded_pc = Mock(name="downloaded_pc")
     raster = Mock(name="raster")
@@ -164,7 +175,9 @@ def test_terrain_surface_mesh_tif_export_uses_raster_path(mock_download, mock_bu
     mock_build_raster.return_value = raster
 
     dataset = TerrainSurfaceMeshDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"terrain-raster") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"terrain-raster"
+    ) as mock_export:
         result = dataset.build(
             TerrainSurfaceMeshArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -181,9 +194,13 @@ def test_terrain_surface_mesh_tif_export_uses_raster_path(mock_download, mock_bu
     mock_export.assert_called_once_with(raster, "tif")
 
 
-@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh")
+@patch(
+    "dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_surface_mesh"
+)
 @patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
-def test_terrain_surface_mesh_obj_export_returns_bytes(mock_download, mock_build_surface_mesh):
+def test_terrain_surface_mesh_obj_export_returns_bytes(
+    mock_download, mock_build_surface_mesh
+):
     """Mesh export formats should return bytes."""
     downloaded_pc = Mock(name="downloaded_pc")
     surface_mesh = Mock(name="surface_mesh")
@@ -191,7 +208,9 @@ def test_terrain_surface_mesh_obj_export_returns_bytes(mock_download, mock_build
     mock_build_surface_mesh.return_value = surface_mesh
 
     dataset = TerrainSurfaceMeshDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"terrain-mesh") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"terrain-mesh"
+    ) as mock_export:
         result = dataset.build(
             TerrainSurfaceMeshArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -236,12 +255,23 @@ def test_terrain_surface_mesh_context_documents_lineage_and_limits():
             "source_terms_status": "requires_review",
         }
     ]
-    assert any("adaptive_mesh=True" in step for step in manifest.provenance.processing_steps)
-    assert any("remove global point-cloud outliers" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "adaptive_mesh=True" in step for step in manifest.provenance.processing_steps
+    )
+    assert any(
+        "remove global point-cloud outliers" in step
+        for step in manifest.provenance.processing_steps
+    )
     assert manifest.presentation.headline == "Point-Cloud Terrain Surface"
     assert manifest.presentation.legend["title"] == "Terrain outputs"
-    assert manifest.presentation.view_hints["mesh_role"] == "terrain_visualization_or_preprocessing"
-    assert any("not automatically certified" in warning for warning in manifest.presentation.warnings)
+    assert (
+        manifest.presentation.view_hints["mesh_role"]
+        == "terrain_visualization_or_preprocessing"
+    )
+    assert any(
+        "not automatically certified" in warning
+        for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["adaptive_mesh"] is True
     assert manifest.request.parameters["mesher"] == "triangle"

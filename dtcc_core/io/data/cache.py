@@ -1,6 +1,7 @@
-from pathlib import Path
-from platformdirs import user_cache_dir
 import shutil
+from pathlib import Path
+
+from platformdirs import user_cache_dir
 
 cache_dir = Path(user_cache_dir("dtcc-data"))  # Replace with your app name
 
@@ -17,7 +18,7 @@ def _is_within_cache(path: Path, base: Path) -> bool:
         return False
 
 
-def empty_cache(cache_type = None):
+def empty_cache(cache_type=None):
     """
     Clears the contents of the cache directory.
 

@@ -1,7 +1,9 @@
-import pytest
 from pathlib import Path
-from dtcc_core.model import Landuse, LanduseClasses
+
+import pytest
+
 from dtcc_core import io
+from dtcc_core.model import Landuse, LanduseClasses
 
 
 @pytest.fixture

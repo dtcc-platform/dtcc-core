@@ -4,9 +4,21 @@ from itertools import islice
 
 
 def field_section(fields):
-    return ("Fields", ("Name", "Unit", "Association", "Shape", "Type", "Description"),
-            [(f.name, f.unit, f.association, f.values.shape, f.values.dtype, f.description)
-             for f in fields])
+    return (
+        "Fields",
+        ("Name", "Unit", "Association", "Shape", "Type", "Description"),
+        [
+            (
+                f.name,
+                f.unit,
+                f.association,
+                f.values.shape,
+                f.values.dtype,
+                f.description,
+            )
+            for f in fields
+        ],
+    )
 
 
 def sample_section(title, models):
@@ -18,8 +30,8 @@ def sample_section(title, models):
 
 def print_tree(model, label, *, indent="", verbose=False, max_depth=None):
     """Stream a hierarchy without building a second in-memory model tree."""
-    from .object.object import Object
     from .geometry.geometry import Geometry
+    from .object.object import Object
 
     def entries(node):
         if isinstance(node, Object):
@@ -29,8 +41,11 @@ def print_tree(model, label, *, indent="", verbose=False, max_depth=None):
             for name, record in node.geometry.items():
                 metadata = ""
                 if verbose:
-                    descriptors = [f"{key}={value!r}" for key in ("lod", "role")
-                                   if (value := getattr(record, key)) is not None]
+                    descriptors = [
+                        f"{key}={value!r}"
+                        for key in ("lod", "role")
+                        if (value := getattr(record, key)) is not None
+                    ]
                     if descriptors:
                         metadata = f" ({', '.join(descriptors)})"
                 yield f"{name!r}{metadata}: {record.geometry!r}", record.geometry
@@ -50,11 +65,19 @@ def print_tree(model, label, *, indent="", verbose=False, max_depth=None):
         print(f"{prefix}{branch}{text}{' ...' if limited else ''}")
         if limited:
             return
-        child_prefix = prefix + ("    " if branch == "└── " else "│   " if branch else "")
+        child_prefix = prefix + (
+            "    " if branch == "└── " else "│   " if branch else ""
+        )
         while current is not None:
             following = next(children, None)
             text, child = current
-            walk(child, text, child_prefix, "└── " if following is None else "├── ", depth + 1)
+            walk(
+                child,
+                text,
+                child_prefix,
+                "└── " if following is None else "├── ",
+                depth + 1,
+            )
             current = following
 
     walk(model, label, indent, "", 0)

@@ -100,16 +100,21 @@ interiors to their bases; it is not a surveyed terrain model.
 |---|---:|---:|
 | District terrain/surface sampling | 8 m | 8 m |
 | Maximum volume spacing (X, Y, Z) | 20, 20, 10 m | 20, 20, 8 m |
-| Volume grid cells (X × Y × Z) | 100 × 100 × 14 | 100 × 100 × 18 |
-| Tetrahedra | 840,000 | 1,080,000 |
-| Longest/shortest grid-cell dimension | ≈2.02 | ≈2.60 |
+| Volume grid cells (X × Y × Z) | 100 × 100 × 28 | 100 × 100 × 35 |
+| Tetrahedra | 1,680,000 | 2,100,000 |
+| Longest/shortest grid-cell dimension | ≈2.02 | ≈2.53 |
 | Reference-patch field samples | ≤2 m | ≤2 m |
 | Reference boundary mesh triangle target | 2 m | 1 m |
 | Stored snapshot times | 0, 60, 120, 180 s | same |
 
-Both volume representations share the same vertical intervals: 14 in standard
-and 18 in stress. There are 15 or 19 vertex planes respectively. Actual vertical
-spacing is about 9.90 m or 7.70 m over the 138.576 m height of this domain. The
+The volume bottom is `min(building_zmin, -0.6) - 1` m NAP. Its top is
+`bottom + 2*(max(building_zmax + 30, 60) - bottom)`, doubling the padded
+height upward. The Delft domain spans approximately −13.650499 to 263.501501 m
+NAP, a height of 277.152 m. The fields-only generator inherits this saved domain.
+
+Both volume representations share the same vertical intervals: 28 in standard
+and 35 in stress. There are 29 or 36 vertex planes respectively. Actual vertical
+spacing is about 9.90 m or 7.92 m over the 277.152 m height of this domain. The
 reported axis ratio describes the Cartesian cells, not a tetrahedron quality
 metric. Neither the domain height nor the terrain/surface sampling is changed
 when volume spacing is overridden.

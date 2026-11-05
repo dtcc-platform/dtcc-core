@@ -17,7 +17,6 @@ import os
 
 import pytest
 
-
 RUN_DEMOS_ENV = "DTCC_RUN_DEMOS"
 
 

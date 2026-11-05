@@ -642,14 +642,27 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("points_in_polygons", &DTCC_BUILDER::points_in_polygons, "Find points inside polygons");
 
-  m.def("build_city_flat_mesh", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh,
-        "build city flat mesh");
+  m.def("build_city_flat_mesh",
+        [](const std::vector<DTCC_BUILDER::Polygon> &subdomains,
+           const std::vector<DTCC_BUILDER::Polygon> &holes,
+           const std::vector<double> &sizes, double xmin, double ymin,
+           double xmax, double ymax, double size, double angle, bool sort,
+           const std::string &backend) {
+          return DTCC_BUILDER::MeshBuilder::build_city_flat_mesh(
+              subdomains, holes, sizes, xmin, ymin, xmax, ymax, size, angle, sort, backend);
+        }, "build city flat mesh");
+  m.def("build_city_flat_mesh_bounded", &DTCC_BUILDER::MeshBuilder::build_city_flat_mesh,
+        "Build constrained city coverage with a maximum number of Steiner points");
 
   m.def("build_terrain_surface_mesh", &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh,
         "build terrain surface mesh");
   m.def("build_terrain_surface_mesh_from_ground_mesh",
         &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh_from_ground_mesh,
         "build terrain surface mesh from a prebuilt ground mesh");
+
+  m.def("build_city_surface_mesh_from_patch_planes",
+        &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_patch_planes,
+        "Build conforming city shells from generic affine patches and source owners");
 
   m.def("build_city_surface_mesh_from_terrain_mesh",
         &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_terrain_mesh,
@@ -663,6 +676,22 @@ PYBIND11_MODULE(_dtcc_builder, m)
   m.def("create_surface", &DTCC_BUILDER::create_surface, "Create C++ surface");
 
   m.def("create_multisurface", &DTCC_BUILDER::create_multisurface, "Create C++ multisurface");
+
+  m.def("mesh_planar_polygon_bounded", [](const std::vector<std::array<double, 2>> &outer,
+          const std::vector<std::vector<std::array<double, 2>>> &holes,
+          double spacing, double angle, size_t max_steiner_points) {
+        std::vector<DTCC_BUILDER::Vector2D> boundary;
+        std::vector<std::vector<DTCC_BUILDER::Vector2D>> inner;
+        for (const auto &p : outer) boundary.emplace_back(p[0], p[1]);
+        for (const auto &ring : holes) {
+          inner.emplace_back();
+          for (const auto &p : ring) inner.back().emplace_back(p[0], p[1]);
+        }
+        DTCC_BUILDER::Mesh mesh;
+        DTCC_BUILDER::Triangulate::call_triangle(mesh, boundary, {}, inner, {},
+            spacing, angle, false, max_steiner_points, 1e-12);
+        return mesh;
+      }, "Bounded constrained quality triangulation of a planar face");
 
   m.def("mesh_surface", &DTCC_BUILDER::MeshBuilder::mesh_surface,
         "Create triangulated mesh from surface");

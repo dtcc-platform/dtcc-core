@@ -1,26 +1,24 @@
-import pytest
-import numpy as np
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from dtcc_core.model import City
-from dtcc_core.model import Surface, MultiSurface, Mesh, Building, BuildingPart
-from dtcc_core.model.object.object import GeometryType
-from dtcc_core.model.object.terrain import Terrain
-from dtcc_core.model.geometry import Bounds
+import numpy as np
+import pytest
 
 from dtcc_core.io.cityjson.converters import geometry_type_to_lod
-
 from dtcc_core.io.cityjson.write_cityjson import (
-    to_cityjson,
-    to_cityjson_surface,
-    to_cityjson_multisurface,
-    to_cityjson_mesh,
-    to_cityjson_terrain_mesh,
-    save,
     _add_object_geometries,
+    save,
+    to_cityjson,
+    to_cityjson_mesh,
+    to_cityjson_multisurface,
+    to_cityjson_surface,
+    to_cityjson_terrain_mesh,
 )
+from dtcc_core.model import Building, BuildingPart, City, Mesh, MultiSurface, Surface
+from dtcc_core.model.geometry import Bounds
+from dtcc_core.model.object.object import GeometryType
+from dtcc_core.model.object.terrain import Terrain
 
 
 class TestGeometryConverters:
@@ -425,7 +423,7 @@ class TestFileSaving:
             # Verify file was created and contains valid JSON
             assert tmp_path.exists()
 
-            with open(tmp_path, "r") as f:
+            with open(tmp_path) as f:
                 loaded_data = json.load(f)
 
             assert loaded_data["type"] == "CityJSON"

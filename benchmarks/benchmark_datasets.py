@@ -10,7 +10,6 @@ from typing import Any
 import numpy as np
 
 import dtcc_core as dtcc
-
 from benchmarks.benchmark_catalog import DATASET_NAMES
 
 BLOCKED_PARAMETER_NAMES = {"bounds", "strict_live", "mesher"}
@@ -120,8 +119,8 @@ def _mesh_metrics(mesh: Any) -> dict[str, Any]:
     if hasattr(mesh, "quality"):
         metrics["quality"] = json_ready(mesh.quality())
     from dtcc_core.model.mixins.mesh.quality import (
-        tri_element_quality,
         tet_element_quality,
+        tri_element_quality,
     )
 
     if metrics["num_cells"]:

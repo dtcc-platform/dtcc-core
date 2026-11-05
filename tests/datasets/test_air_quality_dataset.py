@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
-import requests
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
@@ -21,7 +20,6 @@ from dtcc_core.datasets.air_quality import (
     _resolve_phenomenon_id,
 )
 from dtcc_core.datasets.dataset import DatasetUpstreamError
-
 
 BASE_URL = "http://test-api.example.com"
 DEFAULT_BOUNDS = (17.9, 59.2, 18.2, 59.5)
@@ -195,6 +193,7 @@ def test_air_quality_station_attributes_and_string_summary():
 
     assert station.attributes["station_id"] == "station1"
     assert station.attributes["station_name"] == "Test Station 1"
+    assert station.attributes["elevation_source"] == "upstream"
     assert station.attributes["operator"] == "SMHI"
     assert station.attributes["phenomenon"] == "NO2"
     assert station.attributes["phenomenon_id"] == "8"
@@ -218,6 +217,25 @@ def test_air_quality_station_attributes_and_string_summary():
     text = str(result)
     assert "SensorCollection" in text
     assert "station" in text.lower()
+
+
+def test_air_quality_distinguishes_missing_elevation_from_supplied_zero():
+    from dtcc_core.model import exchange
+
+    stations = copy.deepcopy(MOCK_STATIONS_LIST)
+    stations[0]["geometry"]["coordinates"] = stations[0]["geometry"]["coordinates"][:2]
+    result = _build_dataset(payloads={f"{BASE_URL}/stations": stations})
+    restored = exchange.loads(exchange.dumps(result))
+    assert [
+        station.attributes["elevation_source"] for station in restored.stations()
+    ] == [
+        "missing",
+        "upstream",
+    ]
+    assert [station.get_geometry("location").z for station in restored.stations()] == [
+        0.0,
+        0.0,
+    ]
 
 
 def test_air_quality_dataset_reprojects_and_filters_in_output_crs():
@@ -317,9 +335,7 @@ def test_air_quality_drop_missing_true_skips_station_without_value():
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
             f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
-            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
-                MOCK_GETDATA_TS1_EMPTY
-            ),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         },
         calls=calls,
     )
@@ -338,9 +354,7 @@ def test_air_quality_drop_missing_false_keeps_nan_station_without_value():
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
             f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
-            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
-                MOCK_GETDATA_TS1_EMPTY
-            ),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         },
         drop_missing=False,
     )
@@ -386,9 +400,7 @@ def test_air_quality_non_strict_timeseries_failures_are_recorded():
     """Timeseries-fetch failures should also become partial results in default mode."""
     result = _build_dataset(
         errors={
-            f"{BASE_URL}/timeseries/ts2": _upstream_error(
-                f"{BASE_URL}/timeseries/ts2"
-            )
+            f"{BASE_URL}/timeseries/ts2": _upstream_error(f"{BASE_URL}/timeseries/ts2")
         }
     )
 
@@ -545,9 +557,7 @@ def test_air_quality_stale_last_value_is_retained_when_getdata_has_no_values():
         payloads={
             f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
             f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_STALE_DATA),
-            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(
-                MOCK_GETDATA_TS1_EMPTY
-            ),
+            f"{BASE_URL}/timeseries/ts1/getData": copy.deepcopy(MOCK_GETDATA_TS1_EMPTY),
         }
     )
 
@@ -589,9 +599,7 @@ def test_air_quality_fallback_getdata_upstream_failure_raises_in_strict_mode():
         _build_dataset(
             payloads={
                 f"{BASE_URL}/stations": [copy.deepcopy(MOCK_STATIONS_LIST[0])],
-                f"{BASE_URL}/timeseries/ts1": copy.deepcopy(
-                    MOCK_TS1_NO_CURRENT_DATA
-                ),
+                f"{BASE_URL}/timeseries/ts1": copy.deepcopy(MOCK_TS1_NO_CURRENT_DATA),
             },
             errors={
                 f"{BASE_URL}/timeseries/ts1/getData": _upstream_error(

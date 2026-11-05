@@ -15,8 +15,9 @@ preview and `--view tetra` cuts through stored tetrahedral connectivity. See the
 When using `plot(field=...)` directly on that model, select a snapshot Object and
 representation first to avoid combining samples from different times.
 
-`Model.plot()` lazily uses Matplotlib and returns a 3D axes. Objects recurse
-through their children, so a City includes building parts, terrain, vegetation,
+`Model.plot()` lazily uses Matplotlib and returns a 3D axes, or a 2D axes for a
+standalone RGB/RGBA Raster. Objects recurse through their children, so a City
+includes building parts, terrain, vegetation,
 furniture, transport, sensor and vehicle locations, and numerical domains.
 Existing specialized plots on SensorCollection, VehicleCollection, RoadNetwork
 and other classes remain unchanged. No model data or bounds are changed.
@@ -57,14 +58,18 @@ arrays are never replaced or interpolated into the model.
 - Mesh: triangles. VolumeMesh: tetrahedral wireframes, not a derived boundary mesh.
 - Point/PointCloud: points; LineString/MultiLineString: segments.
 - Grid/VolumeGrid/Bounds: domain outlines; use `field=...` to inspect their values.
-- Raster: finite, non-nodata cell-centre samples, coloured by scalar values.
+- Scalar Raster: finite, non-nodata cell-centre samples, coloured by scalar values.
   An Object's explicit `elevation_rasters` record places a DEM at its elevation;
-  otherwise raster samples lie on z=0. RGB/multiband raster previews are outside
-  this bounded implementation.
+  otherwise raster samples lie on z=0.
+- Standalone RGB/RGBA Raster: a 2D image with its affine georeferencing, original
+  colours and alpha transparency. Three-band arrays are RGB; four-band arrays
+  are RGBA. Large images use nearest-neighbour sampling within `max_elements`,
+  retaining the full image footprint. Other multiband layouts and image rasters
+  attached to Objects are not supported by the 3D preview.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
 
-The global `max_elements` budget bounds drawn faces, segments and samples. Large
-arrays are sampled deterministically; the drawing reports sampling, truncation,
+The global `max_elements` budget bounds drawn faces, segments, samples and image
+pixels. Large arrays are sampled deterministically; the drawing reports sampling, truncation,
 wireframes and omitted interiors. Traversal still visits object metadata. A scene
 that exhausts the budget can omit later objects; select a subtree or representation
 or increase the budget when needed. Polygon ring coordinates are retained rather

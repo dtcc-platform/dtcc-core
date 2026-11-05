@@ -2,10 +2,8 @@
 # Licensed under the MIT License
 
 from dataclasses import dataclass, field
-import math
+
 import numpy as np
-from typing import Union
-from numbers import Real
 
 from .object import Object
 
@@ -32,6 +30,11 @@ class Tree(Object):
 
     def _info_sections(self):
         sections = super()._info_sections()
-        sections[0][2].extend([("Position", str(self.position)),
-                               ("Height", self.height), ("Crown radius", self.crown_radius)])
+        sections[0][2].extend(
+            [
+                ("Position", str(self.position)),
+                ("Height", self.height),
+                ("Crown radius", self.crown_radius),
+            ]
+        )
         return sections
