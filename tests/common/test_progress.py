@@ -108,3 +108,63 @@ def test_progress_range_failure_does_not_complete_and_new_tracker_is_independent
             assert outer.state.overall_percent == pytest.approx(35)
             report_progress(percent=40)
             assert outer.state.overall_percent == pytest.approx(40)
+
+
+def test_phase_timing_observes_nested_silent_phases_and_restores_context():
+    from contextlib import contextmanager
+    from progress import phase_timing
+
+    events = []
+
+    @contextmanager
+    def observe(name):
+        events.append(("start", name))
+        try:
+            yield
+        finally:
+            events.append(("end", name))
+
+    with phase_timing(observe):
+        with ProgressTracker(mode="silent") as outer:
+            with outer.phase("mesh"):
+                with ProgressTracker(mode="silent") as inner:
+                    with inner.phase("download"):
+                        pass
+            with phase_timing(None):
+                with outer.phase("unobserved"):
+                    pass
+            with outer.phase("export"):
+                pass
+    with ProgressTracker(mode="silent") as tracker:
+        with tracker.phase("outside"):
+            pass
+    assert events == [
+        ("start", "mesh"), ("start", "download"), ("end", "download"),
+        ("end", "mesh"), ("start", "export"), ("end", "export"),
+    ]
+
+
+def test_phase_timing_receives_failure_and_resets_after_exception():
+    import pytest
+    from contextlib import contextmanager
+    from progress import phase_timing
+
+    errors = []
+
+    @contextmanager
+    def observe(name):
+        try:
+            yield
+        except RuntimeError as exc:
+            errors.append((name, str(exc)))
+            raise
+
+    with pytest.raises(RuntimeError, match="download failed"):
+        with phase_timing(observe):
+            with ProgressTracker(mode="silent") as tracker:
+                with tracker.phase("download"):
+                    raise RuntimeError("download failed")
+    with ProgressTracker(mode="silent") as tracker:
+        with tracker.phase("safe"):
+            pass
+    assert errors == [("download", "download failed")]
