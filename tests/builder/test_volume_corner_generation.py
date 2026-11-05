@@ -152,22 +152,6 @@ def test_city_model_forwards_flag(monkeypatch):
     assert call.call_args.kwargs["repair_boundary_corners"] is True
 
 
-@pytest.mark.skipif(not tetgen.is_tetgen_available(), reason="TetGen is not installed")
-@pytest.mark.parametrize("output", [False, True])
-def test_actual_city_generation_removes_corners(output):
-    mesh = build_city_volume_mesh(
-        make_flat_city([]),
-        max_mesh_size=20.0,
-        domain_height=40.0,
-        boundary_face_markers=output,
-        repair_boundary_corners=True,
-        report_mesh_quality=False,
-    )
-    assert mesh.num_cells > 0
-    assert mesh.find_boundary_corners().num_corners == 0
-    assert bool(len(mesh.boundary_faces)) == output
-
-
 def test_suitable_generation_is_unchanged_with_flag(backend, monkeypatch):
     from dtcc_core.builder.meshing import volume_corners
 

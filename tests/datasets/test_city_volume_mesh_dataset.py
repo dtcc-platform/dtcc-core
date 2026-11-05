@@ -319,6 +319,10 @@ def test_repair_request_forwarding_context_and_identity(monkeypatch, enabled, en
     )
     assert len(calls) == 1
     assert calls[0]["repair_boundary_corners"] is enabled
+    if entry == "city":
+        assert result.dataset_context is None
+        assert hasattr(result, "boundary_corner_repair") is enabled
+        return
     context = result.dataset_context
     assert context.request.parameters["repair_boundary_corners"] is enabled
     assert context.request.parameters["max_volume"] == 12.5
@@ -380,10 +384,21 @@ def test_repair_export_sidecar_is_result_aware_and_builds_once(monkeypatch, enab
         assert records == []
 
 
-@pytest.mark.parametrize("value", [1, "true", None])
-def test_repair_flag_validation_is_strict(value):
+@pytest.mark.parametrize("value", [None, 2, "maybe"])
+def test_repair_flag_rejects_invalid_boolean(value):
     with pytest.raises(ValidationError):
         CityVolumeMeshArgs(bounds=[0, 0, 10, 10], repair_boundary_corners=value)
+
+
+@pytest.mark.parametrize(
+    "value,expected", [(1, True), (0, False), ("true", True), ("false", False)]
+)
+def test_repair_flag_uses_dataset_boolean_coercion(value, expected):
+    args = CityVolumeMeshArgs(
+        bounds=[0, 0, 10, 10], repair_boundary_corners=value, remove_outliers=value
+    )
+    assert args.repair_boundary_corners is expected
+    assert args.remove_outliers is expected
 
 
 def test_city_dataset_inherits_context_attachment_after_preparation(monkeypatch):
@@ -421,22 +436,51 @@ def test_city_dataset_keeps_byte_results_unchanged(monkeypatch):
     assert dataset(bounds=[0, 0, 10, 10], format="vtu") == b"volume-mesh"
 
 
-def test_direct_city_build_context_contains_validated_defaults(monkeypatch):
+@pytest.mark.parametrize("enabled", [False, True])
+def test_direct_city_build_preserves_native_mesh_contract(monkeypatch, enabled):
+    import numpy as np
+
     from dtcc_core.model import City, VolumeMesh
 
     dataset = CityVolumeMeshDataset()
-    mesh = VolumeMesh()
+    mesh = VolumeMesh(
+        vertices=np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        ),
+        cells=np.array([[0, 1, 2, 3]]),
+    )
+    if enabled:
+        mesh = mesh.repair_boundary_corners()
     build = Mock(return_value=mesh)
     monkeypatch.setattr("dtcc_core.builder.build_city_volume_mesh", build)
-    result = dataset.build_from_city(City(), bounds=[1, 2, 3, 4])
-    assert result is mesh
-    request = result.dataset_context.request
-    assert request.bounds == [1, 2, 3, 4]
-    assert request.parameters["max_mesh_size"] == 25.0
-    assert request.parameters["domain_height"] == 80.0
-    assert request.parameters["repair_boundary_corners"] is False
-    assert build.call_args.kwargs["repair_boundary_corners"] is False
-    assert not any(
-        isinstance(step, dict) and step.get("operation") == "repair_boundary_corners"
-        for step in result.provenance.processing_steps
+    result = dataset.build_from_city(
+        City(), bounds=[1, 2, 3, 4], repair_boundary_corners=enabled
     )
+    assert result is mesh
+    assert result.dataset_context is None
+    assert result.to_cpp() is not None
+    assert build.call_args.kwargs["max_mesh_size"] == 25.0
+    assert build.call_args.kwargs["domain_height"] == 80.0
+    assert build.call_args.kwargs["repair_boundary_corners"] is enabled
+    if enabled:
+        assert result.boundary_corner_repair["repaired_parent_cells"] == 1
+
+
+def test_direct_city_build_preserves_supplied_coordinate_frame(monkeypatch):
+    from dtcc_core import BoxMesh
+    from dtcc_core.model import City, VolumeMesh
+
+    city = City()
+    city.transform.srs = "EPSG:32632"
+    mesh = BoxMesh(1, 1, 1)
+    mesh.transform.srs = city.transform.srs
+    build = Mock(return_value=mesh)
+    monkeypatch.setattr("dtcc_core.builder.build_city_volume_mesh", build)
+    result = CityVolumeMeshDataset().build_from_city(city, bounds=[1, 2, 3, 4])
+    assert result.dataset_context is None
+    assert result.transform.srs == city.transform.srs
+    assert build.call_args.args[0] is city
+    restored = VolumeMesh()
+    restored.from_proto(result.to_proto())
+    assert restored.transform.srs == city.transform.srs
+    assert restored.dataset_context is None

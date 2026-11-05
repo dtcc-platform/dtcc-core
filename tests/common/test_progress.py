@@ -112,6 +112,7 @@ def test_progress_range_failure_does_not_complete_and_new_tracker_is_independent
 
 def test_phase_timing_observes_nested_silent_phases_and_restores_context():
     from contextlib import contextmanager
+
     from progress import phase_timing
 
     events = []
@@ -139,14 +140,19 @@ def test_phase_timing_observes_nested_silent_phases_and_restores_context():
         with tracker.phase("outside"):
             pass
     assert events == [
-        ("start", "mesh"), ("start", "download"), ("end", "download"),
-        ("end", "mesh"), ("start", "export"), ("end", "export"),
+        ("start", "mesh"),
+        ("start", "download"),
+        ("end", "download"),
+        ("end", "mesh"),
+        ("start", "export"),
+        ("end", "export"),
     ]
 
 
 def test_phase_timing_receives_failure_and_resets_after_exception():
-    import pytest
     from contextlib import contextmanager
+
+    import pytest
     from progress import phase_timing
 
     errors = []

@@ -90,10 +90,13 @@ coordinates, boundary face order/orientation/labels, bounds, CRS, transform,
 ordinary model metadata, and cell markers (copied from each parent to every
 child). Empty cell markers stay empty. Signed child volumes must have the
 parent's orientation and sum to its volume; negative parent orientation is
-preserved. Checks use local coordinate
+preserved. Topology-changing repair promotes vertex coordinates to float64 and
+cell indices to int64; a no-op preserves their dtypes. Checks use local coordinate
 scales and reject degenerate, nonfinite, unresolved, collapsed, or unrepresentable
 volumes. Large coordinate offsets can make a barycenter unrepresentable and
-cause an explicit failure.
+cause an explicit failure. Volume conservation uses a relative tolerance plus an
+absolute roundoff bound from the scaled parent and child edge lengths, so
+resolved thin tetrahedra are admitted without relaxing orientation checks.
 
 Topology-changing repair rejects meshes carrying fields or semantic regions:
 repair before attaching these data. Field transfer is not inferred. No-op repair
@@ -134,6 +137,12 @@ record. The flag remains in the city audit configuration and validated dataset
 request, so true and false requests remain distinct. City volume generation requires
 `isolated=False`; independently cleaned building shells are unsupported.
 Structured `BoxMesh` has no generation flag and can use the repair operation.
+
+`city_volume_mesh.build_from_city(city, ...)` returns the builder's native mesh
+without attaching download-dataset context. Its coordinate frame and any repair
+diagnostic record stay on the mesh. Calling the dataset with bounds attaches
+Dataset Context, and dataset package exports include result-aware processing
+history.
 
 Generation deliberately includes open corners because it cannot know future
 solver boundary choices. Selective preprocessing uses the marker-filtered model

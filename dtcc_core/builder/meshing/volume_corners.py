@@ -11,9 +11,9 @@ import numpy as np
 from dtcc_core.model import VolumeMesh
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class BoundaryCornerReport:
-    """Transient aligned vertex and incident-cell indices, sorted by vertex index."""
+    """Transient sorted vertex/cell indices, compared and hashed by identity."""
 
     vertex_indices: np.ndarray
     cell_indices: np.ndarray
@@ -168,7 +168,7 @@ def _checked_determinants(points, scale):
         raise ValueError(
             "Selected parent or child volume is not representable as float64"
         )
-    return determinants
+    return determinants, tolerance
 
 
 def _subdivide(mesh, parents):
@@ -177,16 +177,22 @@ def _subdivide(mesh, parents):
     scale = np.max(np.abs(local), axis=(1, 2))
     if np.any(~np.isfinite(scale) | (scale == 0)):
         raise ValueError("Selected parent has zero or nonfinite volume scale")
-    determinants = _checked_determinants(points, scale)
+    determinants, parent_tolerance = _checked_determinants(points, scale)
     centers = points[:, 0] + np.sum(local / 4, axis=1)
     vertices = np.concatenate((mesh.vertices, centers))
     children = np.repeat(mesh.cells[parents, None, :], 4, axis=1).astype(np.int64)
     for opposite in range(4):
         children[:, opposite, opposite] = np.arange(len(parents)) + len(mesh.vertices)
     child_points = vertices[children.reshape(-1, 4)]
-    child_dets = _checked_determinants(child_points, np.repeat(scale, 4)).reshape(-1, 4)
+    child_dets, child_tolerance = _checked_determinants(
+        child_points, np.repeat(scale, 4)
+    )
+    child_dets = child_dets.reshape(-1, 4)
+    conservation_tolerance = parent_tolerance + child_tolerance.reshape(-1, 4).sum(
+        axis=1
+    )
     if np.any(np.sign(child_dets) != np.sign(determinants[:, None])) or not np.allclose(
-        child_dets.sum(axis=1), determinants, rtol=2e-13, atol=0
+        child_dets.sum(axis=1), determinants, rtol=2e-13, atol=conservation_tolerance
     ):
         raise ValueError(
             "Subdivision failed orientation or per-parent volume conservation"

@@ -57,6 +57,14 @@ def test_singletons_sorted_and_transient():
     assert report.vertex_indices.dtype.kind == report.cell_indices.dtype.kind == "i"
 
 
+def test_reports_compare_and_hash_by_identity():
+    first = find_boundary_corners(two_cells())
+    second = find_boundary_corners(two_cells())
+    assert first == first
+    assert first != second
+    assert len({first, second}) == 2
+
+
 @pytest.mark.parametrize("mapping", [False, True])
 def test_marker_filter_orientation_order_and_open_exclusion(mapping):
     mesh = tag(two_cells())
@@ -180,6 +188,52 @@ def test_invalid_boundary_representations(bad):
 def signed_volume(mesh):
     p = mesh.vertices[mesh.cells]
     return np.linalg.det(p[:, 1:] - p[:, :1]) / 6
+
+
+@pytest.mark.parametrize("offset", [0.0, 3.2e5, 6.4e6])
+@pytest.mark.parametrize("negative", [False, True])
+def test_repair_resolved_thin_parents(offset, negative):
+    from decimal import Decimal, localcontext
+
+    rng = np.random.default_rng(180)
+    points = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.3, 1.0, 0.0], [0.2, 0.4, 1e-6]]
+    )
+    rotations = [np.linalg.qr(rng.normal(size=(3, 3)))[0] for _ in range(12)]
+    vertices = np.concatenate([points @ rotation.T + offset for rotation in rotations])
+    cells = np.arange(len(vertices)).reshape(-1, 4)
+    if negative:
+        cells = cells[:, [1, 0, 2, 3]]
+    mesh = tag(VolumeMesh(vertices=vertices, cells=cells))
+    result = mesh.repair_boundary_corners()
+    assert result.num_cells == 4 * mesh.num_cells
+    assert result.find_boundary_corners().num_corners == 0
+    assert exterior(result) == exterior(mesh)
+    np.testing.assert_array_equal(result.vertices[: mesh.num_vertices], mesh.vertices)
+
+    def determinant(tetrahedron):
+        rows = [
+            [Decimal(float(p[k])) - Decimal(float(tetrahedron[0, k])) for k in range(3)]
+            for p in tetrahedron[1:]
+        ]
+        a, b, c = rows
+        return (
+            a[0] * (b[1] * c[2] - b[2] * c[1])
+            - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0])
+        )
+
+    with localcontext() as context:
+        context.prec = 60
+        for parent in range(mesh.num_cells):
+            indices = [
+                parent,
+                *range(mesh.num_cells + 3 * parent, mesh.num_cells + 3 * parent + 3),
+            ]
+            volume = determinant(mesh.vertices[mesh.cells[parent]])
+            children = [determinant(result.vertices[result.cells[i]]) for i in indices]
+            assert all((value > 0) == (volume > 0) for value in children)
+            assert abs(sum(children) - volume) <= abs(volume) * Decimal("1e-40")
 
 
 @pytest.mark.parametrize("negative", [False, True])

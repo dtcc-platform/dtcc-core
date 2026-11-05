@@ -61,7 +61,6 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     )
     repair_boundary_corners: bool = Field(
         False,
-        strict=True,
         description="Subdivide geometric singleton boundary corners before final quality reporting",
     )
     min_building_detail: float = Field(
@@ -376,7 +375,6 @@ class CityVolumeMeshDataset(DatasetDescriptor):
     def build_from_city(self, city: City, **kwargs):
         args = self.validate(kwargs)
         volume_mesh = self._build_mesh_from_city(city, args)
-        attach_dataset_context(volume_mesh, self._context_for_result(volume_mesh, args))
         if args.format is not None:
             return self.export_to_bytes(volume_mesh, args.format)
         return volume_mesh
