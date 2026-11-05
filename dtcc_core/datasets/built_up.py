@@ -1,13 +1,13 @@
-from typing import Literal, Optional
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.io.data.ghsl import BUILT_UP_CITATION, BUILT_UP_DEFAULT_EPOCH
 from dtcc_core.model import Raster
-from pydantic import Field
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
-
 
 Epoch = Literal[1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030]
 
@@ -23,7 +23,7 @@ class BuiltUpArgs(DatasetBaseArgs):
         "total",
         description="All built-up surface, or only the non-residential part.",
     )
-    format: Optional[Literal["tif"]] = Field(
+    format: Literal["tif"] | None = Field(
         None, description="Output format (tif for GeoTIFF bytes)"
     )
 
@@ -63,7 +63,7 @@ class BuiltUpDataset(DatasetDescriptor):
         }
     ]
     license = (
-        "CC BY 4.0 (Commission Decision 2011/833/EU). Credit \"© European Union\" "
+        'CC BY 4.0 (Commission Decision 2011/833/EU). Credit "© European Union" '
         f"and cite: {BUILT_UP_CITATION}. Indicate changes such as clipping and "
         "reprojection. Requires review before redistribution."
     )

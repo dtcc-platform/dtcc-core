@@ -84,7 +84,9 @@ def download_built_up(
     if not HAS_RASTERIO:
         raise ImportError("rasterio is required to read GHSL data.")
     if epoch not in BUILT_UP_EPOCHS:
-        raise ValueError(f"Unsupported GHSL epoch {epoch}. Supported epochs: {BUILT_UP_EPOCHS}.")
+        raise ValueError(
+            f"Unsupported GHSL epoch {epoch}. Supported epochs: {BUILT_UP_EPOCHS}."
+        )
     if component not in BUILT_UP_COMPONENTS:
         raise ValueError(
             f"Unsupported GHSL component {component!r}. Supported: {BUILT_UP_COMPONENTS}."
@@ -121,9 +123,17 @@ def _read_window(url: str, bounds: Bounds):
                 "EPSG:3006", src.crs, *bounds.tuple, densify_pts=21
             )
             margin = _WINDOW_MARGIN_CELLS * abs(src.res[0])
-            window = from_bounds(
-                left - margin, bottom - margin, right + margin, top + margin, src.transform
-            ).round_offsets().round_lengths()
+            window = (
+                from_bounds(
+                    left - margin,
+                    bottom - margin,
+                    right + margin,
+                    top + margin,
+                    src.transform,
+                )
+                .round_offsets()
+                .round_lengths()
+            )
             values = src.read(1, window=window, boundless=True, fill_value=src.nodata)
             data = values.astype(np.float32)
             if src.nodata is not None:
