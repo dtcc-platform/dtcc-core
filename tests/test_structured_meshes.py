@@ -14,7 +14,9 @@ def test_rectangle_mesh(nx, ny):
     assert mesh.vertices.shape == ((nx + 1) * (ny + 1), 3)
     assert mesh.faces.shape == (2 * nx * ny, 3)
     triangles = mesh.vertices[mesh.faces]
-    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    normals = np.cross(
+        triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    )
     assert np.all(normals[:, 2] > 0)
     assert np.sum(normals[:, 2]) / 2 == pytest.approx(1)
     np.testing.assert_array_equal(mesh.vertices[:, 2], 0)
@@ -36,10 +38,18 @@ def test_box_mesh(nx, ny, nz):
     assert len(mesh.boundary_faces) == 4 * (nx * ny + nx * nz + ny * nz)
     assert set(mesh.boundary_markers) == {-1, -2, -3, -4, -5, -6}
     triangles = mesh.vertices[mesh.boundary_faces]
-    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    normals = np.cross(
+        triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    )
     assert np.all(np.einsum("ij,ij->i", normals, triangles.mean(axis=1) - 0.5) > 0)
-    for tag, axis, value in ((-3, 0, 0), (-4, 0, 1), (-5, 1, 0),
-                             (-6, 1, 1), (-1, 2, 0), (-2, 2, 1)):
+    for tag, axis, value in (
+        (-3, 0, 0),
+        (-4, 0, 1),
+        (-5, 1, 0),
+        (-6, 1, 1),
+        (-1, 2, 0),
+        (-2, 2, 1),
+    ):
         assert np.all(triangles[mesh.boundary_markers == tag, :, axis] == value)
     # Every interior triangle belongs to exactly two tetrahedra: no cracks.
     faces = mesh.cells[:, [[1, 2, 3], [0, 3, 2], [0, 1, 3], [0, 2, 1]]].reshape(-1, 3)

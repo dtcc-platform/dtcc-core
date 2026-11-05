@@ -23,7 +23,9 @@ def RectangleMesh(nx: int, ny: int) -> Mesh:
     has (nx+1)(ny+1) vertices and 2*nx*ny faces, with local metre coordinates.
     """
     nx, ny = _subdivisions(nx=nx, ny=ny)
-    x, y = np.meshgrid(np.linspace(0, 1, nx + 1), np.linspace(0, 1, ny + 1), indexing="ij")
+    x, y = np.meshgrid(
+        np.linspace(0, 1, nx + 1), np.linspace(0, 1, ny + 1), indexing="ij"
+    )
     vertices = np.column_stack((x.ravel(), y.ravel(), np.zeros(x.size)))
     i, j = np.meshgrid(np.arange(nx), np.arange(ny), indexing="ij")
     a = (i * (ny + 1) + j).ravel()
@@ -46,19 +48,31 @@ def BoxMesh(nx: int, ny: int, nz: int) -> VolumeMesh:
     i, j, k = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz), indexing="ij")
     a = ((i * (ny + 1) + j) * (nz + 1) + k).ravel()
     dx, dy = (ny + 1) * (nz + 1), nz + 1
-    corners = np.column_stack((a, a + dx, a + dx + dy, a + dy,
-                               a + dy + 1, a + 1, a + dx + 1, a + dx + dy + 1))
-    pattern = np.array([[0, 1, 2, 7], [0, 2, 3, 7], [0, 3, 4, 7],
-                        [0, 4, 5, 7], [0, 5, 6, 7], [0, 6, 1, 7]])
+    corners = np.column_stack(
+        (a, a + dx, a + dx + dy, a + dy, a + dy + 1, a + 1, a + dx + 1, a + dx + dy + 1)
+    )
+    pattern = np.array(
+        [
+            [0, 1, 2, 7],
+            [0, 2, 3, 7],
+            [0, 3, 4, 7],
+            [0, 4, 5, 7],
+            [0, 5, 6, 7],
+            [0, 6, 1, 7],
+        ]
+    )
     cells = corners[:, pattern].reshape(-1, 4)
     face_pattern = np.array([[1, 2, 3], [0, 3, 2], [0, 1, 3], [0, 2, 1]])
     faces = cells[:, face_pattern].reshape(-1, 3)
-    _, ids, counts = np.unique(np.sort(faces, axis=1), axis=0, return_index=True, return_counts=True)
+    _, ids, counts = np.unique(
+        np.sort(faces, axis=1), axis=0, return_index=True, return_counts=True
+    )
     boundary = faces[ids[counts == 1]]
     xyz = vertices[boundary]
     labels = np.empty(len(boundary), dtype=np.int64)
     for axis, low, high in ((0, -3, -4), (1, -5, -6), (2, -1, -2)):
         labels[np.all(xyz[:, :, axis] == 0, axis=1)] = low
         labels[np.all(xyz[:, :, axis] == 1, axis=1)] = high
-    return VolumeMesh(vertices=vertices, cells=cells,
-                      boundary_faces=boundary, boundary_markers=labels)
+    return VolumeMesh(
+        vertices=vertices, cells=cells, boundary_faces=boundary, boundary_markers=labels
+    )
