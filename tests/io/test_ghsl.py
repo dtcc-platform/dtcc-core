@@ -337,11 +337,51 @@ def test_http_timeout_is_read_when_requesting(monkeypatch):
     assert ghsl._gdal_env()["GDAL_HTTP_TIMEOUT"] == "600"
 
 
-def test_old_gdal_without_sum_resampling_is_rejected(monkeypatch):
-    monkeypatch.setattr(ghsl.rasterio, "__gdal_version__", "3.0.4")
+def test_old_gdal_without_sum_resampling_is_rejected(fake_read, monkeypatch):
+    monkeypatch.setattr(ghsl, "HAS_SUM_RESAMPLING", False)
 
     with pytest.raises(ImportError, match="GDAL 3.1"):
         ghsl.download_built_up(BOUNDS)
+    assert fake_read.calls == []
+
+
+def test_cached_data_is_returned_even_without_sum_resampling(fake_read, monkeypatch):
+    first = ghsl.download_built_up(BOUNDS)
+    monkeypatch.setattr(ghsl, "HAS_SUM_RESAMPLING", False)
+
+    cached = ghsl.download_built_up(BOUNDS)
+
+    assert np.array_equal(cached.data, first.data)
+
+
+@pytest.mark.parametrize(
+    "text, version",
+    [("3.10.3", (3, 10)), ("3.1dev", (3, 1)), ("3.0.4", (3, 0)), ("unknown", (0, 0))],
+)
+def test_gdal_version_parsing(text, version):
+    assert ghsl._gdal_version(text) == version
+
+
+def test_gdal_write_errors_while_caching_still_return_the_data(fake_read, monkeypatch):
+    from rasterio._err import CPLE_BaseError
+
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+
+    def disk_full(*args, **kwargs):
+        raise CPLE_BaseError(3, 1, "No space left on device")
+
+    monkeypatch.setattr(ghsl, "_write_cache", disk_full)
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert raster.data.shape == (10, 10)
+    assert any("Could not cache GHSL data" in message for message in warnings)
+
+
+def test_numpy_array_bounds_are_accepted(fake_read):
+    raster = ghsl.download_built_up(np.array(BOUNDS.tuple))
+    assert raster.data.shape == (10, 10)
 
 
 def test_six_value_bounds_use_the_dataset_order(fake_read):

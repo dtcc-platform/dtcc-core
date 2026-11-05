@@ -3,20 +3,16 @@ from typing import Literal
 from pydantic import Field
 
 import dtcc_core
-from dtcc_core.io.data.ghsl import (
-    BUILT_UP_CITATION,
-    BUILT_UP_COMPONENTS,
-    BUILT_UP_DEFAULT_EPOCH,
-    BUILT_UP_EPOCHS,
-)
+from dtcc_core.io.data.ghsl import BUILT_UP_CITATION, BUILT_UP_DEFAULT_EPOCH
 from dtcc_core.model import Raster
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
-# Built from the download module's lists so validation and download agree.
-Epoch = Literal[BUILT_UP_EPOCHS]
-Component = Literal[BUILT_UP_COMPONENTS]
+# Written out for editors and type tools; a test keeps these equal to the
+# download module's BUILT_UP_EPOCHS and BUILT_UP_COMPONENTS.
+Epoch = Literal[1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030]
+Component = Literal["total", "non_residential"]
 
 
 class BuiltUpArgs(DatasetBaseArgs):

@@ -69,3 +69,13 @@ def test_built_up_dataset_exports_tif(monkeypatch, tmp_path):
 def test_built_up_rejects_unsupported_epoch():
     with pytest.raises(ValidationError, match="epoch"):
         datasets.built_up(bounds=(0.0, 0.0, 200.0, 200.0), epoch=2022)
+
+
+def test_built_up_choices_match_the_download_module():
+    from typing import get_args
+
+    from dtcc_core.datasets.built_up import Component, Epoch
+    from dtcc_core.io.data.ghsl import BUILT_UP_COMPONENTS, BUILT_UP_EPOCHS
+
+    assert get_args(Epoch) == BUILT_UP_EPOCHS
+    assert get_args(Component) == BUILT_UP_COMPONENTS

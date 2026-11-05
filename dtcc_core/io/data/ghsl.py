@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import re
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +20,8 @@ from .logging import debug, info, warning
 
 try:
     import rasterio
-    from rasterio.errors import RasterioIOError
+    from rasterio._err import CPLE_BaseError
+    from rasterio.errors import RasterioError, RasterioIOError
     from rasterio.warp import Resampling, reproject, transform_bounds
     from rasterio.windows import from_bounds
 
@@ -49,6 +52,19 @@ _PRODUCT_NAMES = {
 }
 # GDAL ``sum`` resampling, which splits each cell's area by overlap, needs 3.1.
 _MIN_GDAL_FOR_SUM = (3, 1)
+
+
+def _gdal_version(text: str) -> tuple[int, int]:
+    """Major and minor version from a GDAL version string such as '3.1dev'."""
+    match = re.match(r"(\d+)\.(\d+)", text)
+    return (int(match[1]), int(match[2])) if match else (0, 0)
+
+
+HAS_SUM_RESAMPLING = (
+    HAS_RASTERIO
+    and hasattr(Resampling, "sum")
+    and _gdal_version(rasterio.__gdal_version__) >= _MIN_GDAL_FOR_SUM
+)
 # Bumped when cached values would differ, so older cache files are not reused.
 _CACHE_VERSION = 2
 # Source cells read around the requested area so reprojection covers its edges.
@@ -56,7 +72,7 @@ _WINDOW_MARGIN_CELLS = 2
 
 
 def download_built_up(
-    bounds: Bounds,
+    bounds: Bounds | Sequence[float],
     epoch: int = BUILT_UP_DEFAULT_EPOCH,
     component: str = "total",
     use_cache: bool = True,
@@ -65,8 +81,9 @@ def download_built_up(
 
     Parameters
     ----------
-    bounds : Bounds
-        Area of interest in EPSG:3006.
+    bounds : Bounds or sequence of float
+        Area of interest in EPSG:3006: a ``Bounds``, ``(minx, miny, maxx,
+        maxy)`` or ``(minx, miny, minz, maxx, maxy, maxz)``.
     epoch : int, default 2020
         Epoch from 1975 to 2030 in steps of 5. 2025 and 2030 are projections.
     component : {"total", "non_residential"}, default "total"
@@ -85,7 +102,6 @@ def download_built_up(
     """
     if not HAS_RASTERIO:
         raise ImportError("rasterio is required to read GHSL data.")
-    _require_sum_resampling()
     if epoch not in BUILT_UP_EPOCHS:
         raise ValueError(
             f"Unsupported GHSL epoch {epoch}. Supported epochs: {BUILT_UP_EPOCHS}."
@@ -102,6 +118,7 @@ def download_built_up(
     if data is not None:
         info(f"Using cached GHSL built-up {epoch} data from {cache_path}")
     else:
+        _require_sum_resampling()
         name = _PRODUCT_NAMES[component].format(epoch=epoch)
         info(f"Reading GHSL {name} from the JRC server")
         source, source_transform, source_crs = _read_window(
@@ -112,7 +129,7 @@ def download_built_up(
         )
         try:
             _write_cache(cache_path, data, transform)
-        except (OSError, RasterioIOError) as exc:
+        except (OSError, RasterioError, CPLE_BaseError) as exc:
             warning(f"Could not cache GHSL data at {cache_path}: {exc}")
 
     if np.isnan(data).all():
@@ -161,8 +178,7 @@ def _gdal_env() -> dict[str, str]:
 
 def _require_sum_resampling():
     """Raise when the installed GDAL cannot reproject while keeping totals."""
-    version = tuple(int(part) for part in rasterio.__gdal_version__.split(".")[:2])
-    if not hasattr(Resampling, "sum") or version < _MIN_GDAL_FOR_SUM:
+    if not HAS_SUM_RESAMPLING:
         raise ImportError(
             "GHSL built-up data needs GDAL 3.1 or later with sum resampling; "
             f"this rasterio uses GDAL {rasterio.__gdal_version__}. "
