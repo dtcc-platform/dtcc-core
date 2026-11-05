@@ -177,6 +177,37 @@ def test_cache_is_separate_per_epoch_and_component(fake_read):
     assert len(fake_read.calls) == 3
 
 
+def test_cache_separates_grids_that_differ_by_less_than_a_metre(fake_read):
+    ten_columns = ghsl.download_built_up(BOUNDS)
+    eleven_columns = ghsl.download_built_up(
+        Bounds(BOUNDS.xmin, BOUNDS.ymin, BOUNDS.xmax + 0.4, BOUNDS.ymax)
+    )
+    shifted = ghsl.download_built_up(
+        Bounds(BOUNDS.xmin + 0.3, BOUNDS.ymin, BOUNDS.xmax + 0.3, BOUNDS.ymax)
+    )
+
+    assert len(fake_read.calls) == 3
+    assert ten_columns.data.shape == (10, 10)
+    assert eleven_columns.data.shape == (10, 11)
+    assert shifted.data.shape == (10, 10)
+    assert shifted.georef.c == pytest.approx(BOUNDS.xmin + 0.3)
+
+
+def test_cache_file_with_another_grid_is_ignored(fake_read, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+    transform, width, height = ghsl._target_grid(BOUNDS)
+    path = ghsl._cache_path(transform, width, height, 2020, "total")
+    other = Affine(100.0, 0, BOUNDS.xmin + 50.0, 0, -100.0, BOUNDS.ymax)
+    ghsl._write_cache(path, np.zeros((height, width), dtype=np.float32), other)
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert len(fake_read.calls) == 1
+    assert raster.georef == transform
+    assert any("does not match" in message for message in warnings)
+
+
 def test_read_failure_raises_runtime_error(monkeypatch, tmp_path):
     def fail(*args, **kwargs):
         raise RasterioIOError("HTTP response code: 404")

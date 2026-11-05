@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -51,6 +52,8 @@ _GDAL_ENV = {
     "GDAL_HTTP_MAX_RETRY": "3",
     "GDAL_HTTP_RETRY_DELAY": "2",
 }
+# Bumped when cached values would differ, so older cache files are not reused.
+_CACHE_VERSION = 2
 # Source cells read around the requested area so reprojection covers its edges.
 _WINDOW_MARGIN_CELLS = 2
 
@@ -94,11 +97,10 @@ def download_built_up(
     bounds = _ensure_bounds(bounds)
     transform, width, height = _target_grid(bounds)
 
-    cache_path = _cache_path(bounds, epoch, component)
-    if use_cache and cache_path.exists():
+    cache_path = _cache_path(transform, width, height, epoch, component)
+    data = _read_cache(cache_path, transform, width, height) if use_cache else None
+    if data is not None:
         info(f"Using cached GHSL built-up {epoch} data from {cache_path}")
-        with rasterio.open(cache_path) as src:
-            data = src.read(1)
     else:
         name = _PRODUCT_NAMES[component].format(epoch=epoch)
         info(f"Reading GHSL {name} from the JRC server")
@@ -202,13 +204,41 @@ def _ensure_bounds(bounds) -> Bounds:
     return Bounds(*bounds)
 
 
-def _cache_path(bounds: Bounds, epoch: int, component: str) -> Path:
-    xmin, ymin, xmax, ymax = (round(value) for value in bounds.tuple)
+def _cache_path(
+    transform: Affine, width: int, height: int, epoch: int, component: str
+) -> Path:
+    """Cache file for one exact target grid, epoch and component.
+
+    The key is the full grid (origin, cell size and shape) at full float
+    precision, so grids that differ by less than a metre get separate files.
+    """
+    grid = (_CACHE_VERSION, *transform[:6], width, height)
+    key = hashlib.sha256(repr(grid).encode()).hexdigest()[:16]
     return (
-        Path(cache_dir)
-        / "downloaded_ghsl"
-        / f"built_up_{component}_{epoch}_{xmin}_{ymin}_{xmax}_{ymax}.tif"
+        Path(cache_dir) / "downloaded_ghsl" / f"built_up_{component}_{epoch}_{key}.tif"
     )
+
+
+def _read_cache(path: Path, transform: Affine, width: int, height: int):
+    """Return cached data for the grid, or ``None`` if missing or not matching."""
+    if not path.exists():
+        return None
+    try:
+        with rasterio.open(path) as src:
+            matches = (
+                src.width == width
+                and src.height == height
+                and src.transform == transform
+                and src.crs is not None
+                and src.crs.to_epsg() == 3006
+            )
+            if matches:
+                return src.read(1)
+    except RasterioIOError as exc:
+        warning(f"Ignoring unreadable GHSL cache file {path}: {exc}")
+        return None
+    warning(f"Ignoring GHSL cache file {path}: its grid does not match the request.")
+    return None
 
 
 __all__ = [
