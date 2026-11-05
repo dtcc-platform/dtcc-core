@@ -193,15 +193,6 @@ def is_superset_bbox(bbox_sup, bbox_sub):
     return xminS <= xminT and yminS <= yminT and xmaxS >= xmaxT and ymaxS >= ymaxT
 
 
-def _bbox_3006_to_wgs84(bbox_3006):
-    """Return (min_lon, min_lat, max_lon, max_lat) covering an EPSG:3006 bbox.
-
-    Uses all four corners; transforming only two diagonal corners clips the
-    requested area.
-    """
-    return bounds_to_wgs84(bbox_3006, "EPSG:3006")
-
-
 def filter_gdf_to_bbox(gdf, bbox_3006):
     """
     Filter a GeoDataFrame (already in EPSG:3006) to the specified bounding box by intersection.
@@ -362,7 +353,7 @@ def download_overpass_buildings(bbox_3006):
     2) Query Overpass for building footprints in that bounding box.
     3) Return a GeoDataFrame in EPSG:3006.
     """
-    min_lon, min_lat, max_lon, max_lat = _bbox_3006_to_wgs84(bbox_3006)
+    min_lon, min_lat, max_lon, max_lat = bounds_to_wgs84(bbox_3006, "EPSG:3006")
 
     query = f"""
     [out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECONDS}];
@@ -385,62 +376,27 @@ def download_overpass_buildings(bbox_3006):
             lon = elem["lon"]
             nodes[nid] = (lat, lon)
 
-    relation_polygons = {
-        elem["id"]: _relation_polygon_lonlat(elem)
-        for elem in data.get("elements", [])
-        if elem["type"] == "relation"
-    }
-    # A building way that is also an outline of an assembled building
-    # relation is described by the relation, so it is not added twice; its
-    # tags fill in what the relation leaves out.
-    building_way_tags = {
-        elem["id"]: elem.get("tags", {})
-        for elem in data.get("elements", [])
-        if elem["type"] == "way"
-    }
-    outline_tags = {
-        elem["id"]: [
-            building_way_tags[member["ref"]]
-            for member in elem.get("members", [])
-            if member.get("type") == "way"
-            and member.get("role") != "inner"
-            and member.get("ref") in building_way_tags
-        ]
-        for elem in data.get("elements", [])
-        if elem["type"] == "relation" and relation_polygons[elem["id"]] is not None
-    }
-    relation_outlines = {
-        member["ref"]
-        for elem in data.get("elements", [])
-        if elem["type"] == "relation" and elem["id"] in outline_tags
-        for member in elem.get("members", [])
-        if member.get("type") == "way"
-        and member.get("role") != "inner"
-        and "ref" in member
-    }
+    elements = data.get("elements", [])
+    relations, relation_outlines = _building_relations(elements)
 
     building_rows = []
     polygons_4326 = []
-    for elem in data.get("elements", []):
-        if elem["type"] == "way" and elem["id"] in relation_outlines:
-            continue
-        if elem["type"] == "way" and "nodes" in elem:
+    for elem in elements:
+        if elem["type"] == "way":
+            if elem["id"] in relation_outlines or "nodes" not in elem:
+                continue
             coords = _way_coordinates_latlon(elem, nodes)
             if len(coords) <= 2:
                 continue
             if coords[0] != coords[-1]:
                 coords.append(coords[0])  # close ring
             polygon = Polygon([(lon, lat) for (lat, lon) in coords])
-        elif elem["type"] == "relation":
-            polygon = relation_polygons[elem["id"]]
-            if polygon is None:
-                continue
+            tags = elem.get("tags", {})
+        elif elem["type"] == "relation" and elem["id"] in relations:
+            polygon, tags = relations[elem["id"]]
         else:
             continue
 
-        tags = elem.get("tags", {})
-        if elem["type"] == "relation":
-            tags = _relation_building_tags(tags, outline_tags[elem["id"]])
         row = {"osm_id": elem["id"], "osm_type": elem["type"]}
         for tag, column in BUILDING_TAG_COLUMNS.items():
             row[column] = tags.get(tag)
@@ -466,7 +422,7 @@ def download_overpass_roads(bbox_3006):
     2) Query Overpass for roads (highways) in that bounding box.
     3) Return a GeoDataFrame in EPSG:3006.
     """
-    min_lon, min_lat, max_lon, max_lat = _bbox_3006_to_wgs84(bbox_3006)
+    min_lon, min_lat, max_lon, max_lat = bounds_to_wgs84(bbox_3006, "EPSG:3006")
 
     node_highways = "|".join(ROAD_NODE_HIGHWAYS)
     query = f"""
@@ -598,20 +554,55 @@ def _way_coordinates_latlon(elem, nodes):
     return coords
 
 
+def _building_relations(elements):
+    """Assemble the building relations in an Overpass response.
+
+    Returns ``{relation id: (polygon, tags)}`` for the relations that form a
+    closed shape, and the ids of the building ways that outline them. Those
+    ways are described by their relation, so they are not added a second
+    time; their tags fill in what the relation leaves out.
+    """
+    way_tags = {
+        elem["id"]: elem.get("tags", {}) for elem in elements if elem["type"] == "way"
+    }
+    relations = {}
+    outlines = set()
+    for elem in elements:
+        if elem["type"] != "relation":
+            continue
+        polygon = _relation_polygon_lonlat(elem)
+        if polygon is None:
+            continue
+        refs = [
+            member["ref"]
+            for member in elem.get("members", [])
+            if member.get("type") == "way"
+            and member.get("role") != "inner"
+            and member.get("ref") in way_tags
+        ]
+        outlines.update(refs)
+        tags = _relation_building_tags(
+            elem.get("tags", {}), [way_tags[ref] for ref in refs]
+        )
+        relations[elem["id"]] = (polygon, tags)
+    return relations, outlines
+
+
 def _relation_building_tags(relation_tags, outline_tags):
     """Return a building relation's tags, filled in from its outline ways.
 
     The relation's own value wins, except ``building=yes``, which a more
     specific building type on the outlines replaces. A tag the relation
-    lacks is taken from the outline ways when they all agree on it.
+    lacks is taken from the outline ways only when every one of them has
+    it with the same value.
     """
     tags = dict(relation_tags)
     for tag in BUILDING_TAG_COLUMNS:
         current = tags.get(tag)
         if current is not None and not (tag == "building" and current == "yes"):
             continue
-        values = {way[tag] for way in outline_tags if way.get(tag) is not None}
-        if len(values) == 1:
+        values = {way.get(tag) for way in outline_tags}
+        if len(values) == 1 and None not in values:
             tags[tag] = values.pop()
     return tags
 

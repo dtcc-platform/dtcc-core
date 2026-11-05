@@ -184,9 +184,10 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
     Values may be ``;``-separated lists, which count when every part
     does. Vertices no longer used by any edge are removed. Geometry that
     does not have one linestring per edge cannot be filtered and is
-    dropped. An empty ``length`` array stays empty; attributes and any
-    other ``length`` must have one value per edge, or ``ValueError`` is
-    raised.
+    dropped. An empty ``length`` array stays empty. For the filtered
+    modes, attributes and any other ``length`` must have one value per
+    edge, or ``ValueError`` is raised; ``"all"`` copies the network as it
+    is.
 
     Parameters
     ----------

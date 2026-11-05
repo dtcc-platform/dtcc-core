@@ -398,3 +398,34 @@ def test_overpass_rejects_invalid_bbox_before_querying(monkeypatch, download):
 
     with pytest.raises(ValueError, match="xmin < xmax"):
         getattr(overpass, download)((320000.0, 6398000.0, 320000.0, 6398100.0))
+
+
+def test_relation_row_skips_tags_only_some_outline_ways_have(monkeypatch):
+    left = _square(11.97, 57.70, 0.0005)
+    right = _square(11.9705, 57.70, 0.0005)
+    relation = {
+        "type": "relation",
+        "id": 9,
+        "members": [
+            {"type": "way", "ref": 5, "role": "outer", "geometry": left},
+            {"type": "way", "ref": 6, "role": "outer", "geometry": right},
+        ],
+        "tags": {"type": "multipolygon", "building": "yes"},
+    }
+    monkeypatch.setattr(
+        overpass,
+        "query_overpass_with_failover",
+        lambda query: {
+            "elements": [
+                _tagged(_building_way(5, left), height="30", **{"addr:street": "A"}),
+                _tagged(_building_way(6, right), **{"addr:street": "A"}),
+                relation,
+            ]
+        },
+    )
+
+    buildings = overpass.download_overpass_buildings(BBOX)
+
+    assert buildings["osm_id"].tolist() == [9]
+    assert buildings["osm_height"].isna().iloc[0]
+    assert buildings["addr_street"].iloc[0] == "A"
