@@ -217,20 +217,31 @@ def test_relation_keeps_outer_ring_inside_courtyard():
     assert shape.geom_type == "MultiPolygon"
 
 
-def test_relation_treats_nested_ring_with_missing_role_as_courtyard():
+def _rectangle(xmin, ymin, xmax, ymax):
+    corners = [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax), (xmin, ymin)]
+    return [{"lon": x, "lat": y} for x, y in corners]
+
+
+@pytest.mark.parametrize(
+    "courtyard",
+    [(2, 2, 8, 8), (0, 3, 4, 7), (-1, 3, 4, 7)],
+    ids=["inside", "touching-wall", "crossing-wall"],
+)
+def test_relation_cuts_courtyards_touching_or_crossing_the_wall(courtyard):
     relation = {
         "type": "relation",
         "id": 1,
         "members": [
-            {"type": "way", "role": "outer", "geometry": _square(0, 0, 10)},
-            {"type": "way", "role": "", "geometry": _square(2, 2, 6)},
+            {"type": "way", "role": "outer", "geometry": _rectangle(0, 0, 10, 10)},
+            {"type": "way", "role": "inner", "geometry": _rectangle(*courtyard)},
         ],
     }
+    xmin, ymin, xmax, ymax = courtyard
+    inside_wall = (min(xmax, 10) - max(xmin, 0)) * (min(ymax, 10) - max(ymin, 0))
 
     shape = overpass._relation_polygon_lonlat(relation)
 
-    assert shape.area == pytest.approx(100 - 36)
-    assert len(shape.interiors) == 1
+    assert shape.area == pytest.approx(100 - inside_wall)
 
 
 def _outline_relation(relation_id, outline_ref, outline):

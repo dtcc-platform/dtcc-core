@@ -589,44 +589,50 @@ def _way_coordinates_latlon(elem, nodes):
 def _relation_polygon_lonlat(elem):
     """Build a (Multi)Polygon in lon/lat from a multipolygon relation.
 
-    Rings may be split over several member ways, so all member lines are
-    joined with ``polygonize`` first. Each ring's role comes from how deeply
-    it is nested: rings inside an even number of other rings are outlines
-    and rings inside an odd number are courtyards. This keeps an outline
-    inside a courtyard, and also handles members with a missing or wrong
-    ``inner``/``outer`` role. Returns ``None`` when no closed ring can be
-    formed.
+    Outer and inner rings may each be split over several member ways, so
+    the member lines are joined with ``polygonize`` first. Each inner ring
+    is cut from the smallest outer ring that contains it, so an outer ring
+    inside a courtyard stays part of the building. An inner ring that no
+    outer ring contains is cut from every outer ring it overlaps. Members
+    without the ``inner`` role count as outer rings. Returns ``None`` when no
+    closed outer ring can be formed.
     """
-    lines = []
+    outer_lines = []
+    inner_lines = []
     for member in elem.get("members", []):
         if member.get("type") != "way":
             continue
         points = [(p["lon"], p["lat"]) for p in member.get("geometry") or [] if p]
-        if len(points) >= 2:
-            lines.append(LineString(points))
-    if not lines:
-        return None
+        if len(points) < 2:
+            continue
+        lines = inner_lines if member.get("role") == "inner" else outer_lines
+        lines.append(LineString(points))
 
     # ``polygonize`` turns nested rings into separate faces with holes, so
     # keep each face's exterior to recover the rings as drawn.
-    rings = [Polygon(face.exterior) for face in polygonize(unary_union(lines))]
-    if not rings:
+    outer = (
+        [Polygon(face.exterior) for face in polygonize(unary_union(outer_lines))]
+        if outer_lines
+        else []
+    )
+    if not outer:
         return None
-    depth = [
-        sum(other.area > ring.area and other.covers(ring) for other in rings)
-        for ring in rings
-    ]
+    inner = list(polygonize(unary_union(inner_lines))) if inner_lines else []
 
-    parts = []
-    for i, ring in enumerate(rings):
-        if depth[i] % 2:
-            continue
-        holes = [
-            rings[j]
-            for j in range(len(rings))
-            if depth[j] == depth[i] + 1 and ring.covers(rings[j])
-        ]
-        parts.append(ring.difference(unary_union(holes)) if holes else ring)
+    holes = [[] for _ in outer]
+    for ring in inner:
+        containing = [i for i, polygon in enumerate(outer) if polygon.covers(ring)]
+        if containing:
+            holes[min(containing, key=lambda i: outer[i].area)].append(ring)
+        else:
+            for i, polygon in enumerate(outer):
+                if polygon.intersects(ring):
+                    holes[i].append(ring)
+
+    parts = [
+        polygon.difference(unary_union(rings)) if rings else polygon
+        for polygon, rings in zip(outer, holes)
+    ]
     shape = unary_union(parts)
     if shape.is_empty:
         return None
