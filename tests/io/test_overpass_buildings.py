@@ -298,3 +298,90 @@ def test_building_way_is_kept_when_its_relation_cannot_be_assembled(monkeypatch)
 
     assert buildings["osm_type"].tolist() == ["way"]
     assert buildings["osm_id"].tolist() == [5]
+
+
+def _tagged(element, **tags):
+    element["tags"] = {**element["tags"], **tags}
+    return element
+
+
+def test_relation_row_takes_tags_from_its_outline_way(monkeypatch):
+    outline = _square(11.97, 57.70, 0.0005)
+    way = _tagged(
+        _building_way(5, outline),
+        **{
+            "building": "apartments",
+            "building:levels": "5",
+            "height": "17",
+            "roof:shape": "gabled",
+        },
+    )
+    relation = _tagged(_outline_relation(9, 5, outline), **{"roof:shape": "flat"})
+    monkeypatch.setattr(
+        overpass,
+        "query_overpass_with_failover",
+        lambda query: {"elements": [way, relation]},
+    )
+
+    buildings = overpass.download_overpass_buildings(BBOX)
+
+    row = buildings.iloc[0]
+    assert len(buildings) == 1
+    assert row["osm_id"] == 9
+    assert row["building"] == "apartments"
+    assert row["building_levels"] == "5"
+    assert row["osm_height"] == "17"
+    assert row["roof_shape"] == "flat"
+
+
+def test_relation_row_skips_tags_its_outline_ways_disagree_on(monkeypatch):
+    left = _square(11.97, 57.70, 0.0005)
+    right = _square(11.9705, 57.70, 0.0005)
+    relation = {
+        "type": "relation",
+        "id": 9,
+        "members": [
+            {"type": "way", "ref": 5, "role": "outer", "geometry": left},
+            {"type": "way", "ref": 6, "role": "outer", "geometry": right},
+        ],
+        "tags": {"type": "multipolygon", "building": "yes"},
+    }
+    monkeypatch.setattr(
+        overpass,
+        "query_overpass_with_failover",
+        lambda query: {
+            "elements": [
+                _tagged(_building_way(5, left), **{"building:levels": "3"}),
+                _tagged(_building_way(6, right), **{"building:levels": "4"}),
+                relation,
+            ]
+        },
+    )
+
+    buildings = overpass.download_overpass_buildings(BBOX)
+
+    assert buildings["osm_id"].tolist() == [9]
+    assert buildings["building_levels"].isna().iloc[0]
+
+
+def test_way_sharing_an_id_with_a_relation_is_kept(monkeypatch):
+    outline = _square(11.97, 57.70, 0.0005)
+    other = _square(11.971, 57.70, 0.0005)
+    monkeypatch.setattr(
+        overpass,
+        "query_overpass_with_failover",
+        lambda query: {
+            "elements": [
+                _building_way(5, outline),
+                _building_way(9, other),
+                _outline_relation(9, 5, outline),
+            ]
+        },
+    )
+
+    buildings = overpass.download_overpass_buildings(BBOX)
+
+    assert sorted(zip(buildings["osm_type"], buildings["osm_id"], strict=True)) == [
+        ("relation", 9),
+        ("way", 9),
+    ]

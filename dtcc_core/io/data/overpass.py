@@ -398,11 +398,28 @@ def download_overpass_buildings(bbox_3006):
         if elem["type"] == "relation"
     }
     # A building way that is also an outline of an assembled building
-    # relation is described by the relation, so it is not added twice.
+    # relation is described by the relation, so it is not added twice; its
+    # tags fill in what the relation leaves out.
+    building_way_tags = {
+        elem["id"]: elem.get("tags", {})
+        for elem in data.get("elements", [])
+        if elem["type"] == "way"
+    }
+    outline_tags = {
+        elem["id"]: [
+            building_way_tags[member["ref"]]
+            for member in elem.get("members", [])
+            if member.get("type") == "way"
+            and member.get("role") != "inner"
+            and member.get("ref") in building_way_tags
+        ]
+        for elem in data.get("elements", [])
+        if elem["type"] == "relation" and relation_polygons[elem["id"]] is not None
+    }
     relation_outlines = {
         member["ref"]
         for elem in data.get("elements", [])
-        if elem["type"] == "relation" and relation_polygons[elem["id"]] is not None
+        if elem["type"] == "relation" and elem["id"] in outline_tags
         for member in elem.get("members", [])
         if member.get("type") == "way"
         and member.get("role") != "inner"
@@ -429,6 +446,8 @@ def download_overpass_buildings(bbox_3006):
             continue
 
         tags = elem.get("tags", {})
+        if elem["type"] == "relation":
+            tags = _relation_building_tags(tags, outline_tags[elem["id"]])
         row = {"osm_id": elem["id"], "osm_type": elem["type"]}
         for tag, column in BUILDING_TAG_COLUMNS.items():
             row[column] = tags.get(tag)
@@ -584,6 +603,24 @@ def _way_coordinates_latlon(elem, nodes):
         if ref in nodes:
             coords.append(nodes[ref])  # (lat, lon)
     return coords
+
+
+def _relation_building_tags(relation_tags, outline_tags):
+    """Return a building relation's tags, filled in from its outline ways.
+
+    The relation's own value wins, except ``building=yes``, which a more
+    specific building type on the outlines replaces. A tag the relation
+    lacks is taken from the outline ways when they all agree on it.
+    """
+    tags = dict(relation_tags)
+    for tag in BUILDING_TAG_COLUMNS:
+        current = tags.get(tag)
+        if current is not None and not (tag == "building" and current == "yes"):
+            continue
+        values = {way[tag] for way in outline_tags if way.get(tag) is not None}
+        if len(values) == 1:
+            tags[tag] = values.pop()
+    return tags
 
 
 def _relation_polygon_lonlat(elem):
