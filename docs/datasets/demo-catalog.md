@@ -19,7 +19,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_roads.py` | OpenStreetMap road network | `roads.plot(column="highway")` |
 | `demos/dataset_space_syntax.py` | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | `demos/dataset_deso.py` | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
-| `demos/dataset_built_up.py` | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg, on one 0-10,000 m² scale | `built_up_1975.plot()` / `built_up_2020.plot()` |
+| `demos/dataset_built_up.py` | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg | `built_up_1975.plot()` / `built_up_2020.plot()` |
 | `demos/dataset_weather.py` | SMHI weather stations | `weather.plot("air_temperature")` |
 | `demos/dataset_air_quality.py` | SMHI air-quality stations | `air_quality.plot("NO2")` |
 | `demos/dataset_hydrology.py` | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |

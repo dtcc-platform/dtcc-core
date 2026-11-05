@@ -12,6 +12,7 @@ import numpy as np
 from affine import Affine
 
 from ...model import Bounds, Raster
+from .bbox import as_bounds
 from .cache import cache_dir
 from .logging import debug, info, warning
 
@@ -46,13 +47,8 @@ _PRODUCT_NAMES = {
     "total": "GHS_BUILT_S_E{epoch}_GLOBE_R2023A_54009_100",
     "non_residential": "GHS_BUILT_S_NRES_E{epoch}_GLOBE_R2023A_54009_100",
 }
-_GDAL_ENV = {
-    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".zip,.tif",
-    "GDAL_HTTP_TIMEOUT": os.environ.get("DTCC_GHSL_HTTP_TIMEOUT", "120"),
-    "GDAL_HTTP_MAX_RETRY": "3",
-    "GDAL_HTTP_RETRY_DELAY": "2",
-}
+# GDAL ``sum`` resampling, which splits each cell's area by overlap, needs 3.1.
+_MIN_GDAL_FOR_SUM = (3, 1)
 # Bumped when cached values would differ, so older cache files are not reused.
 _CACHE_VERSION = 2
 # Source cells read around the requested area so reprojection covers its edges.
@@ -76,7 +72,9 @@ def download_built_up(
     component : {"total", "non_residential"}, default "total"
         All built-up surface, or only the non-residential part.
     use_cache : bool, default True
-        Reuse a cached result for the same bounds, epoch and component.
+        Reuse a cached result for the same grid, epoch and component. With
+        ``False`` the data is read from the server again and the cache is
+        refreshed. A cache that cannot be written only logs a warning.
 
     Returns
     -------
@@ -87,6 +85,7 @@ def download_built_up(
     """
     if not HAS_RASTERIO:
         raise ImportError("rasterio is required to read GHSL data.")
+    _require_sum_resampling()
     if epoch not in BUILT_UP_EPOCHS:
         raise ValueError(
             f"Unsupported GHSL epoch {epoch}. Supported epochs: {BUILT_UP_EPOCHS}."
@@ -95,7 +94,7 @@ def download_built_up(
         raise ValueError(
             f"Unsupported GHSL component {component!r}. Supported: {BUILT_UP_COMPONENTS}."
         )
-    bounds = _ensure_bounds(bounds)
+    bounds = as_bounds(bounds)
     transform, width, height = _target_grid(bounds)
 
     cache_path = _cache_path(transform, width, height, epoch, component)
@@ -111,7 +110,10 @@ def download_built_up(
         data = _reproject_preserving_totals(
             source, source_transform, source_crs, transform, width, height
         )
-        _write_cache(cache_path, data, transform)
+        try:
+            _write_cache(cache_path, data, transform)
+        except (OSError, RasterioIOError) as exc:
+            warning(f"Could not cache GHSL data at {cache_path}: {exc}")
 
     if np.isnan(data).all():
         warning(f"No GHSL built-up {epoch} data in bounds {bounds.tuple}.")
@@ -121,7 +123,7 @@ def download_built_up(
 def _read_window(url: str, bounds: Bounds):
     """Return (data in m² per cell, transform, crs) covering ``bounds``."""
     try:
-        with rasterio.Env(**_GDAL_ENV), rasterio.open(url) as src:
+        with rasterio.Env(**_gdal_env()), rasterio.open(url) as src:
             left, bottom, right, top = transform_bounds(
                 "EPSG:3006", src.crs, *bounds.tuple, densify_pts=21
             )
@@ -137,13 +139,35 @@ def _read_window(url: str, bounds: Bounds):
                 .round_offsets()
                 .round_lengths()
             )
-            values = src.read(1, window=window, boundless=True, fill_value=src.nodata)
-            data = values.astype(np.float32)
-            if src.nodata is not None:
-                data[values == src.nodata] = np.nan
+            # A masked read marks both nodata cells and cells beyond the
+            # source extent, also when the file declares no nodata value.
+            values = src.read(1, window=window, boundless=True, masked=True)
+            data = values.astype(np.float32).filled(np.nan)
             return data, src.window_transform(window), src.crs
     except RasterioIOError as exc:
         raise RuntimeError(f"Failed to read GHSL data from {url}: {exc}") from exc
+
+
+def _gdal_env() -> dict[str, str]:
+    """GDAL options for reading the remote zip, read at call time."""
+    return {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".zip,.tif",
+        "GDAL_HTTP_TIMEOUT": os.environ.get("DTCC_GHSL_HTTP_TIMEOUT", "120"),
+        "GDAL_HTTP_MAX_RETRY": "3",
+        "GDAL_HTTP_RETRY_DELAY": "2",
+    }
+
+
+def _require_sum_resampling():
+    """Raise when the installed GDAL cannot reproject while keeping totals."""
+    version = tuple(int(part) for part in rasterio.__gdal_version__.split(".")[:2])
+    if not hasattr(Resampling, "sum") or version < _MIN_GDAL_FOR_SUM:
+        raise ImportError(
+            "GHSL built-up data needs GDAL 3.1 or later with sum resampling; "
+            f"this rasterio uses GDAL {rasterio.__gdal_version__}. "
+            "Upgrade rasterio."
+        )
 
 
 def _reproject_preserving_totals(
@@ -212,12 +236,6 @@ def _write_cache(path: Path, data, transform: Affine):
             debug(f"GHSL cache file {path} was published by a concurrent writer.")
     finally:
         tmp_path.unlink(missing_ok=True)
-
-
-def _ensure_bounds(bounds) -> Bounds:
-    if isinstance(bounds, Bounds):
-        return bounds
-    return Bounds(*bounds)
 
 
 def _cache_path(

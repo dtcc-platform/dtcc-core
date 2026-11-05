@@ -291,3 +291,63 @@ def test_cache_writer_reraises_when_nothing_was_published(monkeypatch, tmp_path)
     with pytest.raises(PermissionError):
         ghsl._write_cache(path, np.zeros((height, width), np.float32), transform)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cache_write_failure_still_returns_the_data(fake_read, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+
+    def read_only(*args, **kwargs):
+        raise PermissionError("read-only cache directory")
+
+    monkeypatch.setattr(ghsl, "_write_cache", read_only)
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert raster.data.shape == (10, 10)
+    assert any("Could not cache GHSL data" in message for message in warnings)
+
+
+def test_read_window_marks_cells_beyond_a_file_without_nodata_as_nan(tmp_path):
+    import rasterio
+
+    path = tmp_path / "no_nodata.tif"
+    _, transform, crs = _mollweide_window()
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=3,
+        height=3,
+        count=1,
+        dtype="uint16",
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(np.full((3, 3), 500, dtype=np.uint16), 1)
+
+    data, _, _ = ghsl._read_window(str(path), BOUNDS)
+
+    assert np.isnan(data).any()
+    assert set(np.unique(data[~np.isnan(data)])) <= {500.0}
+
+
+def test_http_timeout_is_read_when_requesting(monkeypatch):
+    monkeypatch.setenv("DTCC_GHSL_HTTP_TIMEOUT", "600")
+    assert ghsl._gdal_env()["GDAL_HTTP_TIMEOUT"] == "600"
+
+
+def test_old_gdal_without_sum_resampling_is_rejected(monkeypatch):
+    monkeypatch.setattr(ghsl.rasterio, "__gdal_version__", "3.0.4")
+
+    with pytest.raises(ImportError, match="GDAL 3.1"):
+        ghsl.download_built_up(BOUNDS)
+
+
+def test_six_value_bounds_use_the_dataset_order(fake_read):
+    raster = ghsl.download_built_up(
+        (BOUNDS.xmin, BOUNDS.ymin, 0.0, BOUNDS.xmax, BOUNDS.ymax, 50.0)
+    )
+
+    assert raster.data.shape == (10, 10)
+    assert raster.georef == Affine(100.0, 0, BOUNDS.xmin, 0, -100.0, BOUNDS.ymax)
