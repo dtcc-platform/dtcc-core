@@ -215,3 +215,75 @@ def test_relation_keeps_outer_ring_inside_courtyard():
 
     assert shape.area == pytest.approx(100 - 36 + 4)
     assert shape.geom_type == "MultiPolygon"
+
+
+def test_relation_treats_nested_ring_with_missing_role_as_courtyard():
+    relation = {
+        "type": "relation",
+        "id": 1,
+        "members": [
+            {"type": "way", "role": "outer", "geometry": _square(0, 0, 10)},
+            {"type": "way", "role": "", "geometry": _square(2, 2, 6)},
+        ],
+    }
+
+    shape = overpass._relation_polygon_lonlat(relation)
+
+    assert shape.area == pytest.approx(100 - 36)
+    assert len(shape.interiors) == 1
+
+
+def _outline_relation(relation_id, outline_ref, outline):
+    return {
+        "type": "relation",
+        "id": relation_id,
+        "members": [
+            {"type": "way", "ref": outline_ref, "role": "outer", "geometry": outline}
+        ],
+        "tags": {"type": "multipolygon", "building": "yes"},
+    }
+
+
+def _building_way(way_id, outline):
+    return {
+        "type": "way",
+        "id": way_id,
+        "nodes": [1, 2, 3, 4, 1],
+        "geometry": outline,
+        "tags": {"building": "yes"},
+    }
+
+
+def test_building_way_that_outlines_a_relation_is_not_duplicated(monkeypatch):
+    outline = _square(11.97, 57.70, 0.0005)
+    monkeypatch.setattr(
+        overpass,
+        "query_overpass_with_failover",
+        lambda query: {
+            "elements": [_building_way(5, outline), _outline_relation(9, 5, outline)]
+        },
+    )
+
+    buildings = overpass.download_overpass_buildings(BBOX)
+
+    assert buildings["osm_type"].tolist() == ["relation"]
+    assert buildings["osm_id"].tolist() == [9]
+
+
+def test_building_way_is_kept_when_its_relation_cannot_be_assembled(monkeypatch):
+    outline = _square(11.97, 57.70, 0.0005)
+    monkeypatch.setattr(
+        overpass,
+        "query_overpass_with_failover",
+        lambda query: {
+            "elements": [
+                _building_way(5, outline),
+                _outline_relation(9, 5, outline[:3]),
+            ]
+        },
+    )
+
+    buildings = overpass.download_overpass_buildings(BBOX)
+
+    assert buildings["osm_type"].tolist() == ["way"]
+    assert buildings["osm_id"].tolist() == [5]

@@ -5,12 +5,15 @@ import os
 import re
 
 import geopandas as gpd
+import numpy as np
 import requests
 from platformdirs import user_cache_dir
 from requests.adapters import HTTPAdapter
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import polygonize, unary_union
 from urllib3.util.retry import Retry
+
+from ...reproject.reproject import reproject_array
 
 # ``warning`` is re-exported for tests that assert nothing warns here.
 from .logging import debug, error, info, warning  # noqa: F401
@@ -197,9 +200,13 @@ def _bbox_3006_to_wgs84(bbox_3006):
     Uses all four corners; transforming only two diagonal corners clips the
     requested area.
     """
-    from dtcc_core.datasets.geospatial import bounds_to_wgs84
-
-    return bounds_to_wgs84(bbox_3006, "EPSG:3006")
+    xmin, ymin, xmax, ymax = (float(value) for value in bbox_3006)
+    corners = np.array(
+        [[xmin, ymin, 0.0], [xmin, ymax, 0.0], [xmax, ymin, 0.0], [xmax, ymax, 0.0]]
+    )
+    lonlat = reproject_array(corners, "EPSG:3006", "EPSG:4326")
+    lons, lats = lonlat[:, 0], lonlat[:, 1]
+    return float(lons.min()), float(lats.min()), float(lons.max()), float(lats.max())
 
 
 def filter_gdf_to_bbox(gdf, bbox_3006):
@@ -385,9 +392,28 @@ def download_overpass_buildings(bbox_3006):
             lon = elem["lon"]
             nodes[nid] = (lat, lon)
 
+    relation_polygons = {
+        elem["id"]: _relation_polygon_lonlat(elem)
+        for elem in data.get("elements", [])
+        if elem["type"] == "relation"
+    }
+    # A building way that is also an outline of an assembled building
+    # relation is described by the relation, so it is not added twice.
+    relation_outlines = {
+        member["ref"]
+        for elem in data.get("elements", [])
+        if elem["type"] == "relation" and relation_polygons[elem["id"]] is not None
+        for member in elem.get("members", [])
+        if member.get("type") == "way"
+        and member.get("role") != "inner"
+        and "ref" in member
+    }
+
     building_rows = []
     polygons_4326 = []
     for elem in data.get("elements", []):
+        if elem["type"] == "way" and elem["id"] in relation_outlines:
+            continue
         if elem["type"] == "way" and "nodes" in elem:
             coords = _way_coordinates_latlon(elem, nodes)
             if len(coords) <= 2:
@@ -396,7 +422,7 @@ def download_overpass_buildings(bbox_3006):
                 coords.append(coords[0])  # close ring
             polygon = Polygon([(lon, lat) for (lat, lon) in coords])
         elif elem["type"] == "relation":
-            polygon = _relation_polygon_lonlat(elem)
+            polygon = relation_polygons[elem["id"]]
             if polygon is None:
                 continue
         else:
@@ -563,49 +589,44 @@ def _way_coordinates_latlon(elem, nodes):
 def _relation_polygon_lonlat(elem):
     """Build a (Multi)Polygon in lon/lat from a multipolygon relation.
 
-    Outer and inner rings may each be split over several member ways, so
-    the member lines are joined with ``polygonize`` first. Each inner ring
-    is cut from the smallest outer ring that contains it, so an outer ring
-    inside a courtyard stays part of the building. An inner ring that no
-    outer ring contains is cut from every outer ring it overlaps. Returns
-    ``None`` when no closed outer ring can be formed.
+    Rings may be split over several member ways, so all member lines are
+    joined with ``polygonize`` first. Each ring's role comes from how deeply
+    it is nested: rings inside an even number of other rings are outlines
+    and rings inside an odd number are courtyards. This keeps an outline
+    inside a courtyard, and also handles members with a missing or wrong
+    ``inner``/``outer`` role. Returns ``None`` when no closed ring can be
+    formed.
     """
-    outer_lines = []
-    inner_lines = []
+    lines = []
     for member in elem.get("members", []):
         if member.get("type") != "way":
             continue
         points = [(p["lon"], p["lat"]) for p in member.get("geometry") or [] if p]
-        if len(points) < 2:
-            continue
-        lines = inner_lines if member.get("role") == "inner" else outer_lines
-        lines.append(LineString(points))
+        if len(points) >= 2:
+            lines.append(LineString(points))
+    if not lines:
+        return None
 
     # ``polygonize`` turns nested rings into separate faces with holes, so
     # keep each face's exterior to recover the rings as drawn.
-    outer = (
-        [Polygon(face.exterior) for face in polygonize(unary_union(outer_lines))]
-        if outer_lines
-        else []
-    )
-    if not outer:
+    rings = [Polygon(face.exterior) for face in polygonize(unary_union(lines))]
+    if not rings:
         return None
-    inner = list(polygonize(unary_union(inner_lines))) if inner_lines else []
-
-    holes = [[] for _ in outer]
-    for ring in inner:
-        containing = [i for i, polygon in enumerate(outer) if polygon.covers(ring)]
-        if containing:
-            holes[min(containing, key=lambda i: outer[i].area)].append(ring)
-        else:
-            for i, polygon in enumerate(outer):
-                if polygon.intersects(ring):
-                    holes[i].append(ring)
-
-    parts = [
-        polygon.difference(unary_union(rings)) if rings else polygon
-        for polygon, rings in zip(outer, holes)
+    depth = [
+        sum(other.area > ring.area and other.covers(ring) for other in rings)
+        for ring in rings
     ]
+
+    parts = []
+    for i, ring in enumerate(rings):
+        if depth[i] % 2:
+            continue
+        holes = [
+            rings[j]
+            for j in range(len(rings))
+            if depth[j] == depth[i] + 1 and ring.covers(rings[j])
+        ]
+        parts.append(ring.difference(unary_union(holes)) if holes else ring)
     shape = unary_union(parts)
     if shape.is_empty:
         return None

@@ -131,3 +131,60 @@ def test_filter_accepts_empty_network_with_float_edges():
 
     assert len(drive.edges) == 0
     assert len(drive.vertices) == 0
+
+
+RULE_EDGES = [
+    {"highway": "trunk", "sidewalk": "both"},  # 0
+    {"highway": "trunk", "foot": "no"},  # 1
+    {"highway": "motorway", "foot": "yes"},  # 2
+    {"highway": "unclassified", "motor_vehicle": "agricultural;forestry"},  # 3
+    {"highway": "service", "access": "delivery"},  # 4
+    {"highway": "primary", "bicycle": "use_sidepath"},  # 5
+    {"highway": "residential", "access": "destination"},  # 6
+]
+
+
+@pytest.mark.parametrize(
+    "network, expected",
+    [
+        ("drive", [0, 1, 2, 5, 6]),
+        ("walk", [0, 2, 3, 5, 6]),
+        ("bike", [0, 1, 3, 6]),
+    ],
+)
+def test_mode_mask_trunk_roads_and_restricted_access(network, expected):
+    mask = road_network_mode_mask(_roads(RULE_EDGES), network)
+    assert np.flatnonzero(mask).tolist() == expected
+
+
+def test_filter_rejects_attributes_not_aligned_with_edges():
+    roads = _roads([{"highway": "residential"}, {"highway": "primary"}])
+    roads.attributes["name"] = ["only one"]
+
+    with pytest.raises(ValueError, match="'name' has 1 values for 2 edges"):
+        filter_road_network(roads, "drive")
+
+
+def test_filter_keeps_missing_lengths_empty():
+    roads = _roads([{"highway": "residential"}, {"highway": "footway"}])
+    roads.length = np.array([])
+
+    drive = filter_road_network(roads, "drive")
+
+    assert len(drive.edges) == 1
+    assert len(drive.length) == 0
+
+
+def test_filter_drops_geometry_not_aligned_with_edges():
+    from dtcc_core.model import GeometryType, LineString, MultiLineString
+
+    roads = _roads([{"highway": "residential"}, {"highway": "footway"}])
+    merged = LineString(vertices=np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]]))
+    roads.add_geometry(
+        MultiLineString(linestrings=[merged]), GeometryType.MULTILINESTRING
+    )
+
+    drive = filter_road_network(roads, "drive")
+
+    assert drive.multilinestrings is None
+    assert len(drive.edges) == 1
