@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from affine import Affine
@@ -227,3 +229,65 @@ def test_unsupported_epoch_raises():
 def test_unsupported_component_raises():
     with pytest.raises(ValueError, match="Unsupported GHSL component"):
         ghsl.download_built_up(BOUNDS, component="residential")
+
+
+def test_concurrent_cache_writers_each_publish_a_complete_file(monkeypatch, tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import rasterio
+
+    path = tmp_path / "built_up.tif"
+    transform, width, height = ghsl._target_grid(BOUNDS)
+    data = np.full((height, width), 2500.0, dtype=np.float32)
+    replace = ghsl.os.replace
+    barrier = threading.Barrier(2)
+    sources = []
+
+    def replace_together(src, dst):
+        sources.append(Path(src))
+        barrier.wait(timeout=5)
+        replace(src, dst)
+
+    monkeypatch.setattr(ghsl.os, "replace", replace_together)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for future in [
+            pool.submit(ghsl._write_cache, path, data, transform) for _ in range(2)
+        ]:
+            future.result()
+
+    assert len(set(sources)) == 2
+    with rasterio.open(path) as src:
+        assert src.read(1).tolist() == data.tolist()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["built_up.tif"]
+
+
+def test_cache_writer_accepts_a_file_published_concurrently(monkeypatch, tmp_path):
+    path = tmp_path / "built_up.tif"
+    transform, width, height = ghsl._target_grid(BOUNDS)
+    data = np.zeros((height, width), dtype=np.float32)
+    ghsl._write_cache(path, data, transform)
+
+    def refuse(src, dst):
+        raise PermissionError("file in use")
+
+    monkeypatch.setattr(ghsl.os, "replace", refuse)
+
+    ghsl._write_cache(path, data, transform)
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["built_up.tif"]
+
+
+def test_cache_writer_reraises_when_nothing_was_published(monkeypatch, tmp_path):
+    path = tmp_path / "built_up.tif"
+    transform, width, height = ghsl._target_grid(BOUNDS)
+
+    def refuse(src, dst):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(ghsl.os, "replace", refuse)
+
+    with pytest.raises(PermissionError):
+        ghsl._write_cache(path, np.zeros((height, width), np.float32), transform)
+    assert list(tmp_path.iterdir()) == []

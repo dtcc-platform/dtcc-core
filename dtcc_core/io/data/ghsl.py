@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +13,7 @@ from affine import Affine
 
 from ...model import Bounds, Raster
 from .cache import cache_dir
-from .logging import info, warning
+from .logging import debug, info, warning
 
 try:
     import rasterio
@@ -179,23 +180,38 @@ def _target_grid(bounds: Bounds):
 
 
 def _write_cache(path: Path, data, transform: Affine):
+    """Write ``data`` to ``path`` through a temporary file unique to this writer.
+
+    Concurrent writers each publish a complete file with an atomic replace.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(path.name + ".part.tif")
-    with rasterio.open(
-        tmp_path,
-        "w",
-        driver="GTiff",
-        width=data.shape[1],
-        height=data.shape[0],
-        count=1,
-        dtype="float32",
-        crs="EPSG:3006",
-        transform=transform,
-        nodata=np.nan,
-        compress="deflate",
-    ) as dst:
-        dst.write(data.astype(np.float32), 1)
-    os.replace(tmp_path, path)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".part")
+    os.close(fd)
+    tmp_path = Path(name)
+    try:
+        with rasterio.open(
+            tmp_path,
+            "w",
+            driver="GTiff",
+            width=data.shape[1],
+            height=data.shape[0],
+            count=1,
+            dtype="float32",
+            crs="EPSG:3006",
+            transform=transform,
+            nodata=np.nan,
+            compress="deflate",
+        ) as dst:
+            dst.write(data.astype(np.float32), 1)
+        try:
+            os.replace(tmp_path, path)
+        except PermissionError:
+            # Windows refuses a replace while a concurrent writer publishes the file.
+            if not path.exists():
+                raise
+            debug(f"GHSL cache file {path} was published by a concurrent writer.")
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _ensure_bounds(bounds) -> Bounds:
