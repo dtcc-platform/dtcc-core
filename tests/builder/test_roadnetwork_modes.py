@@ -118,3 +118,16 @@ def test_filter_refreshes_geometry_bounds():
 
     assert walk.bounds.xmax == 1.0
     assert walk.multilinestrings.bounds.xmax == 1.0
+
+
+def test_filter_accepts_empty_network_with_float_edges():
+    roads = RoadNetwork()
+    roads.vertices = np.empty((0, 2))
+    roads.edges = np.array([])
+    roads.length = np.array([])
+    roads.attributes = {"highway": []}
+
+    drive = filter_road_network(roads, "drive")
+
+    assert len(drive.edges) == 0
+    assert len(drive.vertices) == 0

@@ -163,7 +163,8 @@ def filter_road_network(roads: RoadNetwork, network: RoadNetworkMode) -> RoadNet
         return result
 
     keep = np.flatnonzero(mask)
-    edges = np.asarray(roads.edges).reshape(-1, 2)[keep]
+    # An empty network may store its edges as floats.
+    edges = np.asarray(roads.edges, dtype=np.int64).reshape(-1, 2)[keep]
     used = np.unique(edges)
     remap = np.full(len(roads.vertices), -1, dtype=np.int64)
     remap[used] = np.arange(len(used))

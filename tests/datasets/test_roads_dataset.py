@@ -106,3 +106,46 @@ def test_roads_dataset_protobuf_format(monkeypatch):
     assert np.array_equal(roads.edges, expected.edges)
     assert np.allclose(roads.length, expected.length)
     assert roads.attributes == expected.attributes
+
+
+def test_roads_dataset_drops_vehicle_no_roads_end_to_end(monkeypatch, tmp_path):
+    """``vehicle=no`` survives the OSM download and closes a road to cars and bikes."""
+    import pyproj
+
+    from dtcc_core.io.data import overpass
+
+    to_wgs84 = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
+
+    def way(way_id, y, tags):
+        points = [to_wgs84.transform(x, y) for x in (319950.0, 320050.0)]
+        return {
+            "type": "way",
+            "id": way_id,
+            "nodes": [way_id * 10, way_id * 10 + 1],
+            "geometry": [{"lon": lon, "lat": lat} for lon, lat in points],
+            "tags": {"highway": "residential", **tags},
+        }
+
+    def fake_query(query):
+        return {
+            "elements": [
+                way(1, 6398950.0, {"name": "Open"}),
+                way(2, 6399050.0, {"name": "Closed", "vehicle": "no"}),
+            ]
+        }
+
+    monkeypatch.setattr(overpass, "query_overpass_with_failover", fake_query)
+    monkeypatch.setattr(overpass, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(overpass, "load_cache_metadata", list)
+    monkeypatch.setattr(overpass, "save_cache_metadata", lambda records: None)
+    bounds = (319900.0, 6398900.0, 320100.0, 6399100.0)
+
+    names = {
+        network: set(datasets.roads(bounds=bounds, network=network).attributes["name"])
+        for network in ("all", "drive", "walk", "bike")
+    }
+
+    assert names["all"] == {"Open", "Closed"}
+    assert names["drive"] == {"Open"}
+    assert names["walk"] == {"Open", "Closed"}
+    assert names["bike"] == {"Open"}
