@@ -46,7 +46,9 @@ def select_footprints(
         for exclusion in result.diagnostics.get("policy_exclusions", [])
         for source in exclusion.get("source_indices", [])
     }
-    all_sources = {source for group in result.source_map for source in group} | policy_sources
+    all_sources = {
+        source for group in result.source_map for source in group
+    } | policy_sources
     selection = {
         "min_area": min_area,
         "input_count": len(result.polygons),

@@ -12,11 +12,14 @@ import numpy as np
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import DatasetManifest, attach_dataset_context
 from dtcc_core.datasets.schema import (
-    DatasetContext, DatasetIdentity, DatasetMetadata, DatasetRequest,
-    DatasetProvenance, DatasetPresentation,
+    DatasetContext,
+    DatasetIdentity,
+    DatasetMetadata,
+    DatasetPresentation,
+    DatasetProvenance,
+    DatasetRequest,
 )
 from dtcc_core.model import City, Raster
-
 
 CONTRACT_SCHEMA_VERSION = "dtcc-dataset-contract-v1"
 _FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -73,11 +76,19 @@ def _write_canonical_package(path: Path) -> None:
     """Real native raster plus a display derivative for downstream consumers."""
     raster = Raster(data=np.array([[1, 2], [3, 4]], dtype=np.uint8))
     context = DatasetContext(
-        identity=DatasetIdentity(name="canonical-raster", title="Canonical raster contract fixture"),
-        metadata=DatasetMetadata(description="Synthetic uint8 image for package interchange."),
-        provenance=DatasetProvenance(processing_steps=["Construct a deterministic 2x2 uint8 image"]),
+        identity=DatasetIdentity(
+            name="canonical-raster", title="Canonical raster contract fixture"
+        ),
+        metadata=DatasetMetadata(
+            description="Synthetic uint8 image for package interchange."
+        ),
+        provenance=DatasetProvenance(
+            processing_steps=["Construct a deterministic 2x2 uint8 image"]
+        ),
         presentation=DatasetPresentation(),
-        request=DatasetRequest(dataset_name="canonical-raster", bounds=[0.0, 0.0, 2.0, 2.0]),
+        request=DatasetRequest(
+            dataset_name="canonical-raster", bounds=[0.0, 0.0, 2.0, 2.0]
+        ),
     )
     attach_dataset_context(raster, context)
     raster.export(path, canonical=True, format="png")

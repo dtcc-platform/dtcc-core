@@ -1,14 +1,17 @@
+from typing import Literal
+
+from pydantic import Field
+
 import dtcc_core
 from dtcc_core.model import RoadNetwork
-from pydantic import Field
-from typing import Literal, Optional
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
+from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
 
 class RoadsArgs(DatasetBaseArgs):
     """Arguments for the OpenStreetMap roads dataset."""
+
     source: Literal["OSM"] = Field(
         "OSM",
         description=(
@@ -16,7 +19,7 @@ class RoadsArgs(DatasetBaseArgs):
             "the Overpass/cache download path."
         ),
     )
-    format: Optional[Literal["pb"]] = Field(
+    format: Literal["pb"] | None = Field(
         None, description="Output format (pb for protobuf bytes)"
     )
 
@@ -118,8 +121,7 @@ class RoadsDataset(DatasetDescriptor):
             {
                 "label": "highway",
                 "meaning": (
-                    "OpenStreetMap road-class tag, such as residential or "
-                    "primary"
+                    "OpenStreetMap road-class tag, such as residential or primary"
                 ),
             },
             {

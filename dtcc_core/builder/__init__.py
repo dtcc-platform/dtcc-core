@@ -7,6 +7,7 @@ from . import meshing
 from . import geometry
 from . import city
 from . import building
+from .roofs import RoofFitOptions, supported_shapes
 from . import polygons
 from . import roadnetwork
 
@@ -18,23 +19,16 @@ from . import roadnetwork
 # use them, so this costs almost nothing at start-up. See issue #87.
 from . import raster
 
-from .building.modify import (
-    merge_building_footprints,
-    simplify_building_footprints,
-    fix_building_footprint_clearance,
-    split_footprint_walls,
-)
+from .building.modify import split_footprint_walls
 
-from .city.modify import (
-    merge_buildings,
-    fix_building_clearance,
-    clean_building_surfaces,
-)
+from .city.modify import clean_building_surfaces
+
+from .cleaning import clean_footprints, UnresolvedFootprintCleaningError
 
 from .register import register_model_method
 
 from .geometry_builders.meshes import (
-    build_conditioned_footprints,
+    build_building_shell,
     build_city_surface_mesh,
     build_city_flat_mesh,
     build_city_volume_mesh,
@@ -80,6 +74,8 @@ def __getattr__(name: str):
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
+from .meshing.surface_refinement import SurfaceRefinementOptions
+
 from .meshing.boundary_conformance import conform_boundary
 
 __all__ = [
@@ -87,7 +83,12 @@ __all__ = [
     "compute_building_heights",
     "build_lod1_buildings",
     "build_lod2_buildings",
-    "build_conditioned_footprints",
+    "RoofFitOptions",
+    "SurfaceRefinementOptions",
+    "supported_shapes",
+    "clean_footprints",
+    "UnresolvedFootprintCleaningError",
+    "build_building_shell",
     "build_city_surface_mesh",
     "build_city_flat_mesh",
     "build_terrain_surface_mesh",
@@ -95,12 +96,7 @@ __all__ = [
     "build_terrain_raster",
     "flat_terrain",
     "flatten_terrain_raster",
-    "merge_building_footprints",
-    "simplify_building_footprints",
-    "fix_building_footprint_clearance",
     "split_footprint_walls",
-    "merge_buildings",
-    "fix_building_clearance",
     "clean_building_surfaces",
     "building_heights_from_pointcloud",
     "set_building_heights_from_attribute",
@@ -115,3 +111,5 @@ __all__ = [
     "set_default_2d_mesher",
     "conform_boundary",
 ]
+
+from .meshing.compact_surface import CompactSurfaceOptions

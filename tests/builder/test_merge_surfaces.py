@@ -1,7 +1,9 @@
-import pytest
-import numpy as np
 from pathlib import Path
-from dtcc_core import io, builder
+
+import numpy as np
+import pytest
+
+from dtcc_core import builder, io
 from dtcc_core.model import MultiSurface, Surface
 
 
