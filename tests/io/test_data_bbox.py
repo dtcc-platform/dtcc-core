@@ -33,7 +33,16 @@ def test_as_bounds_accepts_a_numpy_array():
 
 
 @pytest.mark.parametrize(
-    "bounds", [(1, 2, 3), "1,2,3,4", None, 5.0, {"xmin": 1}, ("a", 2, 3, 4)]
+    "bounds",
+    [
+        (1, 2, 3),
+        "1,2,3,4",
+        None,
+        5.0,
+        {"xmin": 1},
+        ("a", 2, 3, 4),
+        {1.0, 2.0, 3.0, 4.0},
+    ],
 )
 def test_as_bounds_rejects_other_input(bounds):
     with pytest.raises(TypeError, match="4 values"):
@@ -49,5 +58,21 @@ def test_as_bounds_rejects_other_input(bounds):
     ],
 )
 def test_as_bounds_rejects_a_minimum_above_its_maximum(bounds):
-    with pytest.raises(ValueError, match="minimum below its maximum"):
+    with pytest.raises(ValueError, match="at or below its maximum"):
         as_bounds(bounds)
+
+
+def test_as_bounds_checks_a_bounds_object_too():
+    with pytest.raises(ValueError, match="at or below its maximum"):
+        as_bounds(Bounds(xmin=321000, ymin=6396000, xmax=317000, ymax=6400000))
+
+
+def test_as_bounds_accepts_a_point():
+    bounds = as_bounds((319000, 6398000, 319000, 6398000))
+    assert (bounds.xmin, bounds.xmax) == (319000.0, 319000.0)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_as_bounds_rejects_values_that_are_not_finite(value):
+    with pytest.raises(ValueError, match="finite"):
+        as_bounds((317000, 6396000, value, 6400000))

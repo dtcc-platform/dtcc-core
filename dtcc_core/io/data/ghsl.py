@@ -20,14 +20,25 @@ from .logging import debug, info, warning
 
 try:
     import rasterio
-    from rasterio._err import CPLE_BaseError
-    from rasterio.errors import RasterioError, RasterioIOError
+    from rasterio.errors import RasterioError
     from rasterio.warp import Resampling, reproject, transform_bounds
     from rasterio.windows import from_bounds
 
     HAS_RASTERIO = True
 except ImportError:
     HAS_RASTERIO = False
+
+# Errors raised while GDAL reads or writes a raster. GDAL failures can also
+# surface as CPLE_BaseError, which only rasterio's private module exports.
+_RASTER_ERRORS: tuple[type[Exception], ...] = ()
+if HAS_RASTERIO:
+    _RASTER_ERRORS = (RasterioError,)
+    try:
+        from rasterio._err import CPLE_BaseError
+    except ImportError:
+        pass
+    else:
+        _RASTER_ERRORS = (RasterioError, CPLE_BaseError)
 
 
 BUILT_UP_EPOCHS = tuple(range(1975, 2031, 5))
@@ -54,17 +65,24 @@ _PRODUCT_NAMES = {
 _MIN_GDAL_FOR_SUM = (3, 1)
 
 
-def _gdal_version(text: str) -> tuple[int, int]:
-    """Major and minor version from a GDAL version string such as '3.1dev'."""
-    match = re.match(r"(\d+)\.(\d+)", text)
-    return (int(match[1]), int(match[2])) if match else (0, 0)
+def _gdal_version(text: str) -> tuple[int, int] | None:
+    """Major and minor version in a GDAL version string such as '3.1dev'."""
+    match = re.search(r"(\d+)\.(\d+)", text)
+    return (int(match[1]), int(match[2])) if match else None
 
 
-HAS_SUM_RESAMPLING = (
-    HAS_RASTERIO
-    and hasattr(Resampling, "sum")
-    and _gdal_version(rasterio.__gdal_version__) >= _MIN_GDAL_FOR_SUM
-)
+def _has_sum_resampling() -> bool:
+    """Whether rasterio offers sum resampling on a GDAL that supports it.
+
+    An unreadable GDAL version string does not count against it.
+    """
+    if not HAS_RASTERIO or not hasattr(Resampling, "sum"):
+        return False
+    version = _gdal_version(rasterio.__gdal_version__)
+    return version is None or version >= _MIN_GDAL_FOR_SUM
+
+
+HAS_SUM_RESAMPLING = _has_sum_resampling()
 # Bumped when cached values would differ, so older cache files are not reused.
 _CACHE_VERSION = 2
 # Source cells read around the requested area so reprojection covers its edges.
@@ -129,7 +147,7 @@ def download_built_up(
         )
         try:
             _write_cache(cache_path, data, transform)
-        except (OSError, RasterioError, CPLE_BaseError) as exc:
+        except (OSError, *_RASTER_ERRORS) as exc:
             warning(f"Could not cache GHSL data at {cache_path}: {exc}")
 
     if np.isnan(data).all():
@@ -161,7 +179,7 @@ def _read_window(url: str, bounds: Bounds):
             values = src.read(1, window=window, boundless=True, masked=True)
             data = values.astype(np.float32).filled(np.nan)
             return data, src.window_transform(window), src.crs
-    except RasterioIOError as exc:
+    except _RASTER_ERRORS as exc:
         raise RuntimeError(f"Failed to read GHSL data from {url}: {exc}") from exc
 
 
@@ -284,7 +302,7 @@ def _read_cache(path: Path, transform: Affine, width: int, height: int):
             )
             if matches:
                 return src.read(1)
-    except RasterioIOError as exc:
+    except _RASTER_ERRORS as exc:
         warning(f"Ignoring unreadable GHSL cache file {path}: {exc}")
         return None
     warning(f"Ignoring GHSL cache file {path}: its grid does not match the request.")

@@ -356,7 +356,13 @@ def test_cached_data_is_returned_even_without_sum_resampling(fake_read, monkeypa
 
 @pytest.mark.parametrize(
     "text, version",
-    [("3.10.3", (3, 10)), ("3.1dev", (3, 1)), ("3.0.4", (3, 0)), ("unknown", (0, 0))],
+    [
+        ("3.10.3", (3, 10)),
+        ("3.1dev", (3, 1)),
+        ("3.0.4", (3, 0)),
+        ("GDAL 3.8.4", (3, 8)),
+        ("unknown", None),
+    ],
 )
 def test_gdal_version_parsing(text, version):
     assert ghsl._gdal_version(text) == version
@@ -391,3 +397,38 @@ def test_six_value_bounds_use_the_dataset_order(fake_read):
 
     assert raster.data.shape == (10, 10)
     assert raster.georef == Affine(100.0, 0, BOUNDS.xmin, 0, -100.0, BOUNDS.ymax)
+
+
+def test_unreadable_gdal_version_does_not_disable_sum_resampling(monkeypatch):
+    monkeypatch.setattr(ghsl.rasterio, "__gdal_version__", "vendor build")
+    assert ghsl._has_sum_resampling() is True
+
+
+def test_corrupt_cache_file_is_read_again(fake_read, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+    transform, width, height = ghsl._target_grid(BOUNDS)
+    path = ghsl._cache_path(transform, width, height, 2020, "total")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"II*\x00 not really a GeoTIFF")
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert len(fake_read.calls) == 1
+    assert raster.data.shape == (10, 10)
+    assert any("unreadable" in message for message in warnings)
+
+
+def test_gdal_errors_during_the_remote_read_become_runtime_errors(
+    monkeypatch, tmp_path
+):
+    from rasterio._err import CPLE_BaseError
+
+    def fail(*args, **kwargs):
+        raise CPLE_BaseError(1, 1, "deflate decode failed")
+
+    monkeypatch.setattr(ghsl.rasterio, "open", fail)
+    monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
+
+    with pytest.raises(RuntimeError, match="Failed to read GHSL data"):
+        ghsl.download_built_up(BOUNDS)
