@@ -188,3 +188,17 @@ def test_filter_drops_geometry_not_aligned_with_edges():
 
     assert drive.multilinestrings is None
     assert len(drive.edges) == 1
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {"highway": "motorway", "vehicle": "yes"},
+        {"highway": "primary", "motorroad": "yes", "vehicle": "designated"},
+        {"highway": "steps", "vehicle": "yes"},
+        {"highway": "footway", "vehicle": "yes"},
+    ],
+)
+def test_vehicle_tag_does_not_open_restricted_ways_to_bikes(tags):
+    mask = road_network_mode_mask(_roads([tags]), "bike")
+    assert not mask[0]

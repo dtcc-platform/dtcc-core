@@ -102,9 +102,12 @@ def _edge_allowed(attributes: dict, index: int, network: str) -> bool:
     access_key, access_value = _access(attributes, index, network)
     if _forbidden(access_value):
         return False
-    # Only a mode-specific tag, not general ``access``, opens ways the mode
-    # may not use by default (motorways, motorroads, footways for bikes).
-    explicitly_allowed = access_key != "access" and access_value in _ALLOWED
+    # Only the mode's own tag (``foot`` or ``bicycle``), not ``vehicle`` or
+    # ``access``, opens ways the mode may not use by default (motorways,
+    # motorroads, steps and footways for bikes).
+    explicitly_allowed = (
+        access_key == _ACCESS_TAGS[network][0] and access_value in _ALLOWED
+    )
 
     if network == "drive":
         return highway in DRIVE_HIGHWAYS
