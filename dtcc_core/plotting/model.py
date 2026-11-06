@@ -217,11 +217,12 @@ def _sample_pixels(data, max_elements):
 
 
 def _plot_image_raster(
-    raster, *, ax, max_elements, theme, show, title="Raster preview", colorize=None
+    raster, *, ax, max_elements, theme, show, title="Raster preview", pixels=None
 ):
     """Preview RGB/RGBA pixels in their georeferenced 2D frame.
 
-    ``colorize``, when given, turns the sampled pixels into RGBA colours.
+    ``pixels``, when given, is an ``(rgba, sampled)`` pair already sampled from
+    ``raster`` and drawn in its place.
     """
     from matplotlib.transforms import Affine2D
 
@@ -229,9 +230,9 @@ def _plot_image_raster(
     height, width = raster.data.shape[:2]
     if not height or not width:
         raise ValueError("No image pixels to preview")
-    data, sampled = _sample_pixels(raster.data, max_elements)
-    if colorize is not None:
-        data = colorize(data)
+    if pixels is None:
+        pixels = _sample_pixels(raster.data, max_elements)
+    data, sampled = pixels
     if ax is None:
         _, ax = plt.subplots(figsize=(11, 8))
     elif getattr(ax, "name", None) != "rectilinear":
@@ -273,18 +274,19 @@ def _plot_image_raster(
 _OTHER_CLASS_COLOR = "#8C8C8C"
 
 
-def _class_hints(raster, ax):
-    """Class names and colours a dataset declares for a categorical raster, or None.
+def _class_hints(raster):
+    """Class names and colours for a raster of whole-number class codes, or None.
 
-    None also when ``ax`` is a 3D axes, which keeps the generic 3D preview.
+    The raster's dataset must declare categorical values with class colours.
+    Rasters with decimal values, such as after interpolation or arithmetic,
+    get None and the scalar preview, which shows their values.
     """
-    if getattr(ax, "name", None) == "3d":
-        return None
     context = getattr(raster, "dataset_context", None)
     hints = getattr(getattr(context, "presentation", None), "view_hints", None)
     if (
         raster.data.ndim != 2
         or raster.data.size == 0
+        or not np.issubdtype(raster.data.dtype, np.integer)
         or not isinstance(hints, dict)
         or hints.get("value_type") != "categorical"
         or not isinstance(hints.get("class_colors"), dict)
@@ -293,36 +295,39 @@ def _class_hints(raster, ax):
     return hints
 
 
+def _class_image(codes, colors, nodata):
+    """RGBA image of class ``codes``, and whether any code is not a class.
+
+    No data is transparent; codes without a colour are grey.
+    """
+    from matplotlib.colors import to_rgba
+
+    image = np.zeros((*codes.shape, 4))
+    other = np.ones(codes.shape, dtype=bool)
+    if nodata is not None:
+        other &= codes != nodata
+    for code, color in colors.items():
+        match = codes == int(code)
+        image[match] = to_rgba(color)
+        other &= ~match
+    image[other] = to_rgba(_OTHER_CLASS_COLOR)
+    return image, bool(other.any())
+
+
 def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
     """Preview a categorical raster with one fixed colour per class and a legend.
 
     Colours, names and the credit line come from the dataset's view hints, so
-    every plot of the dataset uses the same colours. No data, including NaN,
-    is transparent. Other values, such as those left by resampling, are grey
-    and listed in the legend as "other value".
+    every plot of the dataset uses the same colours. No data is transparent.
+    Other codes are grey and listed in the legend as "other value".
     """
-    from matplotlib.colors import to_rgba
     from matplotlib.patches import Patch
 
     plt = require_matplotlib("raster previews")
     colors = hints["class_colors"]
     names = hints.get("classes") or {}
-    has_other = False
-
-    def colorize(codes):
-        nonlocal has_other
-        codes = np.asarray(codes, dtype=float)
-        image = np.zeros((*codes.shape, 4))
-        other = ~np.isnan(codes)
-        if raster.nodata is not None:
-            other &= codes != float(raster.nodata)
-        for code, color in colors.items():
-            match = codes == float(code)
-            image[match] = to_rgba(color)
-            other &= ~match
-        image[other] = to_rgba(_OTHER_CLASS_COLOR)
-        has_other = bool(other.any())
-        return image
+    codes, sampled = _sample_pixels(raster.data, max_elements)
+    image, has_other = _class_image(codes, colors, raster.nodata)
 
     context = raster.dataset_context
     title = context.identity.title
@@ -340,7 +345,7 @@ def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
         theme=theme,
         show=False,
         title=title,
-        colorize=colorize,
+        pixels=(image, sampled),
     )
 
     text_color = get_theme(theme)["text"]
@@ -437,7 +442,11 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
             root, ax=ax, max_elements=max_elements, theme=theme, show=show
         )
     hints = (
-        _class_hints(root, ax) if isinstance(root, Raster) and field is None else None
+        _class_hints(root)
+        if isinstance(root, Raster)
+        and field is None
+        and getattr(ax, "name", None) != "3d"
+        else None
     )
     if hints is not None:
         return _plot_class_raster(

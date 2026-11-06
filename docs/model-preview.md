@@ -66,13 +66,13 @@ arrays are never replaced or interpolated into the model.
   are RGBA. Large images use nearest-neighbour sampling within `max_elements`,
   retaining the full image footprint. Other multiband layouts and image rasters
   attached to Objects are not supported by the 3D preview.
-- Class map: a single-band Raster from a dataset whose view hints declare
-  `value_type: "categorical"` and `class_colors` (such as `settlement_class`)
-  is drawn as a 2D map with one fixed colour per class, a legend with the class
-  names, and the dataset's credit line. No data, including NaN, is
-  transparent. Values that are not declared classes, such as those left by
-  resampling, are grey and listed as "other value". Supplied 3D axes get the
-  scalar preview instead.
+- Class map: a single-band Raster of whole-number codes from a dataset whose
+  view hints declare `value_type: "categorical"` and `class_colors` (such as
+  `settlement_class`) is drawn as a 2D map with one fixed colour per class, a
+  legend with the class names, and the dataset's credit line. No data is
+  transparent; other codes are grey and listed as "other value". Rasters with
+  decimal values, such as after interpolation, and supplied 3D axes get the
+  scalar preview.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
 
 The global `max_elements` budget bounds drawn faces, segments, samples and image
