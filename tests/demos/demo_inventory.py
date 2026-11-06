@@ -3,6 +3,7 @@
 DATASET_DEMOS = (
     "dataset_air_quality.py",
     "dataset_building_footprints.py",
+    "dataset_built_up.py",
     "dataset_buses.py",
     "dataset_calibration_grid.py",
     "dataset_city.py",
@@ -13,6 +14,7 @@ DATASET_DEMOS = (
     "dataset_hydrology.py",
     "dataset_ocean.py",
     "dataset_roads.py",
+    "dataset_settlement_class.py",
     "dataset_smoke.py",
     "dataset_space_syntax.py",
     "dataset_terrain_surface_mesh.py",
