@@ -69,9 +69,10 @@ arrays are never replaced or interpolated into the model.
 - Class map: a single-band Raster from a dataset whose view hints declare
   `value_type: "categorical"` and `class_colors` (such as `settlement_class`)
   is drawn as a 2D map with one fixed colour per class, a legend with the class
-  names, and the dataset's credit line. No data and other values are
-  transparent. If sampled cells hold values that are not declared classes, as
-  after resampling, or the supplied axes are 3D, the scalar preview is used.
+  names, and the dataset's credit line. No data, including NaN, is
+  transparent. Values that are not declared classes, such as those left by
+  resampling, are grey and listed as "other value". Supplied 3D axes get the
+  scalar preview instead.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
 
 The global `max_elements` budget bounds drawn faces, segments, samples and image

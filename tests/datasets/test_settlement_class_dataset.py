@@ -131,39 +131,79 @@ def test_plot_legend_names_every_class_and_credits_the_source(settlement_1975):
         plt.close("all")
 
 
-def test_plot_of_resampled_values_falls_back_to_the_generic_preview(settlement_1975):
+def test_plot_shows_values_that_are_not_classes_in_grey(settlement_1975):
     import matplotlib
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgba
+
+    from dtcc_core.plotting.model import _OTHER_CLASS_COLOR
 
     resampled = settlement_1975.copy()
-    resampled.data = resampled.data.astype(float) + 0.3
+    resampled.data = resampled.data.astype(float)
+    resampled.data[0, 0] = 25.3
 
-    ax = resampled.plot(show=False)
-
+    fig, ax = plt.subplots()
     try:
-        assert ax.name == "3d"
+        assert resampled.plot(ax=ax, show=False) is ax
+        image = ax.images[0].get_array()
+        np.testing.assert_allclose(image[0, 0], to_rgba(_OTHER_CLASS_COLOR))
+        assert image[1, 1][3] == 0  # no data stays transparent
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        assert labels[-1] == "other value"
     finally:
         plt.close("all")
 
 
-def test_large_class_plot_is_sampled_before_colouring(settlement_1975):
+def test_plot_treats_nan_as_no_data(settlement_1975):
     import matplotlib
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
 
+    as_float = settlement_1975.copy()
+    as_float.data = as_float.data.astype(float)
+    as_float.data[1, 1] = np.nan
+    as_float.nodata = np.nan
+
+    ax = as_float.plot(show=False)
+
+    try:
+        assert ax.name == "rectilinear"
+        assert ax.images[0].get_array()[1, 1][3] == 0
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        assert "other value" not in labels
+    finally:
+        plt.close("all")
+
+
+def test_large_class_plot_colours_only_sampled_pixels(settlement_1975, monkeypatch):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    from dtcc_core.plotting import model
+
+    coloured = []
+    plot_image = model._plot_image_raster
+
+    def spy(raster, **kwargs):
+        colorize = kwargs["colorize"]
+        kwargs["colorize"] = lambda codes: (
+            coloured.append(codes.size) or colorize(codes)
+        )
+        return plot_image(raster, **kwargs)
+
+    monkeypatch.setattr(model, "_plot_image_raster", spy)
     large = settlement_1975.copy()
     large.data = np.full((400, 500), 30, dtype=np.int16)
 
-    ax = large.plot(max_elements=100, show=False)
+    large.plot(max_elements=100, show=False)
+    plt.close("all")
 
-    try:
-        image = ax.images[0].get_array()
-        assert image.shape[0] * image.shape[1] <= 100
-    finally:
-        plt.close("all")
+    assert coloured and max(coloured) <= 100
 
 
 def test_plot_on_supplied_axes_keeps_the_legend_inside(settlement_1975):
@@ -182,5 +222,9 @@ def test_plot_on_supplied_axes_keeps_the_legend_inside(settlement_1975):
 
         ax3d = plt.figure().add_subplot(projection="3d")
         assert settlement_1975.plot(ax=ax3d, show=False) is ax3d
+
+        polar = plt.figure().add_subplot(projection="polar")
+        with pytest.raises(ValueError, match="2D axes"):
+            settlement_1975.plot(ax=polar, show=False)
     finally:
         plt.close("all")
