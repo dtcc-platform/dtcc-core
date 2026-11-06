@@ -51,6 +51,7 @@ UNSUPPORTED = (
     "StreamlineCollection",
     "DatasetCollection",
     "DatasetValue",
+    "PlaceCollection",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 
