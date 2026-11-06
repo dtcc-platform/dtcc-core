@@ -70,3 +70,62 @@ def test_settlement_class_rejects_unsupported_epoch():
     with pytest.raises(ValidationError, match="epoch"):
         datasets.settlement_class(bounds=(0.0, 0.0, 2000.0, 2000.0), epoch=2021)
 
+
+@pytest.fixture
+def settlement_1975(monkeypatch):
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_settlement_class", lambda bounds, epoch: _raster()
+    )
+    return datasets.settlement_class(bounds=(0.0, 0.0, 2000.0, 2000.0), epoch=1975)
+
+
+def test_every_settlement_class_has_a_fixed_colour():
+    from dtcc_core.io.data.ghsl import SETTLEMENT_CLASSES
+
+    hints = datasets.SettlementClassDataset.view_hints
+    assert sorted(map(int, hints["class_colors"])) == sorted(SETTLEMENT_CLASSES)
+    assert len(set(hints["class_colors"].values())) == len(SETTLEMENT_CLASSES)
+
+
+def test_plot_draws_a_class_map_with_fixed_colours(settlement_1975):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgba
+
+    colors = datasets.SettlementClassDataset.view_hints["class_colors"]
+
+    ax = settlement_1975.plot(show=False)
+
+    try:
+        assert ax.name == "rectilinear"
+        image = ax.images[0].get_array()
+        np.testing.assert_allclose(image[0, 0], to_rgba(colors["30"]))
+        np.testing.assert_allclose(image[0, 1], to_rgba(colors["21"]))
+        np.testing.assert_allclose(image[1, 0], to_rgba(colors["11"]))
+        assert image[1, 1][3] == 0  # no data is transparent
+        assert ax.get_xlim() == pytest.approx((0.0, 2000.0))
+        assert ax.get_title() == "Settlement Class, 1975"
+    finally:
+        plt.close("all")
+
+
+def test_plot_legend_names_every_class_and_credits_the_source(settlement_1975):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    from dtcc_core.io.data.ghsl import SETTLEMENT_CLASSES
+
+    ax = settlement_1975.plot(show=False)
+
+    try:
+        legend = ax.get_legend()
+        assert legend.get_title().get_text() == "Settlement class"
+        labels = [text.get_text() for text in legend.get_texts()]
+        assert sorted(labels) == sorted(SETTLEMENT_CLASSES.values())
+        assert any("European Union" in text.get_text() for text in ax.texts)
+    finally:
+        plt.close("all")

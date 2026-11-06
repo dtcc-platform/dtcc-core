@@ -127,6 +127,19 @@ class SettlementClassDataset(DatasetDescriptor):
         "default_crs": "EPSG:3006",
         "value_type": "categorical",
         "classes": {str(code): name for code, name in SETTLEMENT_CLASSES.items()},
+        # The colours JRC uses for GHS-SMOD maps, fixed so epochs compare directly.
+        "class_colors": {
+            "30": "#FF0000",
+            "23": "#732600",
+            "22": "#A87000",
+            "21": "#FFFF00",
+            "13": "#375623",
+            "12": "#ABCD66",
+            "11": "#CDF57A",
+            "10": "#7AB6F5",
+        },
+        "legend_title": "Settlement class",
+        "attribution": "© European Union, GHSL GHS-SMOD R2023A",
     }
     presentation_warnings = [
         "GHSL credit and citation must accompany redistributed data.",

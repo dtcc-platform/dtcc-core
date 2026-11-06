@@ -202,7 +202,9 @@ def _field_locations(g, f, limit, notes):
     return _xyz(points), values
 
 
-def _plot_image_raster(raster, *, ax, max_elements, theme, show):
+def _plot_image_raster(
+    raster, *, ax, max_elements, theme, show, title="Raster preview"
+):
     """Preview RGB/RGBA pixels in their georeferenced 2D frame."""
     from matplotlib.transforms import Affine2D
 
@@ -239,7 +241,7 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show):
         ax,
         theme=theme,
         equal_aspect=True,
-        title="Raster preview",
+        title=title,
         xlabel="X",
         ylabel="Y",
     )
@@ -249,6 +251,91 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show):
             0.01,
             "Large image sampled",
             transform=ax.transAxes,
+            fontsize=8,
+            color=get_theme(theme)["muted"],
+        )
+    if show:
+        plt.show()
+    return ax
+
+
+def _class_hints(raster):
+    """Class names and colours a dataset declares for a categorical raster, or None."""
+    context = getattr(raster, "dataset_context", None)
+    hints = getattr(getattr(context, "presentation", None), "view_hints", None)
+    if (
+        raster.data.ndim != 2
+        or not isinstance(hints, dict)
+        or hints.get("value_type") != "categorical"
+        or not isinstance(hints.get("class_colors"), dict)
+    ):
+        return None
+    return hints
+
+
+def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
+    """Preview a categorical raster with one fixed colour per class and a legend.
+
+    Colours, names and the credit line come from the dataset's view hints, so
+    every plot of the dataset uses the same colours. Cells with other values,
+    including no data, are left transparent.
+    """
+    from matplotlib.colors import to_rgba
+    from matplotlib.patches import Patch
+
+    plt = require_matplotlib("raster previews")
+    colors = hints["class_colors"]
+    names = hints.get("classes") or {}
+    codes = np.asarray(raster.data)
+    image = np.zeros((*codes.shape, 4))
+    for code, color in colors.items():
+        image[codes == float(code)] = to_rgba(color)
+
+    context = raster.dataset_context
+    title = context.identity.title
+    epoch = context.request.parameters.get("epoch")
+    if epoch is not None:
+        title = f"{title}, {epoch}"
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(11, 8))
+        fig.subplots_adjust(right=0.72)
+    ax = _plot_image_raster(
+        Raster(data=image, georef=raster.georef),
+        ax=ax,
+        max_elements=max_elements,
+        theme=theme,
+        show=False,
+        title=title,
+    )
+
+    text_color = get_theme(theme)["text"]
+    handles = [
+        Patch(
+            facecolor=color,
+            edgecolor=text_color,
+            linewidth=0.4,
+            label=names.get(code, code),
+        )
+        for code, color in colors.items()
+    ]
+    legend = ax.legend(
+        handles=handles,
+        title=hints.get("legend_title"),
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        frameon=False,
+        fontsize=9,
+    )
+    for text in [*legend.get_texts(), legend.get_title()]:
+        text.set_color(text_color)
+    if hints.get("attribution"):
+        ax.text(
+            1.0,
+            -0.08,
+            hints["attribution"],
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
             fontsize=8,
             color=get_theme(theme)["muted"],
         )
@@ -302,6 +389,11 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
     ):
         return _plot_image_raster(
             root, ax=ax, max_elements=max_elements, theme=theme, show=show
+        )
+    hints = _class_hints(root) if isinstance(root, Raster) and field is None else None
+    if hints is not None:
+        return _plot_class_raster(
+            root, hints, ax=ax, max_elements=max_elements, theme=theme, show=show
         )
     limit = max_elements
     polygons, polygon_colors, lines, line_colors, points, point_colors = (
