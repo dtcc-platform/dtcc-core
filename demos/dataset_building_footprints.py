@@ -2,7 +2,7 @@
 
 import dtcc_core as dtcc
 
-bounds = dtcc.Bounds(319720, 6397660, 320220, 6398160)
+bounds = dtcc.Bounds(319845, 6397785, 320095, 6398035)
 
 footprints = dtcc.datasets.building_footprints(
     bounds=bounds,

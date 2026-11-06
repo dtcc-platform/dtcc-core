@@ -6,10 +6,18 @@ tangible-table profiles deploy concrete artifacts.
 
 ## Curated Demos
 
-Most demos use the `gbg_500m_2026_07` physical table-model bounds. Sparse
-live station/vehicle demos share a larger 45 km regional Gothenburg domain
-(`297470, 6375410, 342470, 6420410`) so the previews exercise populated
-weather, air-quality, hydrology, ocean, and transit layers.
+Geographic geometry demos use a 250 × 250 m Chalmers Johanneberg domain,
+centred at EPSG:3006 `(319970, 6397910)`, with bounds
+`(319845, 6397785, 320095, 6398035)`. The city model and LOD2 surface/volume
+examples share this area. Volume meshing uses an 80 m height and 12.5 m target
+edge length. City surface and flat mesh examples use a 10 m target; the terrain
+surface mesh example uses a 25 m target.
+
+Sparse station and transit-vehicle queries use a 45 km window around the same
+centre, `(297470, 6375410, 342470, 6420410)`, because the geometry domain has
+no weather, sea-level or discharge stations. Live buses use a 2 km window
+centred on Chalmers. Observation availability depends on the provider and date.
+Supplied CityJSON and synthetic geometry examples use their native domains.
 
 | Demo | Dataset story | Preview |
 |---|---|---|
@@ -23,7 +31,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_air_quality.py` | SMHI air-quality stations | `air_quality.plot("NO2")` |
 | `demos/dataset_hydrology.py` | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |
 | `demos/dataset_ocean.py` | SMHI ocean stations | `ocean.plot("sea_level")` |
-| `demos/dataset_buses.py` | Live buses over streets in a 2 km area around Poseidon | `LiveVehiclePlot.run()` |
+| `demos/dataset_buses.py` | Live buses over streets in a 2 km area around Chalmers Johanneberg | `LiveVehiclePlot.run()` |
 | `demos/dataset_transit_vehicles.py` | Live bus positions | `vehicles.plot()` |
 | `demos/dataset_trees.py` | Point-cloud-derived trees | `trees.plot()` |
 | `demos/dataset_terrain_surface_mesh.py` | Terrain surface mesh | `terrain.plot()` / `.view()` |
