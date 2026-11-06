@@ -11,6 +11,7 @@ from .wrapper import (
     download_roadnetwork,
 )
 from .deso import attach_deso_statistics, download_deso, download_deso_statistics
+from .ghsl import download_built_up
 from .cache import empty_cache
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "download_deso",
     "download_deso_statistics",
     "attach_deso_statistics",
+    "download_built_up",
     "empty_cache",
 ]
