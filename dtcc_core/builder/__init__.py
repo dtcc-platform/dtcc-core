@@ -23,7 +23,12 @@ from .building.modify import split_footprint_walls
 
 from .city.modify import clean_building_surfaces
 
-from .cleaning import clean_footprints, UnresolvedFootprintCleaningError
+from .cleaning import (
+    clean_footprints,
+    building_cells,
+    FootprintCell,
+    UnresolvedFootprintCleaningError,
+)
 
 from .register import register_model_method
 
@@ -87,6 +92,8 @@ __all__ = [
     "SurfaceRefinementOptions",
     "supported_shapes",
     "clean_footprints",
+    "building_cells",
+    "FootprintCell",
     "UnresolvedFootprintCleaningError",
     "build_building_shell",
     "build_city_surface_mesh",

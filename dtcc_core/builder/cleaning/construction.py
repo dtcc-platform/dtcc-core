@@ -1526,8 +1526,82 @@ def _profile_angle(profile):
     return 360.0 if angle is None else float(angle)
 
 
+def _truncate_sector(output, vertex, *, delta, epsilon):
+    """Cut a sharp sector off where it is wide enough, or return None.
+
+    The vertex, between its ring neighbours, is replaced by one point on each
+    of its two edges, at the same distance from it and (delta + 2 epsilon) / 2
+    apart. This fills the tip of an open sector and cuts the tip of an
+    occupied one. The boundary moves by about half that width and the new
+    points are about that width from the opposite edge, so the edit can keep
+    both the minimum feature size and the fidelity budget only when
+    2 epsilon > delta: in practice at the retry budget.
+    """
+    if 2 * epsilon <= delta:
+        return None
+    occupied = unary_union(output)
+    found = [
+        (ring, index)
+        for part in polygon_parts(occupied)
+        for ring in (part.exterior, *part.interiors)
+        for index, coordinate in enumerate(ring.coords[:-1])
+        if tuple(coordinate[:2]) == vertex
+    ]
+    if len(found) != 1:
+        return None
+    ring, index = found[0]
+    coordinates = np.asarray(ring.coords)[:-1, :2]
+    apex = np.asarray(vertex)
+    following = coordinates[(index + 1) % len(coordinates)]
+    edges = coordinates[index - 1] - apex, following - apex
+    lengths = [float(np.hypot(*edge)) for edge in edges]
+    theta = abs(
+        np.arctan2(
+            edges[0][0] * edges[1][1] - edges[0][1] * edges[1][0],
+            edges[0] @ edges[1],
+        )
+    )
+    if theta == 0:
+        return None
+    width = (delta + 2 * epsilon) / 2 / np.cos(theta / 2)
+    distance = width / (2 * np.sin(theta / 2))
+    if distance >= min(lengths):
+        return None
+    first, second = (
+        tuple(apex + edge * (distance / length)) for edge, length in zip(edges, lengths)
+    )
+    rebuilt = rebuild(
+        occupied, {vertex: first}, {(vertex, tuple(following)): (second,)}
+    )
+    return None if rebuilt is None else polygon_parts(rebuilt)
+
+
+def _sector_edits(output, witness, *, delta, epsilon):
+    """Edits that may clear a witnessed sector, in the order they are tried.
+
+    Removing the vertex comes first. A sector that fails the mandatory
+    profile can also be truncated, which keeps more of a long sharp sector
+    than removing its vertex would.
+    """
+    vertex = tuple(witness["vertex"])
+    rebuilt = rebuild(unary_union(output), {vertex: None})
+    yield (
+        "remove_incident_cusp_vertex",
+        [] if rebuilt is None else polygon_parts(rebuilt),
+    )
+    if check_mesher_handoff_profile(output)["status"] == "pass":
+        return
+    truncated = _truncate_sector(output, vertex, delta=delta, epsilon=epsilon)
+    if truncated is not None:
+        yield "truncate_incident_sector", truncated
+
+
 def _finish_mesher_profile(raw, output, *, delta, epsilon):
-    """Remove witnessed cusps only when the fixed contract admits the edit."""
+    """Clear witnessed sharp sectors only when the fixed contract admits the edit.
+
+    Each round removes the vertex of the smallest sector or, for a sector
+    below the mandatory angle, truncates it (:func:`_truncate_sector`).
+    """
     output = list(output)
     budget = FidelityBudget(raw, epsilon)
     operations = []
@@ -1541,21 +1615,28 @@ def _finish_mesher_profile(raw, output, *, delta, epsilon):
         witness = profile["incident_sectors"].get("minimum_witness")
         if witness is None:
             break
-        vertex = tuple(witness["vertex"])
-        rebuilt = rebuild(unary_union(output), {vertex: None})
-        candidate = [] if rebuilt is None else polygon_parts(rebuilt)
-        contract = check_cleaning_contract(raw, candidate, delta=delta, epsilon=epsilon)
-        candidate_profile = check_mesher_handoff_profile(
-            candidate,
-            minimum_sector_degrees=DEFAULT_PREFERRED_INCIDENT_SECTOR_DEGREES,
-        )
-        if contract["status"] != "pass" or (
-            _profile_angle(candidate_profile) <= _profile_angle(profile) + 1e-9
+        accepted = None
+        for operator, candidate in _sector_edits(
+            output, witness, delta=delta, epsilon=epsilon
         ):
+            contract = check_cleaning_contract(
+                raw, candidate, delta=delta, epsilon=epsilon
+            )
+            candidate_profile = check_mesher_handoff_profile(
+                candidate,
+                minimum_sector_degrees=DEFAULT_PREFERRED_INCIDENT_SECTOR_DEGREES,
+            )
+            if contract["status"] == "pass" and (
+                _profile_angle(candidate_profile) > _profile_angle(profile) + 1e-9
+            ):
+                accepted = operator, candidate, candidate_profile
+                break
+        if accepted is None:
             break
+        operator, candidate, candidate_profile = accepted
         operation = {
-            "operator": "remove_incident_cusp_vertex",
-            "vertex": list(vertex),
+            "operator": operator,
+            "vertex": list(witness["vertex"]),
             "before_degrees": _profile_angle(profile),
             "after_degrees": _profile_angle(candidate_profile),
         }

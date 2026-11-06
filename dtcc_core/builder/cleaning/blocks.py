@@ -84,8 +84,8 @@ WALLS_VERSION = 2
 # Bounded repair recipe used to condition compatible persisted cells.
 WALLS_REPAIR_VERSION = 2
 
-# A block without walls whose source roofs span more than this gets the
-# highest roof instead of the area-weighted mean.
+# A block without walls whose source roofs or heights span more than this
+# gets the highest roof and height instead of the area-weighted mean.
 FALLBACK_ROOF_SPAN_LIMIT = 2.0
 # Sources that share less area than this (square metres) do not overlap.
 _OVERLAP_AREA = 1.0e-6
@@ -652,7 +652,8 @@ def assign_cells(parts, cells: Sequence[tuple[Polygon, int]]) -> None:
 
 def block_roof(building: Building) -> tuple[float, float | None]:
     """Roof level and height of a block as one footprint: the area-weighted
-    mean of its parts' sources, or the highest when they span more than 2 m."""
+    mean of its parts' sources, or the highest when their roofs or heights
+    span more than 2 m (:func:`fallback_roof`)."""
     parts = building.building_parts
     keys = [
         part_key(parts[i], polygon) for i, polygon in part_sources(building).items()
@@ -668,8 +669,9 @@ def block_roof(building: Building) -> tuple[float, float | None]:
 def set_block_roof(building: Building) -> None:
     """Set a block's roof, height and ground from its parts.
 
-    With walls, the roof and height are those of its highest part; without,
-    those of :func:`block_roof`. The ground is the lowest of its parts.
+    With walls, the roof is the highest roof of its parts and the height the
+    largest height, which may belong to different parts; without, those of
+    :func:`block_roof`. The ground is the lowest of its parts.
     """
     parts = building.building_parts
     grounds = [
@@ -711,21 +713,22 @@ def fallback_roof(indices, areas, roofs, heights):
     """One roof level and height for sources that keep one footprint.
 
     Returns the area-weighted roof level and height of the sources. When the
-    source roofs span more than 2 m, the highest roof and the largest height
-    are used instead, so no source is cut down.
+    source roofs or their known heights span more than 2 m, the highest roof
+    and the largest height are used instead, so no source is cut down; the
+    heights matter where the footprints share one level, such as z = 0.
     """
     roof_z = _area_weighted(indices, areas, roofs, default=0.0)
     height = _area_weighted(indices, areas, heights, default=None)
     if len(indices) <= 1:
         return roof_z, height
     levels = [float(roofs[index]) for index in indices]
-    if max(levels) - min(levels) <= FALLBACK_ROOF_SPAN_LIMIT:
+    known = [float(heights[index]) for index in indices if heights[index] is not None]
+    if max(levels) - min(levels) <= FALLBACK_ROOF_SPAN_LIMIT and (
+        not known or max(known) - min(known) <= FALLBACK_ROOF_SPAN_LIMIT
+    ):
         return roof_z, height
-    candidates = [
-        float(heights[index]) for index in indices if heights[index] is not None
-    ]
-    if candidates:
-        height = max(candidates)
+    if known:
+        height = max(known)
     return max(levels), height
 
 
