@@ -82,8 +82,9 @@ class Model(ABC):
     ):
         """Quick Matplotlib preview; return the axes for further customization.
 
-        RGB/RGBA rasters use a georeferenced 2D image preview; other models use
-        a 3D preview.
+        RGB/RGBA rasters, and class rasters from datasets that declare class
+        colours, use a georeferenced 2D image preview; other models use a 3D
+        preview.
 
         Objects select one representation each and traverse their children.
         Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name

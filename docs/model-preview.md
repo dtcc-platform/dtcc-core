@@ -16,7 +16,7 @@ When using `plot(field=...)` directly on that model, select a snapshot Object an
 representation first to avoid combining samples from different times.
 
 `Model.plot()` lazily uses Matplotlib and returns a 3D axes, or a 2D axes for a
-standalone RGB/RGBA Raster. Objects recurse through their children, so a City
+standalone RGB/RGBA Raster or class map. Objects recurse through their children, so a City
 includes building parts, terrain, vegetation,
 furniture, transport, sensor and vehicle locations, and numerical domains.
 Existing specialized plots on SensorCollection, VehicleCollection, RoadNetwork
@@ -66,6 +66,12 @@ arrays are never replaced or interpolated into the model.
   are RGBA. Large images use nearest-neighbour sampling within `max_elements`,
   retaining the full image footprint. Other multiband layouts and image rasters
   attached to Objects are not supported by the 3D preview.
+- Class map: a single-band Raster from a dataset whose view hints declare
+  `value_type: "categorical"` and `class_colors` (such as `settlement_class`)
+  is drawn as a 2D map with one fixed colour per class, a legend with the class
+  names, and the dataset's credit line. No data and other values are
+  transparent. If sampled cells hold values that are not declared classes, as
+  after resampling, or the supplied axes are 3D, the scalar preview is used.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
 
 The global `max_elements` budget bounds drawn faces, segments, samples and image
