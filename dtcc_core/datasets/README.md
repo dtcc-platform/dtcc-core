@@ -62,7 +62,7 @@ Every dataset is a `DatasetDescriptor` with:
 - `name`: stable registry name, used as `datasets.<name>()`.
 - `description`: human-readable description.
 - `ArgsModel`: Pydantic model describing accepted parameters.
-- `data_category`: one of `raw`, `derived`, `synthetic`, `simulation`, `remote`, or
+- `data_category`: one of `raw`, `derived`, `synthetic`, `simulation`, or
   `unknown`.
 - `result_kind`: coarse Python result kind such as `mesh`, `point_cloud`,
   `sensor_collection`, `city_model`, or `road_network`.

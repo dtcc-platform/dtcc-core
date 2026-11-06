@@ -85,8 +85,7 @@ datasets.info()                      # Grouped dataset catalogue
 catalogue = datasets.info(print=False)
 ```
 
-Parameter help uses `show_options()`, including the discovered schema of remote
-datasets, without contacting their service. `describe()` remains the structured
+Parameter help uses `show_options()`. `describe()` remains the structured
 metadata API. Code that previously used `str(dataset)` for parameter help or
 `str(sensors)` / `str(vehicles)` for detailed reports should use
 `.info(print=False)` instead. Display text is intended for people, not parsing.
