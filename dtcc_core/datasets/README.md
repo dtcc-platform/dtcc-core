@@ -152,6 +152,7 @@ Current Built-In Datasets
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
+| `urban_atlas` | raw | `Landuse` | `pb`, `geojson`, `gpkg` | Copernicus Urban Atlas 2018 land use polygons for Functional Urban Areas from the EEA REST service, mapped to `LanduseClasses` with the original Urban Atlas code and class kept as attributes. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
