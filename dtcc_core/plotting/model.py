@@ -202,26 +202,36 @@ def _field_locations(g, f, limit, notes):
     return _xyz(points), values
 
 
+def _sample_pixels(data, max_elements):
+    """Evenly spaced pixels of ``data``, at most ``max_elements``; and whether sampled."""
+    height, width = data.shape[:2]
+    if height * width <= max_elements:
+        return data, False
+    rows = max(
+        1, min(height, max_elements, int(np.sqrt(max_elements * height / width)))
+    )
+    cols = min(width, max_elements // rows)
+    row_ids = ((np.arange(rows) + 0.5) * height / rows).astype(np.intp)
+    col_ids = ((np.arange(cols) + 0.5) * width / cols).astype(np.intp)
+    return data[row_ids[:, None], col_ids], True
+
+
 def _plot_image_raster(
-    raster, *, ax, max_elements, theme, show, title="Raster preview"
+    raster, *, ax, max_elements, theme, show, title="Raster preview", colorize=None
 ):
-    """Preview RGB/RGBA pixels in their georeferenced 2D frame."""
+    """Preview RGB/RGBA pixels in their georeferenced 2D frame.
+
+    ``colorize``, when given, turns the sampled pixels into RGBA colours.
+    """
     from matplotlib.transforms import Affine2D
 
     plt = require_matplotlib("raster previews")
     height, width = raster.data.shape[:2]
     if not height or not width:
         raise ValueError("No image pixels to preview")
-    data = raster.data
-    sampled = height * width > max_elements
-    if sampled:
-        rows = max(
-            1, min(height, max_elements, int(np.sqrt(max_elements * height / width)))
-        )
-        cols = min(width, max_elements // rows)
-        row_ids = ((np.arange(rows) + 0.5) * height / rows).astype(np.intp)
-        col_ids = ((np.arange(cols) + 0.5) * width / cols).astype(np.intp)
-        data = data[row_ids[:, None], col_ids]
+    data, sampled = _sample_pixels(raster.data, max_elements)
+    if colorize is not None:
+        data = colorize(data)
     if ax is None:
         _, ax = plt.subplots(figsize=(11, 8))
     elif getattr(ax, "name", None) != "rectilinear":
@@ -259,16 +269,27 @@ def _plot_image_raster(
     return ax
 
 
-def _class_hints(raster):
-    """Class names and colours a dataset declares for a categorical raster, or None."""
+def _class_hints(raster, max_elements):
+    """Class names and colours a dataset declares for a categorical raster, or None.
+
+    None also when sampled cells hold values other than the declared classes
+    and no data, as after resampling, so such rasters get the generic preview.
+    """
     context = getattr(raster, "dataset_context", None)
     hints = getattr(getattr(context, "presentation", None), "view_hints", None)
     if (
         raster.data.ndim != 2
+        or raster.data.size == 0
         or not isinstance(hints, dict)
         or hints.get("value_type") != "categorical"
         or not isinstance(hints.get("class_colors"), dict)
     ):
+        return None
+    sample, _ = _sample_pixels(np.asarray(raster.data), max_elements)
+    known = [float(code) for code in hints["class_colors"]]
+    if raster.nodata is not None:
+        known.append(float(raster.nodata))
+    if not np.isin(sample, known).all():
         return None
     return hints
 
@@ -286,26 +307,30 @@ def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
     plt = require_matplotlib("raster previews")
     colors = hints["class_colors"]
     names = hints.get("classes") or {}
-    codes = np.asarray(raster.data)
-    image = np.zeros((*codes.shape, 4))
-    for code, color in colors.items():
-        image[codes == float(code)] = to_rgba(color)
+
+    def colorize(codes):
+        image = np.zeros((*codes.shape, 4))
+        for code, color in colors.items():
+            image[codes == float(code)] = to_rgba(color)
+        return image
 
     context = raster.dataset_context
     title = context.identity.title
     epoch = context.request.parameters.get("epoch")
     if epoch is not None:
         title = f"{title}, {epoch}"
-    if ax is None:
+    own_figure = ax is None
+    if own_figure:
         fig, ax = plt.subplots(figsize=(11, 8))
         fig.subplots_adjust(right=0.72)
     ax = _plot_image_raster(
-        Raster(data=image, georef=raster.georef),
+        raster,
         ax=ax,
         max_elements=max_elements,
         theme=theme,
         show=False,
         title=title,
+        colorize=colorize,
     )
 
     text_color = get_theme(theme)["text"]
@@ -318,13 +343,15 @@ def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
         )
         for code, color in colors.items()
     ]
+    # Beside the map on a figure made here; inside supplied axes, whose
+    # figure layout is the caller's.
+    placement = (
+        {"loc": "upper left", "bbox_to_anchor": (1.02, 1.0), "frameon": False}
+        if own_figure
+        else {"loc": "best", "frameon": True, "facecolor": get_theme(theme)["axes"]}
+    )
     legend = ax.legend(
-        handles=handles,
-        title=hints.get("legend_title"),
-        loc="upper left",
-        bbox_to_anchor=(1.02, 1.0),
-        frameon=False,
-        fontsize=9,
+        handles=handles, title=hints.get("legend_title"), fontsize=9, **placement
     )
     for text in [*legend.get_texts(), legend.get_title()]:
         text.set_color(text_color)
@@ -390,7 +417,13 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
         return _plot_image_raster(
             root, ax=ax, max_elements=max_elements, theme=theme, show=show
         )
-    hints = _class_hints(root) if isinstance(root, Raster) and field is None else None
+    hints = (
+        _class_hints(root, max_elements)
+        if isinstance(root, Raster)
+        and field is None
+        and (ax is None or getattr(ax, "name", None) == "rectilinear")
+        else None
+    )
     if hints is not None:
         return _plot_class_raster(
             root, hints, ax=ax, max_elements=max_elements, theme=theme, show=show

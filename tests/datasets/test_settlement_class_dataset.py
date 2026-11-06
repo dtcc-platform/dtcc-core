@@ -129,3 +129,58 @@ def test_plot_legend_names_every_class_and_credits_the_source(settlement_1975):
         assert any("European Union" in text.get_text() for text in ax.texts)
     finally:
         plt.close("all")
+
+
+def test_plot_of_resampled_values_falls_back_to_the_generic_preview(settlement_1975):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    resampled = settlement_1975.copy()
+    resampled.data = resampled.data.astype(float) + 0.3
+
+    ax = resampled.plot(show=False)
+
+    try:
+        assert ax.name == "3d"
+    finally:
+        plt.close("all")
+
+
+def test_large_class_plot_is_sampled_before_colouring(settlement_1975):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    large = settlement_1975.copy()
+    large.data = np.full((400, 500), 30, dtype=np.int16)
+
+    ax = large.plot(max_elements=100, show=False)
+
+    try:
+        image = ax.images[0].get_array()
+        assert image.shape[0] * image.shape[1] <= 100
+    finally:
+        plt.close("all")
+
+
+def test_plot_on_supplied_axes_keeps_the_legend_inside(settlement_1975):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    try:
+        assert settlement_1975.plot(ax=ax, show=False) is ax
+        fig.canvas.draw()
+        legend_box = ax.get_legend().get_window_extent()
+        assert ax.get_window_extent().contains(legend_box.x0, legend_box.y0)
+        assert ax.get_window_extent().contains(legend_box.x1, legend_box.y1)
+
+        ax3d = plt.figure().add_subplot(projection="3d")
+        assert settlement_1975.plot(ax=ax3d, show=False) is ax3d
+    finally:
+        plt.close("all")
