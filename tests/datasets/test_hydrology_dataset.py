@@ -1,23 +1,19 @@
 """Tests for the hydrology dataset (SMHI HydroObs latest-day)."""
 
-import pytest
-import math
 import json
-import numpy as np
 from pathlib import Path
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.datasets.hydrology import (
+    _NAME_TO_ID,
+    PARAMETER_NAMES,
     HydrologyDataset,
     HydrologyDatasetArgs,
     _resolve_parameter,
-    _fetch_station_list,
-    _fetch_latest_day,
-    PARAMETER_NAMES,
-    _NAME_TO_ID,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -327,10 +323,7 @@ class TestHydrologyBuild:
         )
         st = sc.stations()[0]
         assert st.attributes["q_discharge_daily"] == "G"
-        assert (
-            st.attributes["timestamp_discharge_daily"]
-            == "2025-02-12T00:00:00+00:00"
-        )
+        assert st.attributes["timestamp_discharge_daily"] == "2025-02-12T00:00:00+00:00"
 
     @patch("dtcc_core.datasets.hydrology._get_json", side_effect=_mock_get_json)
     def test_coordinate_reproject(self, mock_json):
@@ -558,13 +551,14 @@ class TestHydrologyRegistration:
         assert "Latest-day snapshot" in manifest.metadata.collection_period
         assert "hydrology_observations" in manifest.metadata.data_types
         assert any(
-            "latest-day JSON" in step
-            for step in manifest.provenance.processing_steps
+            "latest-day JSON" in step for step in manifest.provenance.processing_steps
         )
         assert manifest.presentation.headline == "Latest-Day SMHI Hydrology Stations"
         assert manifest.presentation.legend["title"] == "Hydrology station fields"
         assert manifest.presentation.view_hints["quality_attribute_prefix"] == "q_"
-        assert any("partial results" in warning for warning in manifest.presentation.warnings)
+        assert any(
+            "partial results" in warning for warning in manifest.presentation.warnings
+        )
         assert manifest.presentation.limitations
         assert manifest.request.parameters["active_only"] is False
 

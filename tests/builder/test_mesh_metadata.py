@@ -22,7 +22,9 @@ def _triangle():
 
 def _geometric_normals(mesh):
     triangles = mesh.vertices[mesh.faces]
-    cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    cross = np.cross(
+        triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+    )
     return cross / np.linalg.norm(cross, axis=1)[:, None]
 
 
@@ -78,10 +80,16 @@ def test_weld_preserves_supplied_normals_and_computes_missing_normals():
 
 def test_public_snap_recomputes_normals_in_preserved_local_frame():
     mesh = Mesh(
-        vertices=np.array([
-            [0, 0, 0], [1, 0, 0], [0, 1, 0],
-            [0, 0, 0.05], [1, 0, 0.05], [0, -1, 0.2],
-        ]),
+        vertices=np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 0.05],
+                [1, 0, 0.05],
+                [0, -1, 0.2],
+            ]
+        ),
         faces=np.array([[0, 1, 2], [3, 4, 5]]),
     )
     mesh.normals = _geometric_normals(mesh)
@@ -146,7 +154,9 @@ def test_merge_rejects_regions_before_native_conversion(monkeypatch):
 
 def test_snap_rejects_fields_before_native_conversion(monkeypatch):
     mesh = _triangle()
-    mesh.fields = [Field(name="temperature", association="face", values=np.array([293.0]))]
+    mesh.fields = [
+        Field(name="temperature", association="face", values=np.array([293.0]))
+    ]
     native = Mock()
     monkeypatch.setattr(_dtcc_builder, "create_mesh", native)
 
@@ -158,10 +168,14 @@ def test_snap_rejects_fields_before_native_conversion(monkeypatch):
 
 @pytest.mark.parametrize(
     "attribute, value, message",
-    [("dataset_context", Mock(name="dataset context"), "Dataset Context"),
-     ("schema_id", "https://example.org/schema", "schema declarations")],
+    [
+        ("dataset_context", Mock(name="dataset context"), "Dataset Context"),
+        ("schema_id", "https://example.org/schema", "schema declarations"),
+    ],
 )
-def test_direct_volume_conversion_rejects_untransferable_annotations(attribute, value, message):
+def test_direct_volume_conversion_rejects_untransferable_annotations(
+    attribute, value, message
+):
     mesh = VolumeMesh()
     setattr(mesh, attribute, value)
     with pytest.raises(NotImplementedError, match=message):

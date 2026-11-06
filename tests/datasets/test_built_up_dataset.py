@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import rasterio
 from affine import Affine
+from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
 from dtcc_core.model import Bounds, Raster
@@ -44,14 +45,17 @@ def test_built_up_dataset_passes_epoch_and_component(monkeypatch):
         lambda bounds, epoch, component: calls.append((epoch, component)) or _raster(),
     )
 
-    datasets.built_up(bounds=(0.0, 0.0, 200.0, 200.0), epoch=1975, component="non_residential")
+    datasets.built_up(
+        bounds=(0.0, 0.0, 200.0, 200.0), epoch=1975, component="non_residential"
+    )
 
     assert calls == [(1975, "non_residential")]
 
 
 def test_built_up_dataset_exports_tif(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "dtcc_core.io.data.download_built_up", lambda bounds, epoch, component: _raster()
+        "dtcc_core.io.data.download_built_up",
+        lambda bounds, epoch, component: _raster(),
     )
 
     payload = datasets.built_up(bounds=(0.0, 0.0, 200.0, 200.0), format="tif")
@@ -63,5 +67,15 @@ def test_built_up_dataset_exports_tif(monkeypatch, tmp_path):
 
 
 def test_built_up_rejects_unsupported_epoch():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="epoch"):
         datasets.built_up(bounds=(0.0, 0.0, 200.0, 200.0), epoch=2022)
+
+
+def test_built_up_choices_match_the_download_module():
+    from typing import get_args
+
+    from dtcc_core.datasets.built_up import Component, Epoch
+    from dtcc_core.io.data.ghsl import BUILT_UP_COMPONENTS, BUILT_UP_EPOCHS
+
+    assert get_args(Epoch) == BUILT_UP_EPOCHS
+    assert get_args(Component) == BUILT_UP_COMPONENTS

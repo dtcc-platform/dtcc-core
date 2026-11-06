@@ -64,10 +64,9 @@ def test_save_center_on_origin_with_bounds_keeps_meshes_aligned(tmp_path):
     second.save(tmp_path / "second.obj", center_on_origin=AREA)
 
     gap_before = second.vertices.min(axis=0) - first.vertices.min(axis=0)
-    gap_written = (
-        _written_points(tmp_path / "second.obj").min(axis=0)
-        - _written_points(tmp_path / "first.obj").min(axis=0)
-    )
+    gap_written = _written_points(tmp_path / "second.obj").min(
+        axis=0
+    ) - _written_points(tmp_path / "first.obj").min(axis=0)
     assert np.allclose(gap_written, gap_before)
 
 
@@ -98,7 +97,9 @@ def test_save_center_on_origin_removes_stl_precision_loss(tmp_path):
     mesh.save(tmp_path / "far.stl")
     mesh.save(tmp_path / "near.stl", center_on_origin=AREA)
 
-    far_error = np.abs(_written_points(tmp_path / "far.stl") - _sorted(mesh.vertices)).max()
+    far_error = np.abs(
+        _written_points(tmp_path / "far.stl") - _sorted(mesh.vertices)
+    ).max()
     expected_near = centered_copy(mesh, AREA)
     near_error = np.abs(
         _written_points(tmp_path / "near.stl") - _sorted(expected_near.vertices)

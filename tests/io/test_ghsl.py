@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from affine import Affine
@@ -10,7 +12,6 @@ from dtcc_core.model import Bounds, Raster
 # 1 km x 1 km in central Gothenburg (EPSG:3006): a 10 x 10 grid of 100 m cells.
 BOUNDS = Bounds(319000.0, 6397000.0, 320000.0, 6398000.0)
 MOLLWEIDE = "ESRI:54009"
-NODATA = 65535
 
 
 def _mollweide_window(value=2500.0, margin=500.0):
@@ -24,8 +25,8 @@ def _mollweide_window(value=2500.0, margin=500.0):
     top = np.ceil((max(ys) + margin) / 100) * 100
     cols = int(np.ceil((max(xs) + margin - left) / 100))
     rows = int(np.ceil((top - (min(ys) - margin)) / 100))
-    data = np.full((rows, cols), value, dtype=np.uint16)
-    return data, Affine(100.0, 0, left, 0, -100.0, top), MOLLWEIDE, NODATA
+    data = np.full((rows, cols), value, dtype=np.float32)
+    return data, Affine(100.0, 0, left, 0, -100.0, top), MOLLWEIDE
 
 
 @pytest.fixture
@@ -35,8 +36,8 @@ def fake_read(monkeypatch, tmp_path):
 
     def read(url, bounds):
         calls.append((url, bounds))
-        data, transform, crs, nodata = state["window"]
-        return data.copy(), transform, crs, nodata
+        data, transform, crs = state["window"]
+        return data.copy(), transform, crs
 
     monkeypatch.setattr(ghsl, "_read_window", read)
     monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
@@ -52,9 +53,81 @@ def test_returns_100m_raster_preserving_totals(fake_read):
     assert raster.data.shape == (10, 10)
     assert raster.crs == "EPSG:3006"
     assert raster.georef == Affine(100.0, 0, 319000.0, 0, -100.0, 6398000.0)
-    # A uniform 25% built-up share stays 2,500 m² per 100 m cell after reprojection.
-    assert raster.data == pytest.approx(np.full((10, 10), 2500.0), rel=1e-4)
-    assert np.nansum(raster.data) == pytest.approx(250_000.0, rel=1e-4)
+    # Uniform input stays uniform, and the total matches the exact overlap
+    # total. A 100 m Mollweide cell measures about 10,029 m² in EPSG:3006
+    # units here, so 2,500 m² per source cell is about 2,493 m² per target cell.
+    data, transform, _ = _mollweide_window()
+    assert raster.data == pytest.approx(np.full((10, 10), raster.data[5, 5]), rel=1e-4)
+    assert np.nansum(raster.data) == pytest.approx(
+        _exact_total(data, transform), rel=1e-4
+    )
+
+
+def _cells_inside_bounds(transform, shape, margin=150.0):
+    """Indices of source cells whose EPSG:3006 footprint lies well inside BOUNDS."""
+    to_3006 = Transformer.from_crs(MOLLWEIDE, "EPSG:3006", always_xy=True)
+    cells = []
+    for row in range(shape[0]):
+        for col in range(shape[1]):
+            corners = [
+                transform @ (col + dc, row + dr) for dc in (0, 1) for dr in (0, 1)
+            ]
+            xs, ys = to_3006.transform(*zip(*corners, strict=True))
+            if (
+                min(xs) > BOUNDS.xmin + margin
+                and max(xs) < BOUNDS.xmax - margin
+                and min(ys) > BOUNDS.ymin + margin
+                and max(ys) < BOUNDS.ymax - margin
+            ):
+                cells.append((row, col))
+    return cells
+
+
+def _exact_total(data, transform):
+    """Built-up m² inside BOUNDS, splitting each source cell by overlap area."""
+    from shapely.geometry import Polygon, box
+
+    to_3006 = Transformer.from_crs(MOLLWEIDE, "EPSG:3006", always_xy=True)
+    target = box(*BOUNDS.tuple)
+    total = 0.0
+    for row, col in zip(*np.nonzero(data), strict=True):
+        ring = [
+            transform @ (col + dc, row + dr)
+            for dc, dr in ((0, 0), (1, 0), (1, 1), (0, 1))
+        ]
+        cell = Polygon([to_3006.transform(x, y) for x, y in ring])
+        total += float(data[row, col]) * cell.intersection(target).area / cell.area
+    return total
+
+
+def test_isolated_built_up_cells_keep_their_full_area(fake_read):
+    _, transform, crs = _mollweide_window()
+    shape = _mollweide_window()[0].shape
+    cells = _cells_inside_bounds(transform, shape)
+    assert len(cells) > 20
+
+    for row, col in cells[:: max(1, len(cells) // 8)]:
+        data = np.zeros(shape, dtype=np.float32)
+        data[row, col] = 10_000.0
+        fake_read.state["window"] = (data, transform, crs)
+
+        raster = ghsl.download_built_up(BOUNDS, use_cache=False)
+
+        assert np.nansum(raster.data) == pytest.approx(10_000.0, abs=1.0)
+
+
+def test_non_uniform_built_up_keeps_the_exact_total(fake_read):
+    _, transform, crs = _mollweide_window()
+    rng = np.random.default_rng(118)
+    data = rng.uniform(0.0, 10_000.0, _mollweide_window()[0].shape).astype(np.float32)
+    data[rng.random(data.shape) < 0.5] = 0.0
+    fake_read.state["window"] = (data, transform, crs)
+
+    raster = ghsl.download_built_up(BOUNDS, use_cache=False)
+
+    assert np.nansum(raster.data) == pytest.approx(
+        _exact_total(data, transform), rel=1e-3
+    )
 
 
 @pytest.mark.parametrize(
@@ -79,8 +152,8 @@ def test_selects_file_for_epoch_and_component(fake_read, epoch, component, name)
 def test_nodata_source_gives_nan_and_warns(fake_read, monkeypatch):
     warnings = []
     monkeypatch.setattr(ghsl, "warning", warnings.append)
-    data, transform, crs, nodata = _mollweide_window()
-    fake_read.state["window"] = (np.full_like(data, NODATA), transform, crs, nodata)
+    data, transform, crs = _mollweide_window()
+    fake_read.state["window"] = (np.full_like(data, np.nan), transform, crs)
 
     raster = ghsl.download_built_up(BOUNDS)
 
@@ -106,6 +179,37 @@ def test_cache_is_separate_per_epoch_and_component(fake_read):
     assert len(fake_read.calls) == 3
 
 
+def test_cache_separates_grids_that_differ_by_less_than_a_metre(fake_read):
+    ten_columns = ghsl.download_built_up(BOUNDS)
+    eleven_columns = ghsl.download_built_up(
+        Bounds(BOUNDS.xmin, BOUNDS.ymin, BOUNDS.xmax + 0.4, BOUNDS.ymax)
+    )
+    shifted = ghsl.download_built_up(
+        Bounds(BOUNDS.xmin + 0.3, BOUNDS.ymin, BOUNDS.xmax + 0.3, BOUNDS.ymax)
+    )
+
+    assert len(fake_read.calls) == 3
+    assert ten_columns.data.shape == (10, 10)
+    assert eleven_columns.data.shape == (10, 11)
+    assert shifted.data.shape == (10, 10)
+    assert shifted.georef.c == pytest.approx(BOUNDS.xmin + 0.3)
+
+
+def test_cache_file_with_another_grid_is_ignored(fake_read, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+    path = ghsl._cache_path("built_up_total", transform, width, height, 2020)
+    other = Affine(100.0, 0, BOUNDS.xmin + 50.0, 0, -100.0, BOUNDS.ymax)
+    ghsl._write_cache(path, np.zeros((height, width), dtype=np.float32), other, np.nan)
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert len(fake_read.calls) == 1
+    assert raster.georef == transform
+    assert any("does not match" in message for message in warnings)
+
+
 def test_read_failure_raises_runtime_error(monkeypatch, tmp_path):
     def fail(*args, **kwargs):
         raise RasterioIOError("HTTP response code: 404")
@@ -125,3 +229,209 @@ def test_unsupported_epoch_raises():
 def test_unsupported_component_raises():
     with pytest.raises(ValueError, match="Unsupported GHSL component"):
         ghsl.download_built_up(BOUNDS, component="residential")
+
+
+def test_concurrent_cache_writers_each_publish_a_complete_file(monkeypatch, tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import rasterio
+
+    path = tmp_path / "built_up.tif"
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+    data = np.full((height, width), 2500.0, dtype=np.float32)
+    replace = ghsl.os.replace
+    barrier = threading.Barrier(2)
+    sources = []
+
+    def replace_together(src, dst):
+        sources.append(Path(src))
+        barrier.wait(timeout=5)
+        replace(src, dst)
+
+    monkeypatch.setattr(ghsl.os, "replace", replace_together)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for future in [
+            pool.submit(ghsl._write_cache, path, data, transform, np.nan)
+            for _ in range(2)
+        ]:
+            future.result()
+
+    assert len(set(sources)) == 2
+    with rasterio.open(path) as src:
+        assert src.read(1).tolist() == data.tolist()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["built_up.tif"]
+
+
+def test_cache_writer_accepts_a_file_published_concurrently(monkeypatch, tmp_path):
+    path = tmp_path / "built_up.tif"
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+    data = np.zeros((height, width), dtype=np.float32)
+    ghsl._write_cache(path, data, transform, np.nan)
+
+    def refuse(src, dst):
+        raise PermissionError("file in use")
+
+    monkeypatch.setattr(ghsl.os, "replace", refuse)
+
+    ghsl._write_cache(path, data, transform, np.nan)
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["built_up.tif"]
+
+
+def test_cache_writer_reraises_when_nothing_was_published(monkeypatch, tmp_path):
+    path = tmp_path / "built_up.tif"
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+
+    def refuse(src, dst):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(ghsl.os, "replace", refuse)
+
+    with pytest.raises(PermissionError):
+        ghsl._write_cache(
+            path, np.zeros((height, width), np.float32), transform, np.nan
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cache_write_failure_still_returns_the_data(fake_read, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+
+    def read_only(*args, **kwargs):
+        raise PermissionError("read-only cache directory")
+
+    monkeypatch.setattr(ghsl, "_write_cache", read_only)
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert raster.data.shape == (10, 10)
+    assert any("Could not cache GHSL data" in message for message in warnings)
+
+
+def test_read_window_marks_cells_beyond_a_file_without_nodata_as_nan(tmp_path):
+    import rasterio
+
+    path = tmp_path / "no_nodata.tif"
+    _, transform, crs = _mollweide_window()
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=3,
+        height=3,
+        count=1,
+        dtype="uint16",
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(np.full((3, 3), 500, dtype=np.uint16), 1)
+
+    data, _, _ = ghsl._read_window(str(path), BOUNDS)
+
+    assert np.isnan(data).any()
+    assert set(np.unique(data[~np.isnan(data)])) <= {500.0}
+
+
+def test_http_timeout_is_read_when_requesting(monkeypatch):
+    monkeypatch.setenv("DTCC_GHSL_HTTP_TIMEOUT", "600")
+    assert ghsl._gdal_env()["GDAL_HTTP_TIMEOUT"] == "600"
+
+
+def test_old_gdal_without_sum_resampling_is_rejected(fake_read, monkeypatch):
+    monkeypatch.setattr(ghsl, "HAS_SUM_RESAMPLING", False)
+
+    with pytest.raises(ImportError, match="GDAL 3.1"):
+        ghsl.download_built_up(BOUNDS)
+    assert fake_read.calls == []
+
+
+def test_cached_data_is_returned_even_without_sum_resampling(fake_read, monkeypatch):
+    first = ghsl.download_built_up(BOUNDS)
+    monkeypatch.setattr(ghsl, "HAS_SUM_RESAMPLING", False)
+
+    cached = ghsl.download_built_up(BOUNDS)
+
+    assert np.array_equal(cached.data, first.data)
+
+
+@pytest.mark.parametrize(
+    "text, version",
+    [
+        ("3.10.3", (3, 10)),
+        ("3.1dev", (3, 1)),
+        ("3.0.4", (3, 0)),
+        ("GDAL 3.8.4", (3, 8)),
+        ("unknown", None),
+    ],
+)
+def test_gdal_version_parsing(text, version):
+    assert ghsl._gdal_version(text) == version
+
+
+def test_gdal_write_errors_while_caching_still_return_the_data(fake_read, monkeypatch):
+    from rasterio._err import CPLE_BaseError
+
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+
+    def disk_full(*args, **kwargs):
+        raise CPLE_BaseError(3, 1, "No space left on device")
+
+    monkeypatch.setattr(ghsl, "_write_cache", disk_full)
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert raster.data.shape == (10, 10)
+    assert any("Could not cache GHSL data" in message for message in warnings)
+
+
+def test_numpy_array_bounds_are_accepted(fake_read):
+    raster = ghsl.download_built_up(np.array(BOUNDS.tuple))
+    assert raster.data.shape == (10, 10)
+
+
+def test_six_value_bounds_use_the_dataset_order(fake_read):
+    raster = ghsl.download_built_up(
+        (BOUNDS.xmin, BOUNDS.ymin, 0.0, BOUNDS.xmax, BOUNDS.ymax, 50.0)
+    )
+
+    assert raster.data.shape == (10, 10)
+    assert raster.georef == Affine(100.0, 0, BOUNDS.xmin, 0, -100.0, BOUNDS.ymax)
+
+
+def test_unreadable_gdal_version_does_not_disable_sum_resampling(monkeypatch):
+    monkeypatch.setattr(ghsl.rasterio, "__gdal_version__", "vendor build")
+    assert ghsl._has_sum_resampling() is True
+
+
+def test_corrupt_cache_file_is_read_again(fake_read, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(ghsl, "warning", warnings.append)
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+    path = ghsl._cache_path("built_up_total", transform, width, height, 2020)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"II*\x00 not really a GeoTIFF")
+
+    raster = ghsl.download_built_up(BOUNDS)
+
+    assert len(fake_read.calls) == 1
+    assert raster.data.shape == (10, 10)
+    assert any("unreadable" in message for message in warnings)
+
+
+def test_gdal_errors_during_the_remote_read_become_runtime_errors(
+    monkeypatch, tmp_path
+):
+    from rasterio._err import CPLE_BaseError
+
+    def fail(*args, **kwargs):
+        raise CPLE_BaseError(1, 1, "deflate decode failed")
+
+    monkeypatch.setattr(ghsl.rasterio, "open", fail)
+    monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
+
+    with pytest.raises(RuntimeError, match="Failed to read GHSL data"):
+        ghsl.download_built_up(BOUNDS)

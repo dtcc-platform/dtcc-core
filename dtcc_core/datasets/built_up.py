@@ -1,15 +1,18 @@
-from typing import Literal, Optional
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.io.data.ghsl import BUILT_UP_CITATION, BUILT_UP_DEFAULT_EPOCH
 from dtcc_core.model import Raster
-from pydantic import Field
 
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
-
+# Written out for editors and type tools; a test keeps these equal to the
+# download module's BUILT_UP_EPOCHS and BUILT_UP_COMPONENTS.
 Epoch = Literal[1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030]
+Component = Literal["total", "non_residential"]
 
 
 class BuiltUpArgs(DatasetBaseArgs):
@@ -19,11 +22,11 @@ class BuiltUpArgs(DatasetBaseArgs):
         BUILT_UP_DEFAULT_EPOCH,
         description="Epoch from 1975 to 2030 in steps of 5; 2025 and 2030 are projections.",
     )
-    component: Literal["total", "non_residential"] = Field(
+    component: Component = Field(
         "total",
         description="All built-up surface, or only the non-residential part.",
     )
-    format: Optional[Literal["tif"]] = Field(
+    format: Literal["tif"] | None = Field(
         None, description="Output format (tif for GeoTIFF bytes)"
     )
 
@@ -63,7 +66,7 @@ class BuiltUpDataset(DatasetDescriptor):
         }
     ]
     license = (
-        "CC BY 4.0 (Commission Decision 2011/833/EU). Credit \"© European Union\" "
+        'CC BY 4.0 (Commission Decision 2011/833/EU). Credit "© European Union" '
         f"and cite: {BUILT_UP_CITATION}. Indicate changes such as clipping and "
         "reprojection. Requires review before redistribution."
     )
@@ -76,9 +79,9 @@ class BuiltUpDataset(DatasetDescriptor):
     update_frequency = "GHSL releases every few years (current: R2023A)"
     processing_steps = [
         "Read the requested window of the global 100 m Mollweide GeoTIFF directly from the remote zip",
-        "Convert built-up m² per cell to a built-up share",
-        "Average the share onto the 100 m EPSG:3006 grid, which preserves area totals",
-        "Convert back to m² per EPSG:3006 cell",
+        "Split each source cell's built-up m² over the 100 m EPSG:3006 cells it "
+        "overlaps, in proportion to the overlap (sum resampling), which preserves "
+        "area totals",
         "Return a Raster or serialize it as GeoTIFF bytes",
     ]
     presentation_headline = "Built-up Surface Over Time"

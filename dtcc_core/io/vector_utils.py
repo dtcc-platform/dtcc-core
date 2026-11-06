@@ -2,13 +2,12 @@
 # Licensed under the MIT License
 
 from pathlib import Path
-from typing import Optional, Union, List
+
+import pyproj
 import shapely.geometry
 import shapely.ops
-import pyproj
 
-from .logging import info, warning, error
-
+from .logging import error, info, warning
 
 # Supported vector formats and their Fiona drivers
 VECTOR_DRIVERS = {
@@ -252,8 +251,8 @@ def set_geometry_crs(obj, crs):
 
 def determine_io_crs(
     source_crs: str,
-    target_crs: Optional[str] = None,
-    output_filepath: Optional[Union[str, Path]] = None,
+    target_crs: str | None = None,
+    output_filepath: str | Path | None = None,
     context: str = "",
     log_reprojection: bool = True,
 ) -> str:
@@ -310,16 +309,13 @@ def determine_io_crs(
 
 
 def safe_reproject_geometry(
-    geometry: Union[
-        shapely.geometry.base.BaseGeometry, List[shapely.geometry.base.BaseGeometry]
-    ],
+    geometry: shapely.geometry.base.BaseGeometry
+    | list[shapely.geometry.base.BaseGeometry],
     source_crs: str,
     target_crs: str,
     error_context: str = "",
     raise_on_error: bool = True,
-) -> Union[
-    shapely.geometry.base.BaseGeometry, List[shapely.geometry.base.BaseGeometry]
-]:
+) -> shapely.geometry.base.BaseGeometry | list[shapely.geometry.base.BaseGeometry]:
     """
     Safely reproject shapely geometry with consistent error handling.
 

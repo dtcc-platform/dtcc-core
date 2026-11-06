@@ -55,7 +55,6 @@ def test_city_flat_mesh_default_build_returns_flat_mesh(
         min_mesh_angle=25.0,
         min_building_detail=0.5,
         min_building_area=15.0,
-        merge_buildings=True,
         show_footprints=False,
         footprint_cleaning_plot_block=True,
         mesher=None,
@@ -81,7 +80,6 @@ def test_city_flat_mesh_build_from_city_forwards_advanced_args(
         min_mesh_angle=29.0,
         min_building_detail=0.85,
         min_building_area=19.0,
-        merge_buildings=False,
         show_footprints=True,
         footprint_cleaning_plot_block=False,
         mesher="dtcc_mesher",
@@ -95,7 +93,6 @@ def test_city_flat_mesh_build_from_city_forwards_advanced_args(
     assert kwargs["min_mesh_angle"] == 29.0
     assert kwargs["min_building_detail"] == 0.85
     assert kwargs["min_building_area"] == 19.0
-    assert kwargs["merge_buildings"] is False
     assert kwargs["show_footprints"] is True
     assert kwargs["footprint_cleaning_plot_block"] is False
     assert kwargs["mesher"] == "dtcc_mesher"
@@ -116,7 +113,9 @@ def test_city_flat_mesh_export_returns_bytes(
     mock_build_city_flat_mesh.return_value = flat_mesh
 
     dataset = CityFlatMeshDataset()
-    with patch.object(dataset, "export_to_bytes", return_value=b"flat-mesh") as mock_export:
+    with patch.object(
+        dataset, "export_to_bytes", return_value=b"flat-mesh"
+    ) as mock_export:
         result = dataset.build(
             CityFlatMeshArgs(
                 bounds=(0.0, 0.0, 1.0, 1.0),
@@ -136,7 +135,6 @@ def test_city_flat_mesh_context_documents_subdomain_lineage_and_limits():
                 "bounds": (0.0, 0.0, 1.0, 1.0),
                 "format": "vtu",
                 "max_mesh_size": None,
-                "merge_buildings": False,
                 "stage_audit_enabled": True,
             }
         )
@@ -156,12 +154,17 @@ def test_city_flat_mesh_context_documents_subdomain_lineage_and_limits():
         "point_cloud",
         "building_footprints",
     }
-    assert any("LOD0 footprints" in step for step in manifest.provenance.processing_steps)
+    assert any(
+        "LOD0 footprints" in step for step in manifest.provenance.processing_steps
+    )
     assert any("flat z=0" in step for step in manifest.provenance.processing_steps)
     assert manifest.presentation.headline == "Flat City Mesh With Building Subdomains"
     assert manifest.presentation.legend["title"] == "Flat mesh layers"
     assert manifest.presentation.view_hints["z_behavior"] == "flat_z0"
-    assert any("remove terrain elevation" in warning for warning in manifest.presentation.warnings)
+    assert any(
+        "remove terrain elevation" in warning
+        for warning in manifest.presentation.warnings
+    )
     assert manifest.presentation.limitations
     assert manifest.request.parameters["max_mesh_size"] is None
     assert manifest.request.parameters["stage_audit_enabled"] is True

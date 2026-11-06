@@ -1,4 +1,6 @@
-from typing import Literal, Optional
+from typing import Literal
+
+from pydantic import Field
 
 import dtcc_core
 from dtcc_core.io.data.ghsl import (
@@ -8,7 +10,6 @@ from dtcc_core.io.data.ghsl import (
     SETTLEMENT_CLASSES,
 )
 from dtcc_core.model import Raster
-from pydantic import Field
 
 from .built_up import Epoch
 from .dataset import DatasetBaseArgs, DatasetDescriptor
@@ -22,7 +23,7 @@ class SettlementClassArgs(DatasetBaseArgs):
         SETTLEMENT_CLASS_DEFAULT_EPOCH,
         description="Epoch from 1975 to 2030 in steps of 5; 2025 and 2030 are projections.",
     )
-    format: Optional[Literal["tif"]] = Field(
+    format: Literal["tif"] | None = Field(
         None, description="Output format (tif for GeoTIFF bytes)"
     )
 
@@ -62,7 +63,7 @@ class SettlementClassDataset(DatasetDescriptor):
         }
     ]
     license = (
-        "CC BY 4.0 (Commission Decision 2011/833/EU). Credit \"© European Union\" "
+        'CC BY 4.0 (Commission Decision 2011/833/EU). Credit "© European Union" '
         f"and cite: {SETTLEMENT_CLASS_CITATION}. Indicate changes such as clipping "
         "and reprojection. Requires review before redistribution."
     )
@@ -116,7 +117,8 @@ class SettlementClassDataset(DatasetDescriptor):
     presentation_legend = {
         "title": "Settlement class",
         "entries": [
-            {"label": str(code), "meaning": name} for code, name in SETTLEMENT_CLASSES.items()
+            {"label": str(code), "meaning": name}
+            for code, name in SETTLEMENT_CLASSES.items()
         ]
         + [{"label": str(SETTLEMENT_CLASS_NODATA), "meaning": "No data"}],
     }

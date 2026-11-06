@@ -31,9 +31,7 @@ def test_download_lidar_uses_stable_filename_order(
 
     monkeypatch.setattr(lidar, "run_download_files", fake_run)
 
-    files = lidar.download_lidar(
-        (0, 0, 10, 10), Mock(), base_url="http://example.test"
-    )
+    files = lidar.download_lidar((0, 0, 10, 10), Mock(), base_url="http://example.test")
 
     assert captured == {
         "base_url": "http://example.test",
@@ -66,9 +64,7 @@ def test_run_download_files_reports_all_cached_and_skips_downloader(
         output_dir=str(tmp_path),
     )
 
-    info.assert_called_once_with(
-        "Using 1 cached lidar tile file(s) from local cache"
-    )
+    info.assert_called_once_with("Using 1 cached lidar tile file(s) from local cache")
     run.assert_not_called()
 
 

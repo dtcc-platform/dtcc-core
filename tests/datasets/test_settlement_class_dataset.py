@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import rasterio
 from affine import Affine
+from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
 from dtcc_core.io.data.ghsl import SETTLEMENT_CLASS_NODATA
@@ -66,5 +67,6 @@ def test_settlement_class_dataset_exports_tif_with_codes(monkeypatch, tmp_path):
 
 
 def test_settlement_class_rejects_unsupported_epoch():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="epoch"):
         datasets.settlement_class(bounds=(0.0, 0.0, 2000.0, 2000.0), epoch=2021)
+

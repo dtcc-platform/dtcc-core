@@ -1,8 +1,10 @@
-import pytest
-import numpy as np
 import os
 import tempfile
 from pathlib import Path
+
+import numpy as np
+import pytest
+
 from dtcc_core import io
 
 
@@ -91,7 +93,6 @@ def test_load_multiple(data_dir, test_raster_paths):
 
 # GeoTIFF writer
 
-import math
 import tracemalloc
 
 import rasterio

@@ -24,12 +24,14 @@ def _mollweide_window(classes, margin=3000.0):
     cols = int(np.ceil((max(xs) + margin - left) / 1000))
     rows = int(np.ceil((top - (min(ys) - margin)) / 1000))
     transform = Affine(1000.0, 0, left, 0, -1000.0, top)
-    data = np.empty((rows, cols), dtype=np.int16)
+    data = np.empty((rows, cols), dtype=np.float32)
     for r in range(rows):
         for c in range(cols):
             x, y = transform * (c + 0.5, r + 0.5)
             data[r, c] = classes(x, y)
-    return data, transform, MOLLWEIDE, SOURCE_NODATA
+    # The reader returns float32 with NaN where the source has no data.
+    data[data == SOURCE_NODATA] = np.nan
+    return data, transform, MOLLWEIDE
 
 
 @pytest.fixture
@@ -39,8 +41,8 @@ def fake_read(monkeypatch, tmp_path):
 
     def read(url, bounds):
         calls.append((url, bounds))
-        data, transform, crs, nodata = state["window"]
-        return data.copy(), transform, crs, nodata
+        data, transform, crs = state["window"]
+        return data.copy(), transform, crs
 
     monkeypatch.setattr(ghsl, "_read_window", read)
     monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
@@ -66,7 +68,9 @@ def test_classes_are_taken_from_nearest_cell_not_averaged(fake_read):
     # in the east; averaging would invent codes between them.
     to_moll = Transformer.from_crs("EPSG:3006", MOLLWEIDE, always_xy=True)
     split_x, _ = to_moll.transform(319500.0, 6398000.0)
-    fake_read.state["window"] = _mollweide_window(lambda x, y: 30 if x < split_x else 11)
+    fake_read.state["window"] = _mollweide_window(
+        lambda x, y: 30 if x < split_x else 11
+    )
 
     raster = ghsl.download_settlement_class(BOUNDS)
 
@@ -106,6 +110,17 @@ def test_uses_cache_on_second_call(fake_read):
     assert len(fake_read.calls) == 1
     assert np.array_equal(cached.data, first.data)
     assert cached.data.dtype == np.int16
+
+
+def test_bounds_rounding_to_the_same_metre_get_their_own_cache(fake_read):
+    three = ghsl.download_settlement_class(BOUNDS)
+    wider = Bounds(BOUNDS.xmin, BOUNDS.ymin, BOUNDS.xmax + 0.4, BOUNDS.ymax)
+
+    four = ghsl.download_settlement_class(wider)
+
+    assert three.data.shape == (2, 3)
+    assert four.data.shape == (2, 4)
+    assert len(fake_read.calls) == 2
 
 
 def test_every_class_has_a_name():

@@ -1,8 +1,9 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
+import builtins
 from dataclasses import dataclass
-from typing import Union, Tuple
+
 import numpy as np
 
 from ..model import Model
@@ -37,15 +38,21 @@ class Bounds(Model):
     zmax: float = 0.0
 
     def _summary_items(self):
-        return [(name, getattr(self, name)) for name in
-                ("xmin", "ymin", "xmax", "ymax", "zmin", "zmax")]
+        return [
+            (name, getattr(self, name))
+            for name in ("xmin", "ymin", "xmax", "ymax", "zmin", "zmax")
+        ]
 
     def _repr_is_complete(self):
         from ...common._display import is_literal_number
 
-        return (type(self) is Bounds and self.dataset_context is None
-                and self.schema_id is None and self.schema_version is None
-                and all(is_literal_number(value) for _, value in self._summary_items()))
+        return (
+            type(self) is Bounds
+            and self.dataset_context is None
+            and self.schema_id is None
+            and self.schema_version is None
+            and all(is_literal_number(value) for _, value in self._summary_items())
+        )
 
     def calculate_bounds(self):
         """Calculate the bounds of the object."""
@@ -140,7 +147,7 @@ class Bounds(Model):
         return self.xmin
 
     @property
-    def tuple(self) -> Tuple[float, float, float, float]:
+    def tuple(self) -> tuple[float, float, float, float]:
         """Returns the bounds as a tuple.
 
         Returns
@@ -185,7 +192,7 @@ class Bounds(Model):
     # FIXME: How to handle z-axis?
 
     @property
-    def center(self) -> Tuple[float, float]:
+    def center(self) -> builtins.tuple[float, float]:
         """Returns the center point of the bounds.
 
         Returns
@@ -313,7 +320,7 @@ class Bounds(Model):
             )
 
     def tiles(
-        self, tile_size: Union[float, Tuple[float, float]], expand_bounds=False
+        self, tile_size: float | builtins.tuple[float, float], expand_bounds=False
     ) -> list["Bounds"]:
         """Divide the bounds into smaller tiles of a specified size.
 

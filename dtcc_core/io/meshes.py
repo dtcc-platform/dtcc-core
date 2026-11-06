@@ -1,28 +1,34 @@
 # Copyright(C) 2023 Anders Logg and Dag Wästberg
 # Licensed under the MIT License
 
-import meshio
-import pygltflib
-import numpy as np
-import h5py
 import re
-from pathlib import Path
 from copy import copy as _shallow_copy
 from functools import partial
-from .model import load_model, save_model
-from os.path import splitext, basename
+from os.path import basename, splitext
+from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
-from ..model import Bounds, Mesh, VolumeMesh, City, Building, Field, Transform
-from ..model import GeometryType
-from ..builder.meshing import disjoint_meshes, merge_meshes
+import h5py
+import meshio
+import numpy as np
+import pygltflib
 
 from ..builder.geometry.multisurface import merge_coplanar
-
-from .logging import info, warning, error
+from ..builder.meshing import disjoint_meshes, merge_meshes
+from ..model import (
+    Bounds,
+    Building,
+    City,
+    Field,
+    GeometryType,
+    Mesh,
+    Transform,
+    VolumeMesh,
+)
 from . import generic
+from .logging import error, warning
+from .model import load_model, save_model
 from .xdmf import XDMF_SURFACE_TEMPLATE, XDMF_VOLUME_TEMPLATE
-
 
 _XDMF_FIELD_GROUP = "Mesh/mesh/fields"
 
@@ -44,14 +50,6 @@ def has_assimp():
         ``True`` if pyassimp was imported successfully; otherwise ``False``.
     """
     return HAS_ASSIMP
-
-
-
-
-
-
-
-
 
 
 def _load_meshio_mesh(path):
@@ -332,9 +330,7 @@ def _normalize_xdmf_field(field, index, vertex_count, cell_count, used_dataset_n
         )
 
     number_type, precision = _xdmf_number_type_and_precision(values.dtype)
-    dataset_name = _sanitize_hdf5_field_name(
-        field_name, index, used_dataset_names
-    )
+    dataset_name = _sanitize_hdf5_field_name(field_name, index, used_dataset_names)
 
     return {
         "name": str(field_name),
@@ -820,7 +816,9 @@ def centered_copy(mesh, center_on_origin=True):
 
     shifted = _shallow_copy(mesh)
     # An empty mesh has no vertex rows to shift.
-    shifted.vertices = vertices + np.asarray(offset) if len(vertices) else vertices.copy()
+    shifted.vertices = (
+        vertices + np.asarray(offset) if len(vertices) else vertices.copy()
+    )
     shifted._bounds = None
     # The copy maps its local coordinates back to the original frame: undo the
     # shift, then apply whatever transform the original had. A new Transform

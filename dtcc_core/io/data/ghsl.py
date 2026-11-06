@@ -2,26 +2,43 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
+import re
+import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 from affine import Affine
 
 from ...model import Bounds, Raster
+from .bbox import as_bounds
 from .cache import cache_dir
-from .logging import info, warning
+from .logging import debug, info, warning
 
 try:
     import rasterio
-    from rasterio.errors import RasterioIOError
+    from rasterio.errors import RasterioError
     from rasterio.warp import Resampling, reproject, transform_bounds
     from rasterio.windows import from_bounds
 
     HAS_RASTERIO = True
 except ImportError:
     HAS_RASTERIO = False
+
+# Errors raised while GDAL reads or writes a raster. GDAL failures can also
+# surface as CPLE_BaseError, which only rasterio's private module exports.
+_RASTER_ERRORS: tuple[type[Exception], ...] = ()
+if HAS_RASTERIO:
+    _RASTER_ERRORS = (RasterioError,)
+    try:
+        from rasterio._err import CPLE_BaseError
+    except ImportError:
+        pass
+    else:
+        _RASTER_ERRORS = (RasterioError, CPLE_BaseError)
 
 
 GHSL_EPOCHS = tuple(range(1975, 2031, 5))
@@ -78,19 +95,36 @@ SETTLEMENT_CLASS_URL = (
 )
 _SETTLEMENT_CLASS_NAME = "GHS_SMOD_E{epoch}_GLOBE_R2023A_54009_1000"
 
-_GDAL_ENV = {
-    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".zip,.tif",
-    "GDAL_HTTP_TIMEOUT": os.environ.get("DTCC_GHSL_HTTP_TIMEOUT", "120"),
-    "GDAL_HTTP_MAX_RETRY": "3",
-    "GDAL_HTTP_RETRY_DELAY": "2",
-}
+# GDAL ``sum`` resampling, which splits each cell's area by overlap, needs 3.1.
+_MIN_GDAL_FOR_SUM = (3, 1)
+
+
+def _gdal_version(text: str) -> tuple[int, int] | None:
+    """Major and minor version in a GDAL version string such as '3.1dev'."""
+    match = re.search(r"(\d+)\.(\d+)", text)
+    return (int(match[1]), int(match[2])) if match else None
+
+
+def _has_sum_resampling() -> bool:
+    """Whether rasterio offers sum resampling on a GDAL that supports it.
+
+    An unreadable GDAL version string does not count against it.
+    """
+    if not HAS_RASTERIO or not hasattr(Resampling, "sum"):
+        return False
+    version = _gdal_version(rasterio.__gdal_version__)
+    return version is None or version >= _MIN_GDAL_FOR_SUM
+
+
+HAS_SUM_RESAMPLING = _has_sum_resampling()
+# Bumped when cached values would differ, so older cache files are not reused.
+_CACHE_VERSION = 2
 # Source cells read around the requested area so reprojection covers its edges.
 _WINDOW_MARGIN_CELLS = 2
 
 
 def download_built_up(
-    bounds: Bounds,
+    bounds: Bounds | Sequence[float],
     epoch: int = BUILT_UP_DEFAULT_EPOCH,
     component: str = "total",
     use_cache: bool = True,
@@ -99,14 +133,17 @@ def download_built_up(
 
     Parameters
     ----------
-    bounds : Bounds
-        Area of interest in EPSG:3006.
+    bounds : Bounds or sequence of float
+        Area of interest in EPSG:3006: a ``Bounds``, ``(minx, miny, maxx,
+        maxy)`` or ``(minx, miny, minz, maxx, maxy, maxz)``.
     epoch : int, default 2020
         Epoch from 1975 to 2030 in steps of 5. 2025 and 2030 are projections.
     component : {"total", "non_residential"}, default "total"
         All built-up surface, or only the non-residential part.
     use_cache : bool, default True
-        Reuse a cached result for the same bounds, epoch and component.
+        Reuse a cached result for the same grid, epoch and component. With
+        ``False`` the data is read from the server again and the cache is
+        refreshed. A cache that cannot be written only logs a warning.
 
     Returns
     -------
@@ -122,26 +159,24 @@ def download_built_up(
         raise ValueError(
             f"Unsupported GHSL component {component!r}. Supported: {BUILT_UP_COMPONENTS}."
         )
-    bounds = _ensure_bounds(bounds)
+    bounds = as_bounds(bounds)
     transform, width, height = _target_grid(bounds, BUILT_UP_CELL_SIZE)
 
-    cache_path = _cache_path(f"built_up_{component}", bounds, epoch)
-    data = _read_cache(cache_path) if use_cache else None
-    if data is None:
+    cache_path = _cache_path(f"built_up_{component}", transform, width, height, epoch)
+    data = _read_cache(cache_path, transform, width, height) if use_cache else None
+    if data is not None:
+        info(f"Using cached GHSL built-up {epoch} data from {cache_path}")
+    else:
+        _require_sum_resampling()
         name = _BUILT_UP_NAMES[component].format(epoch=epoch)
         info(f"Reading GHSL {name} from the JRC server")
-        values, source_transform, source_crs, nodata = _read_window(
+        source, source_transform, source_crs = _read_window(
             BUILT_UP_URL.format(name=name), bounds
         )
-        source = values.astype(np.float32)
-        if nodata is not None:
-            source[values == nodata] = np.nan
         data = _reproject_preserving_totals(
             source, source_transform, source_crs, transform, width, height
         )
-        _write_cache(cache_path, data, transform, np.nan)
-    else:
-        info(f"Using cached GHSL built-up {epoch} data from {cache_path}")
+        _write_cache_or_warn(cache_path, data, transform, np.nan)
 
     if np.isnan(data).all():
         warning(f"No GHSL built-up {epoch} data in bounds {bounds.tuple}.")
@@ -149,18 +184,23 @@ def download_built_up(
 
 
 def download_settlement_class(
-    bounds: Bounds, epoch: int = SETTLEMENT_CLASS_DEFAULT_EPOCH, use_cache: bool = True
+    bounds: Bounds | Sequence[float],
+    epoch: int = SETTLEMENT_CLASS_DEFAULT_EPOCH,
+    use_cache: bool = True,
 ) -> Raster:
     """Read the GHSL settlement class (GHS-SMOD) for ``bounds`` as a :class:`Raster`.
 
     Parameters
     ----------
-    bounds : Bounds
-        Area of interest in EPSG:3006.
+    bounds : Bounds or sequence of float
+        Area of interest in EPSG:3006: a ``Bounds``, ``(minx, miny, maxx,
+        maxy)`` or ``(minx, miny, minz, maxx, maxy, maxz)``.
     epoch : int, default 2020
         Epoch from 1975 to 2030 in steps of 5. 2025 and 2030 are projections.
     use_cache : bool, default True
-        Reuse a cached result for the same bounds and epoch.
+        Reuse a cached result for the same grid and epoch. With ``False`` the
+        data is read from the server again and the cache is refreshed. A cache
+        that cannot be written only logs a warning.
 
     Returns
     -------
@@ -173,20 +213,22 @@ def download_settlement_class(
     if not HAS_RASTERIO:
         raise ImportError("rasterio is required to read GHSL data.")
     _check_epoch(epoch)
-    bounds = _ensure_bounds(bounds)
+    bounds = as_bounds(bounds)
     transform, width, height = _target_grid(bounds, SETTLEMENT_CLASS_CELL_SIZE)
 
-    cache_path = _cache_path("settlement_class", bounds, epoch)
-    data = _read_cache(cache_path) if use_cache else None
-    if data is None:
+    cache_path = _cache_path("settlement_class", transform, width, height, epoch)
+    data = _read_cache(cache_path, transform, width, height) if use_cache else None
+    if data is not None:
+        info(f"Using cached GHSL settlement class {epoch} data from {cache_path}")
+    else:
         name = _SETTLEMENT_CLASS_NAME.format(epoch=epoch)
         info(f"Reading GHSL {name} from the JRC server")
-        values, source_transform, source_crs, nodata = _read_window(
+        values, source_transform, source_crs = _read_window(
             SETTLEMENT_CLASS_URL.format(name=name), bounds
         )
-        source = values.astype(np.int16)
-        if nodata is not None:
-            source[values == nodata] = SETTLEMENT_CLASS_NODATA
+        source = np.where(np.isnan(values), SETTLEMENT_CLASS_NODATA, values).astype(
+            np.int16
+        )
         data = np.full((height, width), SETTLEMENT_CLASS_NODATA, dtype=np.int16)
         reproject(
             source,
@@ -199,9 +241,7 @@ def download_settlement_class(
             dst_nodata=SETTLEMENT_CLASS_NODATA,
             resampling=Resampling.nearest,
         )
-        _write_cache(cache_path, data, transform, SETTLEMENT_CLASS_NODATA)
-    else:
-        info(f"Using cached GHSL settlement class {epoch} data from {cache_path}")
+        _write_cache_or_warn(cache_path, data, transform, SETTLEMENT_CLASS_NODATA)
 
     if (data == SETTLEMENT_CLASS_NODATA).all():
         warning(f"No GHSL settlement class {epoch} data in bounds {bounds.tuple}.")
@@ -211,20 +251,52 @@ def download_settlement_class(
 
 
 def _read_window(url: str, bounds: Bounds):
-    """Return (values, transform, crs, nodata) of the source window covering ``bounds``."""
+    """Return (values as float32 with NaN for no data, transform, crs) covering ``bounds``."""
     try:
-        with rasterio.Env(**_GDAL_ENV), rasterio.open(url) as src:
+        with rasterio.Env(**_gdal_env()), rasterio.open(url) as src:
             left, bottom, right, top = transform_bounds(
                 "EPSG:3006", src.crs, *bounds.tuple, densify_pts=21
             )
             margin = _WINDOW_MARGIN_CELLS * abs(src.res[0])
-            window = from_bounds(
-                left - margin, bottom - margin, right + margin, top + margin, src.transform
-            ).round_offsets().round_lengths()
-            values = src.read(1, window=window, boundless=True, fill_value=src.nodata)
-            return values, src.window_transform(window), src.crs, src.nodata
-    except RasterioIOError as exc:
+            window = (
+                from_bounds(
+                    left - margin,
+                    bottom - margin,
+                    right + margin,
+                    top + margin,
+                    src.transform,
+                )
+                .round_offsets()
+                .round_lengths()
+            )
+            # A masked read marks both nodata cells and cells beyond the
+            # source extent, also when the file declares no nodata value.
+            values = src.read(1, window=window, boundless=True, masked=True)
+            data = values.astype(np.float32).filled(np.nan)
+            return data, src.window_transform(window), src.crs
+    except _RASTER_ERRORS as exc:
         raise RuntimeError(f"Failed to read GHSL data from {url}: {exc}") from exc
+
+
+def _gdal_env() -> dict[str, str]:
+    """GDAL options for reading the remote zip, read at call time."""
+    return {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".zip,.tif",
+        "GDAL_HTTP_TIMEOUT": os.environ.get("DTCC_GHSL_HTTP_TIMEOUT", "120"),
+        "GDAL_HTTP_MAX_RETRY": "3",
+        "GDAL_HTTP_RETRY_DELAY": "2",
+    }
+
+
+def _require_sum_resampling():
+    """Raise when the installed GDAL cannot reproject while keeping totals."""
+    if not HAS_SUM_RESAMPLING:
+        raise ImportError(
+            "GHSL built-up data needs GDAL 3.1 or later with sum resampling; "
+            f"this rasterio uses GDAL {rasterio.__gdal_version__}. "
+            "Upgrade rasterio."
+        )
 
 
 def _reproject_preserving_totals(
@@ -232,28 +304,31 @@ def _reproject_preserving_totals(
 ):
     """Reproject m² per cell so that area totals are preserved.
 
-    Values are converted to a built-up share, averaged onto the target grid
-    and converted back to m² per target cell.
+    Each source cell's area is split over the target cells it overlaps, in
+    proportion to the overlap (GDAL ``sum`` resampling), so a built-up cell
+    keeps its full area wherever it lands. Target cells without any source
+    data stay NaN.
     """
-    source_cell_area = abs(source_transform.a * source_transform.e)
-    share = np.full((height, width), np.nan, dtype=np.float32)
+    data = np.full((height, width), np.nan, dtype=np.float32)
     reproject(
-        source / source_cell_area,
-        share,
+        source,
+        data,
         src_transform=source_transform,
         src_crs=source_crs,
         src_nodata=np.nan,
         dst_transform=transform,
         dst_crs="EPSG:3006",
         dst_nodata=np.nan,
-        resampling=Resampling.average,
+        resampling=Resampling.sum,
     )
-    return share * abs(transform.a * transform.e)
+    return data
 
 
 def _check_epoch(epoch: int):
     if epoch not in GHSL_EPOCHS:
-        raise ValueError(f"Unsupported GHSL epoch {epoch}. Supported epochs: {GHSL_EPOCHS}.")
+        raise ValueError(
+            f"Unsupported GHSL epoch {epoch}. Supported epochs: {GHSL_EPOCHS}."
+        )
 
 
 def _target_grid(bounds: Bounds, cell: float):
@@ -263,46 +338,82 @@ def _target_grid(bounds: Bounds, cell: float):
     return transform, width, height
 
 
-def _read_cache(path: Path):
+def _write_cache(path: Path, data, transform: Affine, nodata):
+    """Write ``data`` to ``path`` through a temporary file unique to this writer.
+
+    Concurrent writers each publish a complete file with an atomic replace.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".part")
+    os.close(fd)
+    tmp_path = Path(name)
+    try:
+        with rasterio.open(
+            tmp_path,
+            "w",
+            driver="GTiff",
+            width=data.shape[1],
+            height=data.shape[0],
+            count=1,
+            dtype=data.dtype,
+            crs="EPSG:3006",
+            transform=transform,
+            nodata=nodata,
+            compress="deflate",
+        ) as dst:
+            dst.write(data, 1)
+        try:
+            os.replace(tmp_path, path)
+        except PermissionError:
+            # Windows refuses a replace while a concurrent writer publishes the file.
+            if not path.exists():
+                raise
+            debug(f"GHSL cache file {path} was published by a concurrent writer.")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _write_cache_or_warn(path: Path, data, transform: Affine, nodata):
+    """Write the cache, logging a warning instead of failing the request."""
+    try:
+        _write_cache(path, data, transform, nodata)
+    except (OSError, *_RASTER_ERRORS) as exc:
+        warning(f"Could not cache GHSL data at {path}: {exc}")
+
+
+def _cache_path(
+    product: str, transform: Affine, width: int, height: int, epoch: int
+) -> Path:
+    """Cache file for one product on one exact target grid and epoch.
+
+    The key is the full grid (origin, cell size and shape) at full float
+    precision, so grids that differ by less than a metre get separate files.
+    """
+    grid = (_CACHE_VERSION, *transform[:6], width, height)
+    key = hashlib.sha256(repr(grid).encode()).hexdigest()[:16]
+    return Path(cache_dir) / "downloaded_ghsl" / f"{product}_{epoch}_{key}.tif"
+
+
+def _read_cache(path: Path, transform: Affine, width: int, height: int):
+    """Return cached data for the grid, or ``None`` if missing or not matching."""
     if not path.exists():
         return None
-    with rasterio.open(path) as src:
-        return src.read(1)
-
-
-def _write_cache(path: Path, data, transform: Affine, nodata):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(path.name + ".part.tif")
-    with rasterio.open(
-        tmp_path,
-        "w",
-        driver="GTiff",
-        width=data.shape[1],
-        height=data.shape[0],
-        count=1,
-        dtype=data.dtype,
-        crs="EPSG:3006",
-        transform=transform,
-        nodata=nodata,
-        compress="deflate",
-    ) as dst:
-        dst.write(data, 1)
-    os.replace(tmp_path, path)
-
-
-def _ensure_bounds(bounds) -> Bounds:
-    if isinstance(bounds, Bounds):
-        return bounds
-    return Bounds(*bounds)
-
-
-def _cache_path(product: str, bounds: Bounds, epoch: int) -> Path:
-    xmin, ymin, xmax, ymax = (round(value) for value in bounds.tuple)
-    return (
-        Path(cache_dir)
-        / "downloaded_ghsl"
-        / f"{product}_{epoch}_{xmin}_{ymin}_{xmax}_{ymax}.tif"
-    )
+    try:
+        with rasterio.open(path) as src:
+            matches = (
+                src.width == width
+                and src.height == height
+                and src.transform == transform
+                and src.crs is not None
+                and src.crs.to_epsg() == 3006
+            )
+            if matches:
+                return src.read(1)
+    except _RASTER_ERRORS as exc:
+        warning(f"Ignoring unreadable GHSL cache file {path}: {exc}")
+        return None
+    warning(f"Ignoring GHSL cache file {path}: its grid does not match the request.")
+    return None
 
 
 __all__ = [

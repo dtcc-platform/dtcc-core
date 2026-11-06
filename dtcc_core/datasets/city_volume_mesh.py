@@ -1,14 +1,16 @@
-import dtcc_core
-import numpy as np
 from pathlib import Path
-from dtcc_core.model import City, GeometryType
-from typing import Any, Literal, Optional
-from pydantic import Field
+from typing import Any, Literal
 
-from .dataset import DatasetDescriptor, DatasetBaseArgs
-from ._city_mesh_common import prepare_city_from_bounds
-from .providers import provider_entry
+import numpy as np
+from pydantic import Field, model_validator
+
+import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
+from dtcc_core.model import City
+
+from ._city_mesh_common import prepare_city_from_bounds
+from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .providers import provider_entry
 
 
 def _regular_tet_volume(edge_length: float) -> float:
@@ -17,20 +19,23 @@ def _regular_tet_volume(edge_length: float) -> float:
 
 class CityVolumeMeshArgs(DatasetBaseArgs):
     """Arguments for the city volume mesh dataset."""
+
     max_mesh_size: float = Field(
         25.0,
         description="Maximum target edge size for the 2D ground and shell meshing stages in meters",
     )
-    top_cap_max_mesh_size: Optional[float] = Field(
+    top_cap_max_mesh_size: float | None = Field(
         None,
         description="Optional separate target edge size for the lifted top cap triangulation in meters",
     )
     domain_height: float = Field(
         80.0, description="Height of the computational domain (H parameter) in meters"
     )
-    lod: Optional[GeometryType] = Field(
-        None,
-        description="Optional building geometry level of detail for meshing",
+    lod: Literal["lod1", "lod2"] = Field(
+        "lod1", description="Requested output level of detail"
+    )
+    lod2_method: Literal["catalogue", "ransac"] = Field(
+        "catalogue", description="Roof reconstruction algorithm for LOD2 output"
     )
     min_mesh_angle: float = Field(25.0, description="Minimum triangle angle in degrees")
     raster_cell_size: float = Field(
@@ -59,11 +64,8 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
     min_building_area: float = Field(
         15.0, description="Smallest building footprint area to include (m²)"
     )
-    merge_buildings: bool = Field(
-        True, description="Whether to merge adjacent building footprints"
-    )
     smoothing: int = Field(0, description="Number of terrain smoothing iterations")
-    max_volume: Optional[float] = Field(
+    max_volume: float | None = Field(
         None,
         description=(
             "Maximum tetrahedron volume used as TetGen's 3D size cap "
@@ -71,7 +73,7 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
             "max_mesh_size if not set)"
         ),
     )
-    mesher: Optional[Literal["auto", "dtcc_mesher", "triangle"]] = Field(
+    mesher: Literal["auto", "dtcc_mesher", "triangle"] | None = Field(
         None,
         description=(
             "2D meshing backend for the intermediate flat and shell meshes "
@@ -82,23 +84,23 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         "",
         description="Extra switches to pass to TetGen (e.g., 'VV' for verbose output)",
     )
-    tetgen_switches: Optional[dict[str, Any]] = Field(
+    tetgen_switches: dict[str, Any] | None = Field(
         None,
         description="Optional descriptive TetGen switch dictionary forwarded to the volume builder",
     )
-    tetgen_debug_output_dir: Optional[str | Path] = Field(
+    tetgen_debug_output_dir: str | Path | None = Field(
         None,
         description="Optional directory for saved TetGen input artifacts",
     )
-    tetgen_debug_output_stem: Optional[str] = Field(
+    tetgen_debug_output_stem: str | None = Field(
         None,
         description="Optional filename stem for saved TetGen input artifacts",
     )
-    tetgen_quality_failure_output_dir: Optional[str | Path] = Field(
+    tetgen_quality_failure_output_dir: str | Path | None = Field(
         None,
         description="Optional directory for TetGen quality-failure reports",
     )
-    tetgen_quality_failure_output_stem: Optional[str] = Field(
+    tetgen_quality_failure_output_stem: str | None = Field(
         None,
         description="Optional filename stem for TetGen quality-failure reports",
     )
@@ -114,7 +116,7 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         True,
         description="Whether the optional footprint cleaning plot should block until the window is closed",
     )
-    ground_level: Optional[float] = Field(
+    ground_level: float | None = Field(
         None,
         description="Ground level for flat terrain (defaults to minimum terrain elevation)",
     )
@@ -130,9 +132,15 @@ class CityVolumeMeshArgs(DatasetBaseArgs):
         "strict",
         description="Meshing pipeline mode",
     )
-    format: Optional[Literal["xdmf", "vtu"]] = Field(
+    format: Literal["xdmf", "vtu"] | None = Field(
         None, description="Output file format"
     )
+
+    @model_validator(mode="after")
+    def validate_output_lod(self):
+        if self.lod == "lod1" and self.lod2_method != "catalogue":
+            raise ValueError("lod2_method='ransac' requires lod='lod2'")
+        return self
 
 
 class CityVolumeMeshDataset(DatasetDescriptor):
@@ -143,6 +151,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
 
     Call it with keyword arguments defined by ``CityVolumeMeshArgs``.
     """
+
     name = "city_volume_mesh"
     title = "City Volume Mesh"
     description = (
@@ -198,7 +207,7 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         "Build a terrain raster with raster_cell_size and raster_radius",
         "Optionally replace topography with a flat terrain raster when flat_ground=True",
         "Extract roof points and compute building heights from the terrain raster",
-        "Condition building footprints using lod, min_building_detail, min_building_area, merge_buildings, and pipeline_mode",
+        "Clean building footprints with clean_footprints at min_building_detail (footprints closer than that are merged) and drop those smaller than min_building_area",
         "Build intermediate ground, shell, and top-cap surfaces using max_mesh_size, top_cap_max_mesh_size, min_mesh_angle, smoothing, and mesher",
         "Run TetGen with max_volume and tetgen_switches/tetgen_extra to produce tetrahedra",
         "Optionally attach boundary face markers (-1 ground, -2 top, -3 west, -4 east, -5 south, -6 north)",
@@ -258,9 +267,18 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         "entries": [
             {"label": "-1 ground", "meaning": "terrain boundary face marker"},
             {"label": "-2 top", "meaning": "top cap boundary face marker"},
-            {"label": "-3 west / -4 east", "meaning": "xmin/xmax side boundary markers"},
-            {"label": "-5 south / -6 north", "meaning": "ymin/ymax side boundary markers"},
-            {"label": "Tetrahedron", "meaning": "interior computational volume element"},
+            {
+                "label": "-3 west / -4 east",
+                "meaning": "xmin/xmax side boundary markers",
+            },
+            {
+                "label": "-5 south / -6 north",
+                "meaning": "ymin/ymax side boundary markers",
+            },
+            {
+                "label": "Tetrahedron",
+                "meaning": "interior computational volume element",
+            },
         ],
     }
     view_hints = {
@@ -307,11 +325,11 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         return dtcc_core.builder.build_city_volume_mesh(
             city,
             lod=args.lod,
+            lod2_method=args.lod2_method,
             max_mesh_size=args.max_mesh_size,
             top_cap_max_mesh_size=args.top_cap_max_mesh_size,
             domain_height=args.domain_height,
             min_mesh_angle=args.min_mesh_angle,
-            merge_buildings=args.merge_buildings,
             min_building_detail=args.min_building_detail,
             min_building_area=args.min_building_area,
             smoothing=args.smoothing,
