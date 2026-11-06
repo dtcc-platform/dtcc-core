@@ -705,6 +705,10 @@ def _record_count_label(context, obj: Any | None = None) -> str:
 def _object_count(obj: Any | None) -> int | None:
     if obj is None:
         return None
+    from dtcc_core.model import PopulationGrid
+
+    if isinstance(obj, PopulationGrid):
+        return int(obj.data.size)
     for attr in ("stations", "vehicles"):
         value = getattr(obj, attr, None)
         if callable(value):
@@ -748,6 +752,8 @@ def _object_label(context, *, plural: bool) -> str:
         return "trees" if plural else "tree"
     if "footprint" in result_kind or "footprint" in dataset_name:
         return "footprints" if plural else "footprint"
+    if "population grid" in dataset_name:
+        return "cells" if plural else "cell"
     if "grid" in dataset_name:
         return "lines" if plural else "line"
     if "deso" in dataset_name:
