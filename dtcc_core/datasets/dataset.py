@@ -253,7 +253,7 @@ class DatasetDescriptor(ABC):
         args = self.validate(kwargs)
         result = self.build(args)
         result = self.prepare_result(result, args)
-        context = self.create_context(args)
+        context = self._context_for_result(result, args)
         return attach_dataset_context(result, context)
 
     def validate(self, kwargs):
@@ -275,6 +275,10 @@ class DatasetDescriptor(ABC):
         containers without changing internal build/export code paths.
         """
         return result
+
+    def _context_for_result(self, result, args) -> DatasetContext:
+        """Build context for a realized result and its validated request."""
+        return self.create_context(args)
 
     # TODO(Dataset v2): keep DatasetDescriptor during migration; Dataset is a
     # public alias below so new code can use the Dataset name without breaking

@@ -16,6 +16,26 @@ from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.model import Mesh, MultiSurface, Surface
 
 
+@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not installed")
+@pytest.mark.parametrize("output", [False, True])
+def test_actual_city_generation_removes_corners(output):
+    from dtcc_core.builder import build_city_volume_mesh
+
+    from .test_cleaning_meshing_integration import make_flat_city
+
+    mesh = build_city_volume_mesh(
+        make_flat_city([]),
+        max_mesh_size=20.0,
+        domain_height=40.0,
+        boundary_face_markers=output,
+        repair_boundary_corners=True,
+        report_mesh_quality=False,
+    )
+    assert mesh.num_cells > 0
+    assert mesh.find_boundary_corners().num_corners == 0
+    assert bool(len(mesh.boundary_faces)) == output
+
+
 @pytest.fixture
 def simple_surface():
     return Surface(
