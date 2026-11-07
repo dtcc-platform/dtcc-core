@@ -705,6 +705,8 @@ def _record_count_label(context, obj: Any | None = None) -> str:
 def _object_count(obj: Any | None) -> int | None:
     if obj is None:
         return None
+    if hasattr(obj, "landuses"):
+        return len(obj.surfaces)
     for attr in ("stations", "vehicles"):
         value = getattr(obj, attr, None)
         if callable(value):
@@ -754,6 +756,8 @@ def _object_label(context, *, plural: bool) -> str:
         return "areas" if plural else "area"
     if "streamline" in result_kind:
         return "streamlines" if plural else "streamline"
+    if "landuse" in result_kind:
+        return "polygons" if plural else "polygon"
     return "records" if plural else "record"
 
 
