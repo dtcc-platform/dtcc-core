@@ -18,7 +18,8 @@ class RasterTile:
     None when unknown. ``archive`` is the local archive that holds ``path`` as
     a member, or None. A record holds no pixels and never opens its file.
     A tile restored from canonical exchange has a package-relative reference
-    as ``path`` and no package binding, and refuses to load.
+    as ``path`` and no package binding, and refuses to load; a tile loaded
+    from a canonical package is bound to its artifact in that package.
     """
 
     path: Path
@@ -40,12 +41,6 @@ class RasterTile:
         Reads only the local file, within an estimated working-memory budget.
         A tile restored without a package binding raises ValueError.
         """
-        if self._unbound:
-            raise ValueError(
-                f"Cannot load raster tile {self.id!r}: its reference "
-                f"{self.path.as_posix()!r} has no package binding. Load the tile "
-                "from the dataset package that contains it."
-            )
         from ...io.raster_tiles import load_tile
 
         return load_tile(self, max_memory_bytes=max_memory_bytes)
@@ -56,8 +51,8 @@ class RasterTileCollection(Model):
     """Sequence of file-backed raster tiles.
 
     Canonical exchange carries the tile metadata and package-relative
-    references, never local cache paths. The tiles refer to files in a local
-    cache, so the collection cannot be exported or published.
+    references, never local cache paths. A canonical package carries the tile
+    files as artifacts; the collection is never published.
     """
 
     tiles: list[RasterTile] = field(default_factory=list)
@@ -74,12 +69,18 @@ class RasterTileCollection(Model):
     def __getitem__(self, index):
         return self.tiles[index]
 
-    def export(self, *args, **kwargs):
-        """Refuse export: the tiles are local cache files, not portable artifacts."""
-        raise NotImplementedError(
-            "Exporting a RasterTileCollection is not supported: its tiles are "
-            "local cache files. Use each tile's path directly."
-        )
+    def export(self, path, *, canonical: bool = False, **kwargs):
+        """Export a canonical package that carries the tile files as artifacts.
+
+        Only ``canonical=True`` is supported, without ``format``; the legacy
+        package refuses before writing.
+        """
+        if not canonical:
+            raise NotImplementedError(
+                "Exporting a RasterTileCollection requires canonical=True: only a "
+                "canonical package carries its tile files."
+            )
+        return super().export(path, canonical=True, **kwargs)
 
     def publish(self, *args, **kwargs):
         """Refuse publishing, before any upload configuration is read."""

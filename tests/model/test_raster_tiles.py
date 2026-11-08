@@ -14,6 +14,7 @@ from dtcc_core.datasets.schema import (
     DatasetRequest,
 )
 from dtcc_core.io.model import load_model, save_model
+from dtcc_core.io.raster_tiles import load_tile
 from dtcc_core.model import Bounds, City, Object, exchange
 from dtcc_core.model import dtcc_pb2 as wire
 from dtcc_core.model.values.raster_tiles import RasterTile, RasterTileCollection
@@ -113,7 +114,7 @@ def test_collection_carries_dataset_context(collection):
 
 @pytest.mark.parametrize(
     "kwargs",
-    [{}, {"format": "json"}, {"format": "tif"}, {"canonical": True}],
+    [{}, {"format": "json"}, {"format": "tif"}],
 )
 def test_export_is_refused_before_writing_anything(collection, tmp_path, kwargs):
     collection.dataset_context = make_context()
@@ -306,6 +307,8 @@ def test_restored_tile_never_loads_from_the_working_directory(tmp_path, monkeypa
     assert tile.path.is_file()
     with pytest.raises(ValueError, match="no package binding"):
         tile.load()
+    with pytest.raises(ValueError, match="no package binding"):
+        load_tile(tile, max_memory_bytes=2 * 1024**3)
     local = make_tile(Path("unused"))
     local = replace(local, path=tile.path, extent=Bounds(*CELL), spektraltyp="rgb")
     assert not local._unbound
@@ -320,15 +323,25 @@ def test_save_is_refused_without_writing(collection, tmp_path):
 
 
 @pytest.mark.parametrize("name", ["pkg", "pkg.dtccpkg"])
-def test_canonical_package_export_is_refused_before_writing(collection, tmp_path, name):
+def test_canonical_package_carries_the_tile_files(tmp_path, name):
     from dtcc_core.datasets.package import export_model_package
 
+    collection = shared_id_collection(tmp_path / "cache")
+    for tile in collection:
+        write_tiff(tile.path, band_values(4))
     collection.dataset_context = make_context()
     out = tmp_path / "out"
     out.mkdir()
-    with pytest.raises(NotImplementedError, match="RasterTileCollection"):
-        export_model_package(collection, out / name, canonical=True)
-    assert list(out.iterdir()) == []
+    package = export_model_package(collection, out / name, canonical=True)
+    artifacts = package.manifest.artifacts
+    assert [(artifact.path, artifact.role) for artifact in artifacts] == [
+        ("artifacts/model.dtcc", "canonical_model"),
+        *((reference, "tile") for reference in REFERENCES),
+    ]
+    assert [artifact.size for artifact in artifacts[1:]] == [
+        tile.path.stat().st_size for tile in collection
+    ]
+    assert list(out.iterdir()) == [out / name]
 
 
 def test_load_delegates_to_load_tile_with_the_budget(tmp_path, monkeypatch):

@@ -160,6 +160,40 @@ failed admission or supplemental serialization preserves existing output. This
 provides local atomic replacement, not a cross-process transaction or a promise
 of crash durability for the whole package.
 
+### Tile packages
+
+A `RasterTileCollection` (root-only kind 19) carries tile metadata and, per tile,
+the package-relative reference `artifacts/tiles/<collection>/<index>-<id>.tif`
+(collection and id reduced to `A-Za-z0-9_-`), never a local cache path.
+`export(path, canonical=True)` writes the canonical model and copies each tile file
+to its reference as an artifact with role `tile`, format `tif`, `size` and `sha256`,
+and no other metadata; `format=` and the legacy package are refused. Publishing
+keeps refusing: `publish()`, the exported package's `publish()` and the upload
+admission (`DatasetUploadClient.upload_package`) reject a tile package before any
+upload configuration is read or anything is sent. In a `.dtccpkg` the tile members
+are stored uncompressed (`ZIP_STORED`); the model and manifest keep their
+compression. The package is staged and moved into place, so a failed tile copy
+leaves the destination untouched.
+
+`load_model_package` binds each reference only to a manifest artifact with role
+`tile` that passed the size and SHA-256 checks; a reference without such an artifact
+(including one pointing at a `derived` artifact), a `tile` artifact no reference
+names, and a `tile` artifact with any other metadata all fail. In a directory
+package the restored tile's `path` is the artifact file. In a `.dtccpkg`, `path` is
+the member name and `archive` the local archive path; nothing is extracted, and an
+archive whose resolved path holds a brace is refused. `load_tile` checks the binding
+again because a `RasterTile` can be built directly: a tile restored from a
+standalone model file has no binding and refuses to load or export, and is never
+resolved against the working directory. An archive tile needs an existing local
+archive (no GDAL virtual path, no braces) and a member that passes the portable
+package-path check; the reader opens `/vsizip/{archive}/{member}`, which it builds
+itself, and admits the header and the memory budget before any pixel is read. A
+local tile `path` is an ordinary filesystem path, opened in its absolute form; only
+GDAL virtual paths (`/vsi...`) are refused. `build_mosaic` reads local cache tiles
+only and refuses unbound and archive-bound tiles before opening any file. Re-export
+of a collection loaded from an archive reads its members through `zipfile`. The
+tiles load and re-export after the original cache is gone.
+
 ## Compatibility and migration
 
 The original `dtcc.proto`, generated legacy bindings, `.pb`/`.pb2` routes and

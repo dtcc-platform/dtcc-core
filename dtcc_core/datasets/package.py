@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import warnings
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from inspect import signature
 from pathlib import Path
 
@@ -47,7 +47,19 @@ class DatasetPackage:
         token: str | None = None,
         idempotency_key: str | None = None,
     ):
-        """Publish an artifact or canonical model package through dtcc-upload."""
+        """Publish an artifact or canonical model package through dtcc-upload.
+
+        A RasterTileCollection package, empty or not, is refused before any
+        upload configuration is read or an uploader is used.
+        """
+        if any(
+            artifact.role == "canonical_model"
+            and artifact.model_type == "RasterTileCollection"
+            for artifact in self.artifacts
+        ):
+            raise NotImplementedError(
+                "Publishing a RasterTileCollection package is not supported."
+            )
         from dtcc_core.datasets.publish import DatasetUploadClient
 
         resolved_uploader = uploader or DatasetUploadClient.from_config(
@@ -255,6 +267,7 @@ def _write_directory_package(
     package_format: str,
     canonical_data: bytes | None = None,
     raster_artifact: tuple | None = None,
+    tiles: list | None = None,
 ) -> DatasetPackage:
     artifact_dir = package_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -282,7 +295,14 @@ def _write_directory_package(
         else:
             _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
 
-    artifact_files = _artifact_files(artifact_dir, artifact_path)
+    tile_files = []
+    if tiles is not None:
+        from ..model.exchange import _tile_reference
+
+        for index, tile in enumerate(tiles):
+            reference = _tile_reference(index, tile.collection, tile.id)
+            tile_files.append(_copy_tile(tile, package_dir / reference))
+    artifact_files = (*_artifact_files(artifact_dir, artifact_path), *tile_files)
     artifacts = tuple(
         _artifact_metadata(
             file_path,
@@ -313,6 +333,9 @@ def _write_directory_package(
                 # Object/geometry transforms may differ; do not invent aggregate
                 # global bounds from the request or from local cached bounds.
                 artifact.bounds = None
+            elif package_dir / artifact.path in tile_files:
+                artifact.role = "tile"
+                artifact.crs = artifact.bounds = None
             else:
                 artifact.role = "derived"
                 artifact.derived_from = CANONICAL_ARTIFACT
@@ -705,15 +728,34 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: str, target: Path) -> 
         shutil.copyfileobj(source, destination)
 
 
+def _copy_tile(tile, target: Path) -> Path:
+    """Copy a tile's file to target; archive members are read through zipfile."""
+    from ..io.raster_tiles import _tile_location
+
+    archive, name = _tile_location(tile)
+    if archive is not None:
+        with zipfile.ZipFile(archive) as source:
+            _extract_zip_member(source, name, target)
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(name, target)
+    return target
+
+
 def _export_canonical_package(obj, path, supplemental_format, validate_schema, options):
-    """Stage the existing package writer and publish the local snapshot atomically."""
+    """Stage the existing package writer and publish the local snapshot atomically.
+
+    A RasterTileCollection package carries each tile file as an artifact with
+    role "tile" at its reference; archive tile members are stored uncompressed.
+    """
     from ..model import exchange
     from ..model.values.raster_tiles import RasterTileCollection
 
-    if isinstance(obj, RasterTileCollection):
-        raise NotImplementedError(
-            "Canonical package export of a RasterTileCollection is not supported "
-            "yet: its tile files are not written as package artifacts"
+    tiles = obj.tiles if isinstance(obj, RasterTileCollection) else None
+    if tiles is not None and supplemental_format is not None:
+        raise ValueError(
+            "A RasterTileCollection package carries its tile files; "
+            f"format={supplemental_format!r} is not supported"
         )
     if supplemental_format == "tiff":
         supplemental_format = "tif"
@@ -769,6 +811,7 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema, o
             package_format="directory",
             canonical_data=data,
             raster_artifact=raster_artifact,
+            tiles=tiles,
         )
         if (
             len(package.artifacts) > 9999
@@ -780,8 +823,14 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema, o
             with zipfile.ZipFile(
                 staged_archive, "w", compression=zipfile.ZIP_DEFLATED
             ) as zf:
+                stored = {a.path for a in package.artifacts if a.role == "tile"}
                 for file in package.files:
-                    zf.write(file, file.relative_to(stage).as_posix())
+                    name = file.relative_to(stage).as_posix()
+                    zf.write(
+                        file,
+                        name,
+                        compress_type=zipfile.ZIP_STORED if name in stored else None,
+                    )
             os.replace(staged_archive, path)
             return DatasetPackage(
                 path,
@@ -803,7 +852,11 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
     """Read a canonical v3 directory/archive and restore its model and Context.
 
     All declared artifacts are integrity-checked. No archive extraction or network
-    access occurs. Legacy v2 packages require their existing consumers.
+    access occurs. Each tile reference of a RasterTileCollection is bound to its
+    verified manifest artifact with role "tile": in a directory the tile path is
+    the artifact file; in an archive it is the member name, and the tile's
+    archive is the package path. Legacy v2 packages require their existing
+    consumers.
     validate_schema=False bypasses semantic evaluation, not integrity/admission.
     max_bytes optionally bounds the total uncompressed artifact bytes before
     reading artifacts. The default has no package byte cap; the native model
@@ -813,6 +866,7 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
     from contextlib import ExitStack
 
     from ..model import exchange
+    from ..model.values.raster_tiles import RasterTileCollection
     from .publish import _validate_package_path
 
     if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
@@ -822,11 +876,14 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
         if path.is_dir():
             root = path.resolve()
 
-            def open_member(name):
+            def member_path(name):
                 member = (root / _validate_package_path(name)).resolve()
                 if not member.is_relative_to(root):
                     raise ValueError("Package artifact resolves outside its directory")
-                return member.open("rb")
+                return member
+
+            def open_member(name):
+                return member_path(name).open("rb")
 
             archive_names = None
         else:
@@ -893,6 +950,25 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
         for artifact in manifest.artifacts:
             if artifact.size is None or artifact.size < 0 or artifact.sha256 is None:
                 raise ValueError("Canonical packages require artifact size and sha256")
+            if artifact.role == "tile" and (
+                artifact.format != "tif"
+                or any(
+                    getattr(artifact, name) is not None
+                    for name in (
+                        "crs",
+                        "bounds",
+                        "derived_from",
+                        "model_type",
+                        "model_schema_version",
+                        "placement",
+                        "rendering",
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Tile artifact must be a tif with no crs, bounds, derived_from, "
+                    "model, placement or rendering metadata"
+                )
             total += artifact.size
             if (
                 archive_names is not None
@@ -905,11 +981,15 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
             raise ValueError("Canonical Protobuf message must be smaller than 2 GiB")
         data = None
         for artifact in manifest.artifacts:
-            if artifact is not canonical and (
-                artifact.role != "derived"
-                or artifact.derived_from != canonical.path
-                or artifact.model_type is not None
-                or artifact.model_schema_version is not None
+            if (
+                artifact is not canonical
+                and artifact.role != "tile"
+                and (
+                    artifact.role != "derived"
+                    or artifact.derived_from != canonical.path
+                    or artifact.model_type is not None
+                    or artifact.model_schema_version is not None
+                )
             ):
                 raise ValueError(
                     "Supplemental artifact must identify its canonical source"
@@ -952,6 +1032,46 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
             raise ValueError(
                 "Canonical spatial metadata does not match payload contract"
             )
+        references = (
+            [tile.path.as_posix() for tile in model.tiles]
+            if isinstance(model, RasterTileCollection)
+            else []
+        )
+        tile_paths = {x.path for x in manifest.artifacts if x.role == "tile"}
+        if unmanifested := set(references) - tile_paths:
+            raise ValueError(
+                f"Tile reference {min(unmanifested)!r} has no manifest artifact "
+                "with role 'tile'"
+            )
+        if unreferenced := tile_paths - set(references):
+            raise ValueError(
+                f"Manifest tile artifact {min(unreferenced)!r} is not referenced "
+                "by the canonical model"
+            )
+        archive_path = path.resolve() if archive_names is not None else None
+        # GDAL's braced /vsizip/{archive}/member form cannot hold a brace.
+        if (
+            archive_path is not None
+            and references
+            and any(brace in str(archive_path) for brace in "{}")
+        ):
+            raise ValueError(
+                f"Raster tile archive {str(archive_path)!r} must be a local "
+                "file path without braces."
+            )
+        if references:
+            # Every manifest artifact passed its size and sha256 checks above.
+            model.tiles = [
+                replace(
+                    tile,
+                    path=Path(reference)
+                    if archive_names is not None
+                    else member_path(reference),
+                    archive=archive_path,
+                    _unbound=False,
+                )
+                for tile, reference in zip(model.tiles, references, strict=True)
+            ]
         model.dataset_context = DatasetContext(
             identity=manifest.identity,
             metadata=manifest.metadata,
