@@ -26,6 +26,7 @@ from dtcc_core.model import (
     RoadNetwork,
     SensorCollection,
     Transform,
+    VehicleCollection,
 )
 
 # Oracle: pyproj EPSG:3006 -> EPSG:4326 for a point in Gothenburg.
@@ -346,3 +347,75 @@ def test_sensor_numpy_array_attributes_export_like_scalars():
     assert properties["exact"] == [0.1, 1 / 3]
     assert properties["scalar"] == 7.3
     json.dumps(payload)
+
+
+def _vehicle(vehicle_id, x, y):
+    vehicle = Object(attributes={"vehicle_id": vehicle_id})
+    vehicle.add_geometry(Point(x=x, y=y, z=10.0), "position")
+    return vehicle
+
+
+def _point_collection(kind, member_srs=None, crs=None, extra_member_srs=None):
+    attributes = {} if crs is None else {"crs": crs}
+    if kind == "sensor":
+        collection = SensorCollection(attributes=attributes)
+        member = _station("s1", *SWEREF)
+        collection.add_station(member)
+    else:
+        collection = VehicleCollection(attributes=attributes)
+        member = _vehicle("v1", *SWEREF)
+        collection.add_vehicle(member)
+    if member_srs is not None:
+        member.transform.srs = member_srs
+    if extra_member_srs is not None:
+        if kind == "sensor":
+            extra = _station("s2", *SWEREF)
+            collection.add_station(extra)
+        else:
+            extra = _vehicle("v2", *SWEREF)
+            collection.add_vehicle(extra)
+        extra.transform.srs = extra_member_srs
+    return collection
+
+
+@pytest.mark.parametrize("kind", ["sensor", "vehicle"])
+def test_point_collection_resolves_crs_declared_only_on_members(kind):
+    collection = _point_collection(kind, member_srs="EPSG:3006")
+
+    payload = collection.to_geojson()
+    web = collection.to_geojson(crs="EPSG:4326")
+
+    assert payload["crs"]["properties"]["name"] == "EPSG:3006"
+    assert payload["features"][0]["geometry"]["coordinates"] == [*SWEREF, 10.0]
+    assert "crs" not in web
+    lon, lat, z = web["features"][0]["geometry"]["coordinates"]
+    assert (lon, lat) == pytest.approx(WGS84, abs=1e-9)
+    assert z == 10.0
+
+
+@pytest.mark.parametrize("kind", ["sensor", "vehicle"])
+def test_point_collection_member_crs_conflicting_with_collection_raises(kind):
+    collection = _point_collection(kind, member_srs="EPSG:4326", crs="EPSG:3006")
+
+    with pytest.raises(ValueError, match="Conflicting CRS"):
+        collection.to_geojson(crs="EPSG:4326")
+
+
+@pytest.mark.parametrize("kind", ["sensor", "vehicle"])
+def test_point_collection_member_crs_equal_to_collection_is_unchanged(kind):
+    plain = _point_collection(kind, crs="EPSG:3006")
+    declared = _point_collection(kind, member_srs="epsg:3006", crs="EPSG:3006")
+
+    assert declared.to_geojson() == plain.to_geojson()
+    assert declared.to_geojson()["crs"]["properties"]["name"] == "EPSG:3006"
+    assert declared.to_geojson(crs="EPSG:4326") == plain.to_geojson(crs="EPSG:4326")
+
+
+@pytest.mark.parametrize("kind", ["sensor", "vehicle"])
+def test_point_collection_members_with_conflicting_crs_raise(kind):
+    collection = _point_collection(
+        kind, member_srs="EPSG:3006", extra_member_srs="EPSG:4326"
+    )
+
+    with pytest.raises(ValueError, match="Conflicting CRS declarations"):
+        collection.to_geojson()

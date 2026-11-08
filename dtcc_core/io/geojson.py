@@ -216,7 +216,9 @@ def feature_collection(features, *, source_crs, crs, metadata=None):
 def _point_feature_collection(model, members, id_key, crs):
     """Return one Point feature per ``(object, point)`` pair of an exported copy."""
     points = [point for _, point in members]
-    source_crs = resolve_source_crs(model, points)
+    source_crs = resolve_source_crs(
+        model, [*(member for member, _ in members), *points]
+    )
     units = {}
     for point in points:
         for field in point.fields:
