@@ -138,7 +138,8 @@ class VehicleCollection(Object):
         its ``vehicle_id`` attribute (else the object id) and whose properties
         are the vehicle attributes plus ``<name>`` and ``<name>_unit`` for every
         Field attached to any vehicle; a vehicle without that value gets
-        ``null``.
+        ``null``. A Field's ``<name>`` and ``<name>_unit`` replace
+        same-named attributes.
 
         Parameters
         ----------

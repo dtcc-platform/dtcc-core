@@ -196,7 +196,8 @@ class SensorCollection(Object):
         its ``station_id`` attribute (else the object id) and whose properties
         are the station attributes plus ``<name>`` and ``<name>_unit`` for every
         Field attached to any station; a station without that value gets
-        ``null``.
+        ``null``. A Field's ``<name>`` and ``<name>_unit`` replace
+        same-named attributes.
 
         Parameters
         ----------

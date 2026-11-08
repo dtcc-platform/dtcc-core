@@ -182,9 +182,12 @@ class RoadNetwork(Object):
         is the chord between the edge's vertices and ``metadata.geometry`` is
         ``"chord"``. The feature ``id`` is the edge's ``id`` attribute when
         there is one, else the edge index. Properties are the edge's entry of
-        every edge-aligned attribute list, ``length`` as stored, ``length_unit``
-        from the source CRS axis, and ``<name>`` and ``<name>_unit`` for every
-        ``sample`` Field of the ``MultiLineString`` (one row per edge). The
+        every edge-aligned attribute list, ``length`` as stored and
+        ``length_unit`` from the source CRS axis (both omitted when no lengths
+        are stored; stored lengths must match the edge count), and ``<name>``
+        and ``<name>_unit`` for every ``sample`` Field of the
+        ``MultiLineString`` (one row per edge); these replace same-named
+        properties. The
         space syntax measures ``mean_depth`` and ``integration`` get a unit
         from ``space_syntax_radius_unit``; the other measures are
         dimensionless.
@@ -231,7 +234,8 @@ class RoadNetwork(Object):
                         f"but the RoadNetwork has {count} edges."
                     )
                 carried.append((item, np.asarray(item.values).reshape(count, item.dim)))
-        if len(model.length) != count:
+        has_length = len(model.length) > 0
+        if has_length and len(model.length) != count:
             raise ValueError(
                 f"RoadNetwork has {len(model.length)} lengths, but {count} edges."
             )
@@ -239,8 +243,9 @@ class RoadNetwork(Object):
         features = []
         for i in range(count):
             properties = {key: value[i] for key, value in per_edge.items()}
-            properties["length"] = model.length[i]
-            properties["length_unit"] = length_unit
+            if has_length:
+                properties["length"] = model.length[i]
+                properties["length_unit"] = length_unit
             unit = per_edge.get("space_syntax_radius_unit")
             if unit is not None:
                 if "space_syntax_mean_depth" in per_edge:

@@ -142,7 +142,8 @@ class DeSO(Object):
         surface) or ``MultiPolygon`` feature with its holes kept. The feature
         ``id`` is the area id and the properties are the area attributes plus
         ``<name>`` and ``<name>_unit`` for every area-aligned statistic Field;
-        a missing statistic is ``null``. Positions are two-dimensional because
+        a missing statistic is ``null``. A Field's ``<name>`` and ``<name>_unit``
+        replace same-named attributes. Positions are two-dimensional because
         the areas have no height.
 
         Parameters

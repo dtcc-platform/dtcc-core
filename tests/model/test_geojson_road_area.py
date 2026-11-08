@@ -271,11 +271,26 @@ def test_road_length_must_have_one_value_per_edge():
     road = _road(curved=False)
     road.vertices = np.array([A, B, C])
     road.edges = np.array([[0, 1], [1, 2]])
-    road.length = np.empty(0)
+    road.length = np.array([1.0])
     road.attributes = {}
 
     with pytest.raises(ValueError, match="length"):
         road.to_geojson()
+
+
+def test_road_without_stored_lengths_exports_no_length_properties():
+    road = _road(curved=False)
+    road.vertices = np.array([A, B, C])
+    road.edges = np.array([[0, 1], [1, 2]])
+    road.length = np.empty(0)
+    road.attributes = {}
+
+    features = road.to_geojson()["features"]
+
+    assert len(features) == 2
+    for feature in features:
+        assert "length" not in feature["properties"]
+        assert "length_unit" not in feature["properties"]
 
 
 def test_road_space_syntax_units():
