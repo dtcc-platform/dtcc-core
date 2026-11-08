@@ -15,7 +15,13 @@ from inspect import signature
 from pathlib import Path
 
 from dtcc_core.datasets.dataset import DatasetDescriptor
-from dtcc_core.datasets.schema import DatasetArtifact, DatasetContext, DatasetManifest
+from dtcc_core.datasets.schema import (
+    DatasetArtifact,
+    DatasetContext,
+    DatasetManifest,
+    RasterPlacement,
+    RasterRendering,
+)
 
 CANONICAL_MANIFEST_VERSION = "dtcc-dataset-manifest-v3"
 CANONICAL_ARTIFACT = "artifacts/model.dtcc"
@@ -130,6 +136,11 @@ def export_model_package(
     format: str | None = None,
     canonical: bool = False,
     validate_schema: bool = True,
+    field: str | None = None,
+    band: int | None = None,
+    colormap: str | None = None,
+    value_range=None,
+    unit: str | None = None,
 ) -> DatasetPackage:
     """Export a dataset realization; canonical=True opts into the v3 contract.
 
@@ -138,7 +149,17 @@ def export_model_package(
     default until its producers and consumers have migrated.
     Canonical exports validate the standard semantic schema by default. Set
     validate_schema=False to bypass semantics while retaining native admission.
+
+    Canonical format="png" or "tif" writes a map-placed image or GeoTIFF of a
+    Raster, or of the Raster returned by the model's to_raster(field=None)
+    hook. field selects what the hook renders; band, colormap and value_range
+    (two finite ordered numbers) control the PNG colours; unit overrides the
+    recorded unit. An option that does not apply raises before anything is
+    written.
     """
+    options = dict(
+        field=field, band=band, colormap=colormap, value_range=value_range, unit=unit
+    )
     context = getattr(obj, "dataset_context", None)
     if context is None:
         raise ValueError(
@@ -146,12 +167,18 @@ def export_model_package(
         )
     if canonical:
         return _export_canonical_package(
-            obj, Path(path), _normalize_format(format), validate_schema
+            obj, Path(path), _normalize_format(format), validate_schema, options
         )
 
     if validate_schema is not True:
         raise ValueError(
             "validate_schema applies to canonical packages; pass canonical=True"
+        )
+    given = [name for name, value in options.items() if value is not None]
+    if given:
+        raise ValueError(
+            f"{', '.join(given)} applies to canonical PNG/GeoTIFF packages; "
+            "pass canonical=True"
         )
 
     target_path = Path(path)
@@ -227,6 +254,7 @@ def _write_directory_package(
     package_path: Path,
     package_format: str,
     canonical_data: bytes | None = None,
+    raster_artifact: tuple | None = None,
 ) -> DatasetPackage:
     artifact_dir = package_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -236,7 +264,7 @@ def _write_directory_package(
     if canonical_data is not None:
         canonical_path.write_bytes(canonical_data)
     artifact_path = canonical_path
-    web_bounds = None
+    web_bounds = placement = None
     if artifact_format is not None:
         extension = DatasetDescriptor.format_extension(artifact_format)
         artifact_stem = _artifact_stem(obj, context)
@@ -247,6 +275,10 @@ def _write_directory_package(
             )
         if canonical_data is not None and artifact_format == "geojson":
             web_bounds = _write_web_geojson(obj, artifact_path)
+        elif raster_artifact is not None:
+            placement = _write_raster_artifact(
+                artifact_path, artifact_format, *raster_artifact
+            )
         else:
             _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
 
@@ -287,6 +319,9 @@ def _write_directory_package(
                 web = artifact.format == "geojson"
                 artifact.bounds = web_bounds if web else None
                 artifact.crs = "EPSG:4326" if web else None
+                if placement is not None:
+                    artifact.placement = RasterPlacement(**placement)
+                    artifact.rendering = raster_artifact[1]
     manifest_path = package_dir / "manifest.json"
     manifest_path.write_text(
         manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
@@ -328,6 +363,151 @@ def _write_web_geojson(obj, path: Path) -> list[float] | None:
     if not z:
         return [min(lon), min(lat), max(lon), max(lat)]
     return [min(lon), min(lat), min(z), max(lon), max(lat), max(z)]
+
+
+def _write_raster_artifact(path: Path, fmt: str, raster, rendering: RasterRendering):
+    from ..io.raster import write_georeferenced_tif, write_placed_png
+
+    if fmt == "png":
+        return write_placed_png(
+            raster,
+            path,
+            band=rendering.band,
+            value_range=rendering.value_range,
+            colormap=rendering.colormap,
+        )
+    return write_georeferenced_tif(
+        raster, path, unit=rendering.unit, description=rendering.field
+    )
+
+
+def _prepare_raster_artifact(obj, fmt, field, band, colormap, value_range, unit):
+    """Return the Raster and rendering of a canonical PNG/GeoTIFF artifact.
+
+    Every option is checked against what it applies to, so a bad option
+    raises before anything is written.
+    """
+    import numbers
+
+    import matplotlib
+    import numpy as np
+
+    from ..io.raster import valid_pixels
+    from ..model import Raster
+
+    if fmt == "tif":
+        renderer = (
+            ("band", band),
+            ("colormap", colormap),
+            ("value_range", value_range),
+        )
+        for name, value in renderer:
+            if value is not None:
+                raise ValueError(f'{name} applies to format="png", not "tif"')
+    if isinstance(obj, Raster):
+        if field is not None:
+            raise ValueError(
+                "field applies to models with a to_raster hook, not to a Raster"
+            )
+        raster, rendering = obj, {}
+    elif callable(getattr(obj, "to_raster", None)):
+        if band is not None:
+            raise ValueError(
+                "band applies to a plain multi-band Raster, not to a raster "
+                "produced by to_raster"
+            )
+        result = obj.to_raster(field=field)
+        if (
+            not isinstance(result, tuple)
+            or len(result) != 2
+            or not isinstance(result[0], Raster)
+            or not isinstance(result[1], dict)
+        ):
+            raise ValueError("to_raster must return a (Raster, rendering) pair")
+        raster, rendering = result[0], dict(result[1])
+    else:
+        raise ValueError(
+            f"Canonical {fmt.upper()} export is not available for "
+            f"{type(obj).__name__}: it is not a Raster and has no "
+            'to_raster(field=None) hook; use the Dataset-level format="png" '
+            "path for a presentation image"
+        )
+    if raster.height == 0 or raster.width == 0:
+        raise ValueError(f"Cannot write an empty Raster as a canonical {fmt.upper()}")
+    if not raster.crs or raster.crs == "None":
+        raise ValueError(f"Canonical {fmt.upper()} export requires a Raster with a CRS")
+
+    hints = obj.dataset_context.presentation.view_hints or {}
+    if unit is None:
+        unit = rendering.get("unit")
+    if unit is None:
+        unit = hints.get("value_units")
+    rendering["unit"] = unit
+    rendering["transparent_nodata"] = fmt == "png"
+    channels = raster.channels
+    rgb = raster.data.dtype == np.uint8 and channels in (3, 4)
+    if fmt == "tif":
+        if isinstance(obj, Raster):
+            rendering["bands"] = list(range(channels))
+        return raster, RasterRendering(**rendering)
+
+    if band is not None:
+        if channels < 2 or rgb:
+            raise ValueError(
+                "band applies to a multi-band Raster that is not uint8 RGB(A)"
+            )
+        if (
+            isinstance(band, bool)
+            or not isinstance(band, int | np.integer)
+            or not 0 <= band < channels
+        ):
+            raise ValueError(f"band must be an integer in 0..{channels - 1}")
+    if rgb:
+        if colormap is not None or value_range is not None:
+            raise ValueError(
+                "colormap and value_range apply to single-band data, not to "
+                "uint8 RGB(A)"
+            )
+        data = raster.data
+        rendering["bands"] = list(range(channels))
+    else:
+        rendering["band"] = 0 if band is None else int(band)
+        data = raster.data
+        if data.ndim == 3:
+            data = data[..., rendering["band"]]
+        colormap = "viridis" if colormap is None else colormap
+        if not isinstance(colormap, str) or colormap not in matplotlib.colormaps:
+            raise ValueError(f"colormap must name a matplotlib colormap: {colormap!r}")
+        rendering["colormap"] = colormap
+    valid = valid_pixels(data, raster.nodata)
+    if not valid.any():
+        raise ValueError("Cannot render a Raster with no valid pixels as a PNG")
+    if not rgb:
+        low, high = data[valid].min(), data[valid].max()
+        if data.dtype.kind in "iu" and not (
+            -(2**53) <= int(low) and int(high) <= 2**53
+        ):
+            raise ValueError(
+                "PNG rendering needs integer values within [-2**53, 2**53], "
+                "the range float64 holds exactly"
+            )
+        if value_range is None:
+            value_range = [float(low), float(high)]
+        else:
+            if (
+                not isinstance(value_range, list | tuple)
+                or len(value_range) != 2
+                or not all(
+                    isinstance(value, numbers.Real) and not isinstance(value, bool)
+                    for value in value_range
+                )
+                or not all(math.isfinite(value) for value in value_range)
+                or value_range[0] > value_range[1]
+            ):
+                raise ValueError("value_range must be two finite ordered numbers")
+            value_range = [float(value) for value in value_range]
+        rendering["value_range"] = value_range
+    return raster, RasterRendering(**rendering)
 
 
 def _valid_bounds(bounds: list[float]) -> bool:
@@ -525,10 +705,19 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: str, target: Path) -> 
         shutil.copyfileobj(source, destination)
 
 
-def _export_canonical_package(obj, path, supplemental_format, validate_schema):
+def _export_canonical_package(obj, path, supplemental_format, validate_schema, options):
     """Stage the existing package writer and publish the local snapshot atomically."""
     from ..model import exchange
 
+    if supplemental_format == "tiff":
+        supplemental_format = "tif"
+    if supplemental_format not in (None, "png", "tif") and (
+        DatasetDescriptor.format_kind(supplemental_format) == "raster"
+    ):
+        raise ValueError(
+            'Canonical packages place raster formats only as format="png" or '
+            f'format="tif", not {supplemental_format!r}'
+        )
     if (
         supplemental_format == "geojson"
         and getattr(type(obj), "web_geojson", False) is not True
@@ -545,6 +734,14 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
     _validate_attributes(
         obj.dataset_context.model_dump(mode="python"), max_depth=exchange.MAX_DEPTH
     )
+    raster_artifact = None
+    if supplemental_format in ("png", "tif"):
+        raster_artifact = _prepare_raster_artifact(obj, supplemental_format, **options)
+    elif any(value is not None for value in options.values()):
+        given = ", ".join(name for name, value in options.items() if value is not None)
+        raise ValueError(
+            f'{given} applies to canonical format="png" or format="tif" only'
+        )
     data = exchange.dumps(
         obj, validate_schema=validate_schema
     )  # Fail before touching the destination.
@@ -565,6 +762,7 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
             package_path=stage,
             package_format="directory",
             canonical_data=data,
+            raster_artifact=raster_artifact,
         )
         if (
             len(package.artifacts) > 9999

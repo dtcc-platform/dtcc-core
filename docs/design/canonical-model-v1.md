@@ -114,11 +114,35 @@ writer follows the RFC 7946 web profile (class attribute `web_geojson = True`),
 records `crs` `EPSG:4326` and WGS84 `bounds` `[minlon, minlat, maxlon, maxlat]`,
 or six values `[minlon, minlat, minz, maxlon, maxlat, maxz]` when positions have
 z. For other types canonical `format="geojson"` is refused before anything is
-written. Other derived artifacts leave both unset. The reader accepts a derived
-`crs` only as a nonempty string and `bounds` only as four or six finite ordered
-numbers. Dataset discovery/request metadata remains Context, not an intrinsic
-artifact claim. This slice preserves transforms; it does not settle global
-transform composition or computed spatial summaries.
+written. Map-placed `format="png"` and `format="tif"` artifacts, admitted for a
+`Raster` or a model with a `to_raster(field=None)` hook returning
+`(Raster, rendering)`, leave `crs` and `bounds` unset and carry `placement` and
+`rendering` instead. Canonical PNG and GeoTIFF require a Raster with a CRS;
+`format="tiff"` is written as `tif`, and other raster formats are refused before
+anything is written. A colour-mapped PNG of integer data requires valid values
+within `[-2**53, 2**53]`, the integers float64 holds exactly, and is refused
+before anything is written otherwise.
+`placement` records the artifact grid: `crs`, `transform`
+(affine coefficients `a, b, c, d, e, f`), positive `width` and `height`, `bounds`
+in that CRS, `bounds_wgs84` and the source `nodata` as a finite number or the
+string `"NaN"`. The PNG is warped to the north-up EPSG:3857 grid from
+`rasterio.warp.calculate_default_transform` (nearest for integer data, bilinear
+for floating data, validity mask nearest as alpha); the GeoTIFF keeps the source
+grid with band unit and description. `rendering` records the written `bands`
+(uint8 RGB(A) or GeoTIFF bands) or the hook's `field`, the colour-mapped `band`,
+`unit`, `value_range` and `colormap`, `transparent_nodata`, and the hook's
+`components` when given; re-export of a loaded package needs the export options
+again. Other derived artifacts leave all four unset. The manifest version stays
+`dtcc-dataset-manifest-v3`: both records are optional and omitted when absent,
+and packages without them load unchanged in the current reader. Readers older
+than this change reject a package carrying them (unknown manifest fields fail
+validation), so packages with map-placed raster artifacts are not backward
+compatible. The reader accepts a derived `crs` only as a nonempty string,
+`bounds` only as four or six finite ordered numbers, and `placement` only with
+finite numbers, ordered bounds and positive sizes. Dataset discovery/request
+metadata remains Context, not an intrinsic artifact claim. This slice preserves
+transforms; it does not settle global transform composition or computed spatial
+summaries.
 
 The reader checks manifest version and structure, safe paths, artifact integrity,
 canonical type/version/CRS agreement and derived relationships. ZIPs are read

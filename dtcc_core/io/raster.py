@@ -167,6 +167,155 @@ def _save_image(raster, path):
     return True
 
 
+def valid_pixels(data, nodata):
+    """Mask of (height, width) pixels that hold data.
+
+    A pixel is invalid when it is NaN or equals a finite ``nodata``; a pixel
+    of a multi-band array is invalid when every band is. Integer data is
+    compared exactly, so only an integer-valued ``nodata`` within the dtype's
+    range matches any pixel.
+    """
+    invalid = np.isnan(data) if data.dtype.kind == "f" else np.zeros(data.shape, bool)
+    if data.dtype.kind in "iu":
+        if np.isfinite(nodata) and float(nodata).is_integer():
+            value = int(nodata)
+            info = np.iinfo(data.dtype)
+            if info.min <= value <= info.max:
+                invalid |= data == value
+    elif not np.isnan(nodata):
+        invalid |= data == nodata
+    return ~invalid.all(axis=-1) if data.ndim == 3 else ~invalid
+
+
+def _placement(crs, transform, width, height, nodata):
+    from rasterio.warp import transform_bounds
+
+    corners = [
+        transform @ c for c in ((0, 0), (width, 0), (0, height), (width, height))
+    ]
+    xs, ys = zip(*corners, strict=True)
+    bounds = [min(xs), min(ys), max(xs), max(ys)]
+    return {
+        "crs": crs,
+        "transform": [float(value) for value in list(transform)[:6]],
+        "width": int(width),
+        "height": int(height),
+        "bounds": [float(value) for value in bounds],
+        "bounds_wgs84": list(transform_bounds(crs, "EPSG:4326", *bounds)),
+        "nodata": "NaN" if np.isnan(nodata) else float(nodata),
+    }
+
+
+def write_placed_png(raster, path, *, band=None, value_range=None, colormap=None):
+    """Write a north-up EPSG:3857 RGBA PNG of ``raster`` and return its placement.
+
+    The grid comes from ``rasterio.warp.calculate_default_transform``. With
+    ``band=None`` the uint8 RGB(A) bands are written as they are; otherwise
+    that band is mapped through the named matplotlib ``colormap`` over
+    ``value_range``, with values at or below the low end in the low colour.
+    Integer data is resampled nearest and floating data bilinear; the
+    validity mask is resampled nearest and becomes alpha (existing alpha is
+    kept), and invalid or uncovered pixels are fully transparent black.
+    """
+    from inspect import signature
+
+    import matplotlib
+    from rasterio.control import GroundControlPoint
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
+
+    if "tolerance" not in signature(reproject).parameters:
+        raise RuntimeError(
+            "Exact PNG placement needs a rasterio whose reproject accepts tolerance"
+        )
+    width, height = raster.width, raster.height
+    corners = ((0, 0), (width, 0), (0, height), (width, height))
+    gcps = [
+        GroundControlPoint(row, col, *(raster.georef @ (col, row)), z=0.0)
+        for col, row in corners
+    ]
+    transform, dst_width, dst_height = calculate_default_transform(
+        raster.crs, "EPSG:3857", width, height, gcps=gcps
+    )
+
+    def warp(source, resampling, nodata=None):
+        fill = np.nan if source.dtype.kind == "f" else 0
+        destination = np.full((dst_height, dst_width), fill, dtype=source.dtype)
+        reproject(
+            source,
+            destination,
+            src_transform=raster.georef,
+            src_crs=raster.crs,
+            src_nodata=nodata,
+            dst_transform=transform,
+            dst_crs="EPSG:3857",
+            dst_nodata=nodata,
+            resampling=resampling,
+            # Exact transformation: the approximate default moves pixel picks.
+            tolerance=0,
+        )
+        return destination
+
+    rgb = band is None
+    data = raster.data if rgb or raster.data.ndim == 2 else raster.data[..., band]
+    valid = valid_pixels(data, raster.nodata)
+    mask = warp(valid.astype(np.uint8), Resampling.nearest) == 1
+    if rgb:
+        bands = [warp(data[..., i], Resampling.nearest) for i in range(data.shape[2])]
+        if len(bands) == 3:
+            bands.append(np.full_like(bands[0], 255))
+        rgba = np.stack(bands, axis=-1)
+    else:
+        source = np.where(valid, data, np.nan).astype(np.float64)
+        resampling = (
+            Resampling.nearest if data.dtype.kind in "iu" else Resampling.bilinear
+        )
+        values = warp(source, resampling, nodata=np.nan)
+        low, high = value_range
+        if high > low:
+            values = np.clip((values - low) / (high - low), 0.0, 1.0)
+        else:
+            values = np.zeros_like(values)
+        rgba = matplotlib.colormaps[colormap](values, bytes=True)
+    rgba[~mask] = 0
+    Image.fromarray(rgba).save(path, format="PNG")
+    return _placement("EPSG:3857", transform, dst_width, dst_height, raster.nodata)
+
+
+def write_georeferenced_tif(raster, path, *, unit=None, description=None):
+    """Write ``raster`` on its own grid as a GeoTIFF and return its placement.
+
+    The file carries the CRS, geotransform, every band and the nodata value
+    (NaN only for floating data); ``unit`` and ``description`` are set on every
+    band when given.
+    """
+    nodata = raster.nodata
+    profile = dict(
+        driver="GTiff",
+        height=raster.height,
+        width=raster.width,
+        count=raster.channels,
+        dtype=raster.data.dtype,
+        crs=raster.crs,
+        transform=raster.georef,
+        compress="DEFLATE",
+    )
+    if not np.isnan(nodata) or raster.data.dtype.kind == "f":
+        profile["nodata"] = nodata
+    if raster.channels > 1:
+        profile["alpha"] = "UNSPECIFIED"
+    with rasterio.open(path, "w", **profile) as dst:
+        if raster.channels == 1:
+            dst.write(raster.data.reshape(raster.height, raster.width), 1)
+        else:
+            _write_bands_in_windows(dst, raster.data)
+        for index in range(1, raster.channels + 1):
+            if unit is not None:
+                dst.set_band_unit(index, unit)
+            if description is not None:
+                dst.set_band_description(index, description)
+    return _placement(raster.crs, raster.georef, raster.width, raster.height, nodata)
+
+
 def _save_csv(raster, path):
     np.savetxt(path, raster.data, delimiter=",")
     return True
