@@ -1,5 +1,6 @@
 """Tests for the GeoJSON web writers of the collection types and City."""
 
+import copy
 from unittest.mock import patch
 
 import numpy as np
@@ -8,6 +9,7 @@ from shapely.geometry import LinearRing
 
 from dtcc_core.io.geojson import exported_coordinates
 from dtcc_core.model import (
+    Bounds,
     Building,
     BuildingCollection,
     BuildingPart,
@@ -222,8 +224,117 @@ def test_calibration_grid_reprojects_lines_and_keeps_metadata():
     )
     assert feature["properties"] == {"axis": "x"}
     assert payload["name"] == "calibration_grid"
-    assert payload["metadata"] == native["metadata"]
+    frame = {"crs", "bounds", "spacing"}
+    assert {k: v for k, v in payload["metadata"].items() if k not in frame} == {
+        k: v for k, v in native["metadata"].items() if k not in frame
+    }
     assert grid.features[0]["geometry"]["coordinates"][0] == [320000.0, 6399000.0]
+
+
+def _framed_grid(**kwargs):
+    grid = _grid()
+    grid.bounds = Bounds(320000.0, 6399000.0, 320100.0, 6399100.0)
+    grid.divisions = 2
+    for name, value in kwargs.items():
+        setattr(grid, name, value)
+    return grid
+
+
+def _positions(payload):
+    return [p for f in payload["features"] for p in f["geometry"]["coordinates"]]
+
+
+def test_calibration_grid_web_payload_names_its_own_frame():
+    grid = _framed_grid()
+    payload = grid.to_geojson(crs="EPSG:4326")
+    metadata = payload["metadata"]
+
+    assert metadata["crs"] == "EPSG:4326"
+    xmin, ymin, xmax, ymax = metadata["bounds"]
+    for lon, lat in _positions(payload):
+        assert xmin <= lon <= xmax and ymin <= lat <= ymax
+    assert 11 < xmin < xmax < 12 and 57 < ymin < ymax < 58
+    assert metadata["spacing"] == pytest.approx([(xmax - xmin) / 2, (ymax - ymin) / 2])
+    assert metadata["divisions"] == 2
+    assert metadata["line_count"] == 1
+
+
+def test_calibration_grid_web_payload_round_trips():
+    grid = _framed_grid()
+    payload = grid.to_geojson(crs="EPSG:4326")
+
+    reloaded = CalibrationGrid.from_geojson(payload)
+
+    assert reloaded.crs == "EPSG:4326"
+    assert reloaded.to_geojson(crs="EPSG:4326") == payload
+    assert reloaded.bounds.xmin <= min(p[0] for p in _positions(payload))
+    assert reloaded.bounds.xmax >= max(p[0] for p in _positions(payload))
+    assert reloaded.bounds.ymin <= min(p[1] for p in _positions(payload))
+    assert reloaded.bounds.ymax >= max(p[1] for p in _positions(payload))
+
+
+def test_calibration_grid_native_round_trip_is_unchanged():
+    grid = _framed_grid()
+
+    reloaded = CalibrationGrid.from_geojson(grid.to_geojson())
+
+    assert reloaded.crs == grid.crs
+    assert reloaded.bounds == grid.bounds
+    assert reloaded.divisions == grid.divisions
+    assert reloaded.features == grid.features
+    assert reloaded.to_geojson() == grid.to_geojson()
+
+
+@pytest.mark.parametrize("divisions", [0, 4])
+def test_calibration_grid_empty_web_payload_bounds_from_corners(divisions):
+    from pyproj import Transformer
+
+    grid = CalibrationGrid(
+        bounds=Bounds(320000.0, 6399000.0, 320100.0, 6399100.0),
+        divisions=divisions,
+        crs="EPSG:3006",
+    )
+    payload = grid.to_geojson(crs="EPSG:4326")
+
+    transformer = Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
+    lons, lats = transformer.transform(
+        [320000.0, 320100.0, 320100.0, 320000.0],
+        [6399000.0, 6399000.0, 6399100.0, 6399100.0],
+    )
+    metadata = payload["metadata"]
+    assert metadata["bounds"] == pytest.approx(
+        [min(lons), min(lats), max(lons), max(lats)], abs=1e-9
+    )
+    xmin, ymin, xmax, ymax = metadata["bounds"]
+    expected = [0.0, 0.0]
+    if divisions:
+        expected = [(xmax - xmin) / divisions, (ymax - ymin) / divisions]
+    assert metadata["spacing"] == pytest.approx(expected)
+    assert payload == grid.to_geojson(crs="EPSG:4326")
+    reloaded = CalibrationGrid.from_geojson(payload)
+    assert reloaded.crs == "EPSG:4326"
+    assert reloaded.to_geojson(crs="EPSG:4326") == payload
+
+
+def test_calibration_grid_web_export_leaves_the_grid_unchanged():
+    grid = _framed_grid(metadata_payload={"note": "kept", "bounds": [1, 2, 3, 4]})
+    before = copy.deepcopy(
+        (grid.features, grid.bounds, grid.crs, grid.metadata_payload)
+    )
+
+    grid.to_geojson(crs="EPSG:4326")
+
+    assert (grid.features, grid.bounds, grid.crs, grid.metadata_payload) == before
+
+
+def test_calibration_grid_web_payload_keeps_custom_metadata():
+    grid = _framed_grid(metadata_payload={"note": "kept", "dataset": "x"})
+
+    metadata = grid.to_geojson(crs="EPSG:4326")["metadata"]
+
+    assert metadata["note"] == "kept"
+    assert metadata["dataset"] == "x"
+    assert metadata["crs"] == "EPSG:4326"
 
 
 def test_calibration_grid_native_names_crs_and_keeps_coordinates():

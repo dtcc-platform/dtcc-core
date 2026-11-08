@@ -251,3 +251,10 @@ def test_calibration_grid_canonical_geojson_round_trip(tmp_path):
     assert [11.975957858852261, 57.684970513932505] in [
         pytest.approx(position, abs=1e-9) for position in positions
     ]
+
+    metadata = payload["metadata"]
+    assert metadata["crs"] == "EPSG:4326"
+    xmin, ymin, xmax, ymax = metadata["bounds"]
+    assert all(xmin <= x <= xmax and ymin <= y <= ymax for x, y in positions)
+    assert restored.crs == result.crs
+    assert restored.bounds == result.bounds

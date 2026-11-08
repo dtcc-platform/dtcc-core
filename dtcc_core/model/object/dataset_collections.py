@@ -624,8 +624,12 @@ class CalibrationGrid(Model):
         crs : str, optional
             None keeps the grid's own coordinates and names its ``crs`` in a
             ``crs`` member; ``"EPSG:4326"`` reprojects the LineString
-            coordinates to RFC 7946 longitude/latitude. ``metadata`` is
-            reported as stored.
+            coordinates to RFC 7946 longitude/latitude. Without ``crs``,
+            ``metadata`` is reported as stored. With ``crs``, ``metadata``
+            describes the reprojected payload: ``crs`` is the target,
+            ``bounds`` is the envelope of the reprojected native bounds
+            corners and line coordinates, and ``spacing`` follows from those
+            bounds and ``divisions``. Other stored members are kept.
 
         Returns
         -------
@@ -645,6 +649,9 @@ class CalibrationGrid(Model):
         features = list(self.features)
         if crs is not None:
             source_crs = resolve_source_crs(self, [])
+            b = self.bounds
+            corners = [(b.xmin, b.ymin), (b.xmax, b.ymin), (b.xmax, b.ymax)]
+            points = positions([*corners, (b.xmin, b.ymax)], source_crs, crs)
             for index, feature in enumerate(features):
                 geometry = feature.get("geometry") or {}
                 if geometry.get("type") != "LineString":
@@ -652,15 +659,25 @@ class CalibrationGrid(Model):
                         "Only LineString features can be reprojected; "
                         f"feature {index} is {geometry.get('type')!r}"
                     )
+                coordinates = positions(geometry["coordinates"], source_crs, crs)
+                points.extend(coordinates)
                 features[index] = {
                     **feature,
-                    "geometry": {
-                        **geometry,
-                        "coordinates": positions(
-                            geometry["coordinates"], source_crs, crs
-                        ),
-                    },
+                    "geometry": {**geometry, "coordinates": coordinates},
                 }
+            bounds = Bounds(
+                min(p[0] for p in points),
+                min(p[1] for p in points),
+                max(p[0] for p in points),
+                max(p[1] for p in points),
+            )
+            metadata.update(
+                crs=crs,
+                bounds=[bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax],
+                spacing=[bounds.width / self.divisions, bounds.height / self.divisions]
+                if self.divisions
+                else [0.0, 0.0],
+            )
         payload = feature_collection(
             features, source_crs=source_crs, crs=crs, metadata=metadata
         )
