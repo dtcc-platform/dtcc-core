@@ -9,7 +9,8 @@ standard schema **0.9.0**.
 This is the current inventory; the earlier phase-1 serialization tables are
 historical. It covers all 36 exported Model subclasses: 27 supported concrete
 roots, six root-only result wrappers, two explicitly unsupported result/container
-types and abstract Geometry.
+types and abstract Geometry, plus a seventh root-only result wrapper,
+RasterTileCollection, which is not exported.
 Model itself and module-visible Polygon are noted separately below.
 
 The wire authority is [dtcc.proto](../../dtcc_core/schemas/dtcc.proto), generated as
@@ -18,7 +19,7 @@ The wire authority is [dtcc.proto](../../dtcc_core/schemas/dtcc.proto), generate
 Earlier standard schemas are preserved in Git history, outside the checkout and
 runtime bundle. Default evaluation requires an
 available schema version; it does not migrate old property names. Every admitted
-concrete native type has an explicit 0.9.0 schema binding, except the six root-only
+concrete native type has an explicit 0.9.0 schema binding, except the seven root-only
 result wrappers: they have no schema binding and validate as a generic `Object` root
 with typed members.
 A binding to a generic class is not validation of every possible domain meaning.
@@ -87,6 +88,7 @@ derived caches.
 | Bounds | Six finite ordered bounds | Generic Entity; standalone bounds or explicit representation, not cached Object extent |
 | Transform | SRS and affine 4x4 matrix | Generic Entity; local/global transform composition remains a separate model concern |
 | FieldSlice | Root-only result wrapper (kind 17): transient `Object` with ID `collection`, one `PointCloud` representation `samples` that is the slice's own geometry (points, classification, intensity and return arrays, the slice transform and every attached Field), a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `slice_axis`, `slice_position`, `resolution`, `axes`, `name`, `time`, `period`, `crs`, `include_z` and `metadata` | No binding; root validates as a generic `Object` and is restored as FieldSlice, never a plain PointCloud. Synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
+| RasterTileCollection | Root-only result wrapper (kind 19), not exported from `dtcc_core.model`: transient `Object` with ID `collection` and one attribute `tiles`, a list of records `id`, `collection`, `datetime` (ISO 8601 string), `extent` (`xmin`, `ymin`, `xmax`, `ymax`, `zmin`, `zmax`), `crs`, `spektraltyp`, `resolution` or null, `size_bytes` or null and `artifact`. `artifact` is `artifacts/tiles/<collection>/<index>-<id>.tif`, with collection and id reduced to `[A-Za-z0-9_-]` and index the tile's position; local cache paths are never written | No binding; root validates as a generic `Object`. A reference must equal that form and pass the portable package-path check; restored tiles hold the reference as `path` and refuse `load()` without a package binding. Synthetic root slots must be default; no representations |
 | StreamlineCollection | Root-only result wrapper (kind 18): transient `Object` with ID `collection`, one synthetic `MultiLineString` representation `lines` whose LineString children keep their own transforms and per-vertex Fields, a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `seed_axis`, `seed_position`, `requested_line_count`, `streamline_steps`, `streamline_step_size`, `time`, `period`, `crs`, `include_z`, `axes`, `name` and `metadata` | No binding; root validates as a generic `Object`. The `lines` carrier must have an identity transform, no fields and no regions; synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
 | DatasetCollection | **Unsupported**: arbitrary items | No binding; define durable collection meaning first |
 | DatasetValue | **Unsupported**: arbitrary Python value | No binding; do not invent a universal Python-object serializer |

@@ -41,6 +41,7 @@ message Object {
     CALIBRATION_GRID = 16;
     FIELD_SLICE = 17;
     STREAMLINE_COLLECTION = 18;
+    RASTER_TILE_COLLECTION = 19;
   }
   Kind kind = 1;
   string id = 2;

@@ -7,7 +7,9 @@ domain profiles are separate. This module performs no file I/O.
 
 import math
 import re
+from datetime import datetime
 from numbers import Integral, Real
+from pathlib import Path
 
 import numpy as np
 from affine import Affine
@@ -55,6 +57,7 @@ from .object import (
 from .object.landuse import LanduseClasses
 from .object.object import _validate_attributes
 from .values import Field, Raster
+from .values.raster_tiles import RasterTile, RasterTileCollection
 
 FORMAT = "dtcc-model"
 VERSION = 6
@@ -87,6 +90,7 @@ COLLECTION_KINDS = {
     CalibrationGrid: wire.Object.CALIBRATION_GRID,
     FieldSlice: wire.Object.FIELD_SLICE,
     StreamlineCollection: wire.Object.STREAMLINE_COLLECTION,
+    RasterTileCollection: wire.Object.RASTER_TILE_COLLECTION,
 }
 GEOMETRIES = (
     Mesh,
@@ -807,6 +811,105 @@ def _streamline_collection(obj):
     )
 
 
+TILE_RECORD = (
+    "id",
+    "collection",
+    "datetime",
+    "extent",
+    "crs",
+    "spektraltyp",
+    "resolution",
+    "size_bytes",
+    "artifact",
+)
+_TILE_NAME_DROP = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _tile_reference(index, collection, id):
+    """Return the package-relative reference of the tile at index in the list."""
+    return (
+        f"artifacts/tiles/{_TILE_NAME_DROP.sub('', collection)}/"
+        f"{index}-{_TILE_NAME_DROP.sub('', id)}.tif"
+    )
+
+
+def _raster_tile_collection(obj):
+    """Check a RASTER_TILE_COLLECTION transient root and return its collection.
+
+    Restored tiles carry their reference as path and are marked unbound.
+    """
+    from ..datasets.publish import DatasetPackageError, _validate_package_path
+
+    _collection_shape(obj, RasterTileCollection, None, {}, ("tiles",))
+    records = obj.attributes["tiles"]
+    if not isinstance(records, list) or any(
+        not isinstance(record, dict) or record.keys() != set(TILE_RECORD)
+        for record in records
+    ):
+        raise ValueError(
+            "RasterTileCollection.tiles must be a list of records with exactly "
+            f"the keys {sorted(TILE_RECORD)}"
+        )
+    tiles = []
+    for index, record in enumerate(records):
+        extent = record["extent"]
+        if (
+            any(
+                not isinstance(record[key], str)
+                for key in ("id", "collection", "datetime", "crs", "spektraltyp")
+            )
+            or not isinstance(record["artifact"], str)
+            or not isinstance(extent, list)
+            or len(extent) != 6
+            or not all(_real(value) for value in extent)
+            or not (record["resolution"] is None or _real(record["resolution"]))
+            or not (record["size_bytes"] is None or type(record["size_bytes"]) is int)
+        ):
+            raise ValueError(
+                "RasterTileCollection tile records require str id, collection, "
+                "datetime, crs, spektraltyp and artifact, six numeric extent "
+                "values, numeric or None resolution and int or None size_bytes"
+            )
+        try:
+            moment = datetime.fromisoformat(record["datetime"])
+        except ValueError:
+            moment = None
+        if moment is None or moment.isoformat() != record["datetime"]:
+            raise ValueError(
+                "RasterTileCollection tile datetime must be a canonical ISO 8601 "
+                f"string, not {record['datetime']!r}"
+            )
+        reference = record["artifact"]
+        try:
+            _validate_package_path(reference)
+        except DatasetPackageError as exc:
+            raise ValueError(
+                f"RasterTileCollection tile reference {reference!r} is not a "
+                "portable package path"
+            ) from exc
+        expected = _tile_reference(index, record["collection"], record["id"])
+        if reference != expected:
+            raise ValueError(
+                f"RasterTileCollection tile reference {reference!r} must be "
+                f"{expected!r}"
+            )
+        tiles.append(
+            RasterTile(
+                path=Path(reference),
+                id=record["id"],
+                collection=record["collection"],
+                datetime=moment,
+                extent=Bounds(*extent),
+                crs=record["crs"],
+                spektraltyp=record["spektraltyp"],
+                resolution=record["resolution"],
+                size_bytes=record["size_bytes"],
+                _unbound=True,
+            )
+        )
+    return RasterTileCollection(tiles=tiles)
+
+
 COLLECTION_SHAPES = {
     wire.Object.TREE_COLLECTION: _tree_collection,
     wire.Object.BUILDING_COLLECTION: _building_collection,
@@ -814,6 +917,7 @@ COLLECTION_SHAPES = {
     wire.Object.CALIBRATION_GRID: _calibration_grid,
     wire.Object.FIELD_SLICE: _field_slice,
     wire.Object.STREAMLINE_COLLECTION: _streamline_collection,
+    wire.Object.RASTER_TILE_COLLECTION: _raster_tile_collection,
 }
 
 
@@ -875,6 +979,30 @@ def _transient(model):
         }
         if model.domain_bounds is not None:
             obj.geometry["domain"] = GeometryRepresentation(model.domain_bounds)
+    elif type(model) is RasterTileCollection:
+        obj.attributes = {
+            "tiles": [
+                {
+                    "id": tile.id,
+                    "collection": tile.collection,
+                    "datetime": tile.datetime.isoformat(),
+                    "extent": [
+                        tile.extent.xmin,
+                        tile.extent.ymin,
+                        tile.extent.xmax,
+                        tile.extent.ymax,
+                        tile.extent.zmin,
+                        tile.extent.zmax,
+                    ],
+                    "crs": tile.crs,
+                    "spektraltyp": tile.spektraltyp,
+                    "resolution": tile.resolution,
+                    "size_bytes": tile.size_bytes,
+                    "artifact": _tile_reference(index, tile.collection, tile.id),
+                }
+                for index, tile in enumerate(model.tiles)
+            ]
+        }
     else:
         obj.attributes = {
             "divisions": model.divisions,

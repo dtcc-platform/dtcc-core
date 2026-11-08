@@ -192,9 +192,9 @@ python -m grpc_tools.protoc -I dtcc_core/schemas --python_out=dtcc_core/model dt
 The generated file is checked by hash: hash the committed `dtcc_pb2.py`, regenerate it
 with the pinned compiler and require the hash to be unchanged.
 
-`Object.Kind` carries six root-only result-wrapper kinds: `TREE_COLLECTION` (13),
+`Object.Kind` carries seven root-only result-wrapper kinds: `TREE_COLLECTION` (13),
 `BUILDING_COLLECTION` (14), `FOOTPRINT_COLLECTION` (15), `CALIBRATION_GRID` (16),
-`FIELD_SLICE` (17) and `STREAMLINE_COLLECTION` (18).
+`FIELD_SLICE` (17), `STREAMLINE_COLLECTION` (18) and `RASTER_TILE_COLLECTION` (19).
 This kind extension is a recorded compatibility decision: wire version stays **6** and
 schema 0.9.0 is unchanged. The kinds are rejected anywhere below the root. A kind
 retired later is marked `reserved` in `dtcc.proto` rather than reused.

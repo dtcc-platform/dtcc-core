@@ -708,7 +708,13 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: str, target: Path) -> 
 def _export_canonical_package(obj, path, supplemental_format, validate_schema, options):
     """Stage the existing package writer and publish the local snapshot atomically."""
     from ..model import exchange
+    from ..model.values.raster_tiles import RasterTileCollection
 
+    if isinstance(obj, RasterTileCollection):
+        raise NotImplementedError(
+            "Canonical package export of a RasterTileCollection is not supported "
+            "yet: its tile files are not written as package artifacts"
+        )
     if supplemental_format == "tiff":
         supplemental_format = "tif"
     if supplemental_format not in (None, "png", "tif") and (

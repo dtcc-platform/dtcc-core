@@ -37,7 +37,7 @@ from dtcc_core.io import raster_tiles
 from dtcc_core.io.data import cache as data_cache
 from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
-from dtcc_core.model import Bounds, Raster, exchange
+from dtcc_core.model import Bounds, Raster
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
 from tests.datasets.test_dataset_publish import RecordingUploader
 
@@ -1320,7 +1320,7 @@ def test_tile_export_is_refused_before_any_request(no_http, tmp_path):
 
 
 NO_SAVER = "Cannot save object: RasterTileCollection. No IO save method"
-NOT_CANONICAL = "Canonical object RasterTileCollection is unsupported"
+NOT_CANONICAL = "Canonical package export of a RasterTileCollection is not supported"
 
 # Each path's own refusal: the exception class and a pattern of its message.
 TILE_EXPORTS = {
@@ -1341,11 +1341,6 @@ TILE_EXPORTS = {
     ),
     "canonical package": (
         lambda tiles, out: export_model_package(tiles, out / "pkg", canonical=True),
-        NotImplementedError,
-        NOT_CANONICAL,
-    ),
-    "canonical encoding": (
-        lambda tiles, out: exchange.dumps(tiles),
         NotImplementedError,
         NOT_CANONICAL,
     ),

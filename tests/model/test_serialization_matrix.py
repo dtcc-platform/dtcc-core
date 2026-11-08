@@ -6,6 +6,8 @@ Every exported Model subclass must be classified here when the public API grows.
 
 import inspect
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,6 +15,7 @@ from google.protobuf.json_format import Parse
 
 from dtcc_core import model
 from dtcc_core.model.model import Model
+from dtcc_core.model.values import raster_tiles
 
 OBJECTS = (
     "Object",
@@ -48,9 +51,12 @@ ROOT_WRAPPERS = (
     "CalibrationGrid",
     "FieldSlice",
     "FootprintCollection",
+    "RasterTileCollection",
     "StreamlineCollection",
     "TreeCollection",
 )
+# Root wrappers that dtcc_core.model does not export; built from their own module.
+UNEXPORTED_WRAPPERS = ("RasterTileCollection",)
 UNSUPPORTED = (
     "DatasetCollection",
     "DatasetValue",
@@ -65,7 +71,9 @@ def test_every_public_model_has_a_serialization_classification():
         if inspect.isclass(getattr(model, name))
         and issubclass(getattr(model, name), Model)
     }
-    assert public_models == set(SUPPORTED + ROOT_WRAPPERS + UNSUPPORTED + ("Geometry",))
+    assert public_models == set(
+        SUPPORTED + ROOT_WRAPPERS + UNSUPPORTED + ("Geometry",)
+    ) - set(UNEXPORTED_WRAPPERS)
     assert inspect.isabstract(model.Geometry)
 
 
@@ -137,6 +145,19 @@ def _populated_wrapper(name):
         return model.StreamlineCollection(
             lines=[line], requested_line_count=1, streamline_steps=2
         )
+    if name == "RasterTileCollection":
+        tile = raster_tiles.RasterTile(
+            path=Path("cache/tile.tif"),
+            id="tile",
+            collection="orto",
+            datetime=datetime(2025, 5, 31, tzinfo=UTC),
+            extent=model.Bounds(xmin=0, ymin=0, xmax=4, ymax=4),
+            crs="EPSG:3006",
+            spektraltyp="rgb",
+            resolution=0.5,
+            size_bytes=None,
+        )
+        return raster_tiles.RasterTileCollection(tiles=[tile, tile])
     return model.CalibrationGrid(
         bounds=model.Bounds(xmin=0, ymin=0, xmax=4, ymax=4),
         divisions=2,
