@@ -184,6 +184,9 @@ convert from the `crs` argument, the frame of the request bounds, so
 WGS84 by default. `smoke` with `product="field"` GeoJSON keeps native
 coordinates and names the declared `crs`.
 
+Per-product canonical and web export support is listed in
+[the export coverage guide](../../docs/datasets/export-coverage.md).
+
 Smoke Dataset
 -------------
 
