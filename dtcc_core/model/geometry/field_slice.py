@@ -149,6 +149,137 @@ class FieldSlice(PointCloud):
         payload["name"] = self.name
         return payload
 
+    def to_raster(self, field: str | None = None):
+        """Return a horizontal slice as a north-up Raster and its rendering.
+
+        The samples and ``domain_bounds`` share the stored local grid. The
+        extent is ``domain_bounds`` and the grid has ``resolution`` samples per
+        axis, endpoint-inclusive, so the spacing is the extent divided by
+        ``resolution - 1``. Each pixel is centred on a grid point, which puts
+        the georeference origin half a cell outside the extent; row 0 is the
+        maximum y. A sample is placed in the cell whose centre lies within
+        1e-6 of its coordinates, and cells without a sample are NaN. Only the
+        stored samples are used.
+
+        The slice's root transform is composed into the georeference when it is
+        a pure translation (z is ignored). The samples themselves are never
+        transformed. The raster CRS is the slice's CRS resolved as ``to_geojson``
+        resolves it.
+
+        Parameters
+        ----------
+        field : str, optional
+            Name of a Field with one row per sample, ``"speed"`` by default.
+            ``"name:component"`` selects a component of a vector Field, for
+            example ``"velocity:u"``.
+
+        Returns
+        -------
+        tuple
+            The Raster and a rendering dict with ``field`` and the Field's
+            ``unit``.
+
+        Raises
+        ------
+        ValueError
+            If ``field`` is not a string, ``slice_axis`` is not ``"z"``, the
+            root transform is not a translation, the CRS declarations conflict
+            or are absent, ``resolution`` is below 2, ``domain_bounds`` is
+            missing or flat, there are no samples, a sample is off the grid or
+            repeated, or the Field or component is missing.
+        """
+        from affine import Affine
+
+        from ...io.geojson import resolve_source_crs
+        from ..values import Raster
+
+        field = "speed" if field is None else field
+        if not isinstance(field, str):
+            raise ValueError(
+                f"FieldSlice.to_raster: field must be a string, got "
+                f"{type(field).__name__}."
+            )
+        if self.slice_axis != "z":
+            raise ValueError(
+                f"FieldSlice.to_raster supports only slice_axis='z', not "
+                f"{self.slice_axis!r}; export the slice as GeoJSON through to_geojson."
+            )
+        affine = self.transform.affine
+        if not np.array_equal(affine[:3, :3], np.eye(3)):
+            raise ValueError(
+                "FieldSlice.to_raster supports only a translation as root "
+                "transform; export a rotated, scaled or sheared slice as GeoJSON "
+                "through to_geojson."
+            )
+        crs = resolve_source_crs(self, [])
+        resolution = self.resolution
+        if resolution < 2:
+            raise ValueError(
+                f"FieldSlice.to_raster: resolution must be at least 2, got "
+                f"{resolution}."
+            )
+        domain = self.domain_bounds
+        if domain is None:
+            raise ValueError("FieldSlice.to_raster requires domain_bounds.")
+        origin = np.array([domain.xmin, domain.ymin], dtype=float)
+        extent = np.array([domain.width, domain.height], dtype=float)
+        if not (extent > 0).all():
+            raise ValueError("FieldSlice.to_raster: domain_bounds has no x/y extent.")
+        points = np.asarray(self.points, dtype=float).reshape(-1, 3)
+        if len(points) == 0:
+            raise ValueError("FieldSlice.to_raster: the slice has no samples.")
+        item, values = self._component_values(field, len(points))
+
+        spacing = extent / (resolution - 1)
+        index = np.rint((points[:, :2] - origin) / spacing)
+        on_grid = np.abs(points[:, :2] - (origin + index * spacing)) <= 1e-6
+        if not (on_grid.all() and ((index >= 0) & (index < resolution)).all()):
+            raise ValueError(
+                "FieldSlice.to_raster: a sample is not on the grid of "
+                "domain_bounds and resolution."
+            )
+        col, row = index[:, 0].astype(int), resolution - 1 - index[:, 1].astype(int)
+        if len(np.unique(row * resolution + col)) != len(points):
+            raise ValueError("FieldSlice.to_raster: duplicate samples in one cell.")
+
+        data = np.full((resolution, resolution), np.nan)
+        data[row, col] = values
+        georef = Affine.translation(affine[0, 3], affine[1, 3]) @ Affine(
+            spacing[0],
+            0.0,
+            domain.xmin - spacing[0] / 2,
+            0.0,
+            -spacing[1],
+            domain.ymax + spacing[1] / 2,
+        )
+        return Raster(data=data, georef=georef, crs=crs), {
+            "field": field,
+            "unit": item.unit,
+        }
+
+    def _component_values(self, name: str, count: int) -> tuple[Field, np.ndarray]:
+        name, separator, component = name.partition(":")
+        item = self.field(name)
+        if item is None:
+            raise ValueError(f"FieldSlice has no field named {name!r}.")
+        if item.association == "geometry":
+            raise ValueError(
+                f"Field '{name}' holds one value for the slice, not one value per "
+                "sample."
+            )
+        rows = _field_rows(item, count, "point")
+        labels = _field_labels(item).get(f"{name}_components", [])
+        if not separator:
+            if item.dim > 1:
+                raise ValueError(
+                    f"Field '{name}' is a vector Field and needs a component, "
+                    f"for example '{name}:{labels[0]}'."
+                )
+            return item, rows[:, 0]
+        if component not in labels:
+            raise ValueError(f"Field '{name}' has no component {component!r}.")
+        return item, rows[:, labels.index(component)]
+
     def to_python(self) -> dict[str, Any]:
         """Return a transition-friendly Python representation."""
         return self.to_geojson()
