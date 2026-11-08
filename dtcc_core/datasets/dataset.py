@@ -1100,4 +1100,10 @@ class DatasetDescriptor(ABC):
             return Path(tmpfile).read_bytes()
 
 
+def geojson_bytes(model, **options) -> bytes:
+    """Serialize ``model.to_geojson(crs="EPSG:4326", **options)`` as compact JSON."""
+    payload = model.to_geojson(crs="EPSG:4326", **options)
+    return json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
 Dataset = DatasetDescriptor

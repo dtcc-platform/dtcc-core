@@ -36,7 +36,7 @@ from dtcc_core.plotting.style import (
     show_plot,
 )
 
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetBaseArgs, DatasetDescriptor, geojson_bytes
 from .presentation import (
     PREVIEW_COLOR_RAMP_AXES_BOUNDS,
     PREVIEW_STORY_AXES_BOUNDS,
@@ -98,8 +98,10 @@ class SmokeArgs(DatasetBaseArgs):
     crs: str | None = PydanticField(
         "EPSG:3006",
         description=(
-            "Coordinate reference system declared in GeoJSON outputs for GIS "
-            "readers. Set to None to omit the legacy GeoJSON CRS member."
+            "Coordinate reference system of the request bounds, declared as the "
+            "CRS of the slice and streamline products and of product='field' "
+            "GeoJSON. Slice and streamline GeoJSON is converted from this CRS to "
+            "EPSG:4326, so it requires a value."
         ),
     )
     include_z: bool = PydanticField(
@@ -272,6 +274,16 @@ class SmokeArgs(DatasetBaseArgs):
             raise ValueError("product='field' requires resolution <= 64")
         if self.format == "mp4" and self.transparent:
             raise ValueError("format='mp4' does not support transparent backgrounds")
+        if (
+            self.product in ("slice", "streamlines")
+            and self.format == "geojson"
+            and self.crs is None
+        ):
+            raise ValueError(
+                f"product={self.product!r} with format='geojson' requires a crs: "
+                "the product is converted to EPSG:4326 from the declared CRS of "
+                "the request bounds"
+            )
         return self
 
 
@@ -470,9 +482,7 @@ class SmokeDataset(DatasetDescriptor):
                     _product_factory(bounds, args),
                     _video_options(args),
                 )
-            return _json_bytes(
-                field_slice.to_geojson(include_z=args.include_z, crs=args.crs)
-            )
+            return geojson_bytes(field_slice, include_z=args.include_z)
 
         if args.product == "streamlines":
             if args.format not in (None, "geojson", "png", "mp4"):
@@ -493,9 +503,7 @@ class SmokeDataset(DatasetDescriptor):
                     _product_factory(bounds, args),
                     _video_options(args),
                 )
-            return _json_bytes(
-                streamlines.to_geojson(include_z=args.include_z, crs=args.crs)
-            )
+            return geojson_bytes(streamlines, include_z=args.include_z)
 
         raise ValueError(f"Unsupported smoke product: {args.product}")
 

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from dtcc_core.model import Bounds, CalibrationGrid
 
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetBaseArgs, DatasetDescriptor, geojson_bytes
 
 
 class CalibrationGridArgs(DatasetBaseArgs):
@@ -30,17 +29,27 @@ class CalibrationGridArgs(DatasetBaseArgs):
     crs: str | None = Field(
         "EPSG:3006",
         description=(
-            "Coordinate reference system declared in GeoJSON outputs for GIS "
-            "readers. Set to None to omit the legacy GeoJSON CRS member."
+            "Coordinate reference system of the request bounds, declared as the "
+            "grid's CRS. format='geojson' converts the grid from this CRS to "
+            "EPSG:4326, so it requires a value."
         ),
     )
     format: Literal["geojson"] | None = Field(
         None,
         description=(
             "Serialized output format. If omitted, the dataset returns a "
-            "CalibrationGrid model."
+            "CalibrationGrid model; 'geojson' returns WGS84 GeoJSON bytes."
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_geojson_crs(self):
+        if self.format == "geojson" and self.crs is None:
+            raise ValueError(
+                "format='geojson' requires a crs: the grid is converted to "
+                "EPSG:4326 from the declared CRS of the request bounds"
+            )
+        return self
 
 
 class CalibrationGridDataset(DatasetDescriptor):
@@ -159,7 +168,7 @@ class CalibrationGridDataset(DatasetDescriptor):
         geojson = _grid_geojson(bounds, args)
         if args.format is None:
             return geojson
-        return json.dumps(geojson, separators=(",", ":")).encode("utf-8")
+        return geojson_bytes(CalibrationGrid.from_geojson(geojson))
 
     def prepare_result(self, result, validated_args: CalibrationGridArgs):
         if validated_args.format is None and isinstance(result, dict):

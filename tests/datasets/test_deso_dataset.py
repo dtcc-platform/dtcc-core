@@ -193,36 +193,80 @@ def test_deso_dataset_accepts_employment_statistics(monkeypatch):
     assert deso.attributes["statistics"] == ["employment"]
 
 
+@pytest.mark.usefixtures("no_network")
+@pytest.mark.parametrize("statistics", [None, ["population"]])
+def test_deso_dataset_geojson_format_is_the_wgs84_model_conversion(
+    monkeypatch, statistics
+):
+    deso = _two_area_deso()
+    calls = []
+
+    def fake_download_deso(bounds, **kwargs):
+        calls.append(kwargs["statistics"])
+        return deso
+
+    monkeypatch.setattr("dtcc_core.io.data.download_deso", fake_download_deso)
+    request = {"bounds": (319900.0, 6398900.0, 320400.0, 6399200.0)}
+    if statistics:
+        request["statistics"] = statistics
+
+    payload = datasets.deso(**request, format="geojson")
+    model = datasets.deso(**request)
+
+    assert isinstance(payload, bytes)
+    assert calls == [statistics, statistics]
+    assert json.loads(payload) == model.to_geojson(crs="EPSG:4326")
+    data = json.loads(payload)
+    assert "crs" not in data
+    first, second = data["features"]
+    assert first["geometry"]["coordinates"][0][0] == pytest.approx(
+        [11.979646369152894, 57.697102381277034], abs=1e-9
+    )
+    assert first["properties"]["desokod"] == "1480A0001"
+    assert first["properties"]["population"] == 1200.0
+    assert first["properties"]["population_unit"] == "persons"
+    assert second["properties"]["population"] is None
+
+
 @pytest.mark.skipif(gpd is None, reason="GeoPandas is required")
-def test_deso_dataset_geojson_format(monkeypatch):
+def test_deso_dataset_gpkg_format(monkeypatch, tmp_path):
     gdf = gpd.GeoDataFrame(
         {"desokod": ["1480C1970"]},
-        geometry=[
-            Polygon(
-                [
-                    (0.0, 0.0),
-                    (1.0, 0.0),
-                    (1.0, 1.0),
-                    (0.0, 1.0),
-                    (0.0, 0.0),
-                ]
-            )
-        ],
+        geometry=[Polygon([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])],
         crs="EPSG:3006",
     )
-
     monkeypatch.setattr(
         "dtcc_core.io.data.deso.download_deso_geodataframe",
         lambda bounds, year=2025, source="SCB": gdf,
     )
 
-    payload = datasets.deso(
-        bounds=(0.0, 0.0, 2.0, 1.0),
-        format="geojson",
+    payload = datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0), format="gpkg")
+
+    path = tmp_path / "deso.gpkg"
+    path.write_bytes(payload)
+    restored = gpd.read_file(path)
+    assert list(restored["desokod"]) == ["1480C1970"]
+    assert restored.crs == "EPSG:3006"
+
+
+@pytest.mark.skipif(gpd is None, reason="GeoPandas is required")
+def test_deso_dataset_gpkg_format_with_statistics(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_deso", lambda bounds, **kwargs: _two_area_deso()
     )
 
-    assert isinstance(payload, bytes)
-    assert b"1480C1970" in payload
+    payload = datasets.deso(
+        bounds=(319900.0, 6398900.0, 320400.0, 6399200.0),
+        statistics=["population"],
+        format="gpkg",
+    )
+
+    path = tmp_path / "deso.gpkg"
+    path.write_bytes(payload)
+    restored = gpd.read_file(path)
+    assert sorted(restored["desokod"]) == ["1480A0001", "1480A0002"]
+    assert "population" in restored.columns
+    assert restored.crs == "EPSG:3006"
 
 
 def test_deso_dataset_rejects_unsupported_year():
@@ -235,8 +279,7 @@ def test_deso_dataset_rejects_unsupported_statistics():
         datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0), statistics=["unicorns"])
 
 
-@pytest.mark.usefixtures("no_network")
-def test_deso_canonical_geojson_round_trip(monkeypatch, tmp_path):
+def _two_area_deso():
     deso = DeSO()
     deso.transform.srs = "EPSG:3006"
     for code, offset in (("1480A0001", 0.0), ("1480A0002", 200.0)):
@@ -263,6 +306,12 @@ def test_deso_canonical_geojson_round_trip(monkeypatch, tmp_path):
             association="sample",
         )
     )
+    return deso
+
+
+@pytest.mark.usefixtures("no_network")
+def test_deso_canonical_geojson_round_trip(monkeypatch, tmp_path):
+    deso = _two_area_deso()
     calls = []
 
     def fake_download_deso(bounds, **kwargs):

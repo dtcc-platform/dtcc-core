@@ -7,7 +7,7 @@ from pydantic import Field
 import dtcc_core
 from dtcc_core.model import DeSO
 
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetBaseArgs, DatasetDescriptor, geojson_bytes
 from .providers import provider_entry
 
 
@@ -31,7 +31,10 @@ class DeSOArgs(DatasetBaseArgs):
     )
     format: Literal["pb", "geojson", "gpkg"] | None = Field(
         None,
-        description="Output format (pb for protobuf bytes, geojson/gpkg for vector bytes)",
+        description=(
+            "Output format (pb for protobuf bytes, geojson for WGS84 GeoJSON bytes, "
+            "gpkg for GeoPackage bytes)"
+        ),
     )
 
 
@@ -179,7 +182,7 @@ class DeSODataset(DatasetDescriptor):
 
     def build(self, args: DeSOArgs):
         bounds = self.parse_bounds(args.bounds)
-        if args.format in ("geojson", "gpkg"):
+        if args.format == "gpkg":
             if args.statistics:
                 deso = dtcc_core.io.data.download_deso(
                     bounds=bounds,
@@ -206,15 +209,14 @@ class DeSODataset(DatasetDescriptor):
         )
         if args.format == "pb":
             return deso.to_proto().SerializeToString()
+        if args.format == "geojson":
+            return geojson_bytes(deso)
         return deso
 
     @staticmethod
     def _export_gdf_to_bytes(gdf, format: str) -> bytes:
         with tempfile.TemporaryDirectory() as tmpdir:
-            if format == "geojson":
-                path = Path(tmpdir) / "deso.geojson"
-                gdf.to_file(path, driver="GeoJSON")
-            elif format == "gpkg":
+            if format == "gpkg":
                 path = Path(tmpdir) / "deso.gpkg"
                 gdf.to_file(path, layer="deso", driver="GPKG")
             else:

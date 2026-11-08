@@ -168,6 +168,16 @@ Current Built-In Datasets
 | `ocean` | raw | `SensorCollection` | `pb` | SMHI OcObs latest-hour station/platform observations with units, period timestamps, quality codes, and parameter metadata. |
 | `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, household, car, and employment statistics. |
 
+Dataset-level `format="geojson"` for `deso`, `calibration_grid`, and
+`smoke` with `product="slice"` or `product="streamlines"` is the model's
+`to_geojson(crs="EPSG:4326")` conversion: WGS84 longitude/latitude with no
+`crs` member. `calibration_grid` and the smoke slice and streamline products
+convert from the `crs` argument, the frame of the request bounds, so
+`format="geojson"` requires a `crs` value for them. `trees` and
+`building_footprints` GeoJSON comes from the io writers, which also write
+WGS84 by default. `smoke` with `product="field"` GeoJSON keeps native
+coordinates and names the declared `crs`.
+
 Smoke Dataset
 -------------
 
@@ -221,9 +231,11 @@ MP4 remains available through the dataset-level serialized path:
         format="mp4",
     )
 
-The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
-Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
-coordinates for viewers that do not handle GeoJSON Z coordinates.
+`crs` (default `EPSG:3006`) is the frame of the request bounds and the CRS the
+slice and streamline products declare. Their GeoJSON is converted from it to
+`EPSG:4326`; `product="field"` GeoJSON keeps native coordinates and names it.
+`include_z=False` writes 2D coordinates for viewers that do not handle GeoJSON
+Z coordinates.
 
 Object-First Packages
 ---------------------

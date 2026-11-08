@@ -113,12 +113,21 @@ def test_grid_line_geometry_spans_the_opposite_axis():
             assert [point[0] for point in coordinates] == [319720.0, 320220.0]
 
 
-def test_geojson_format_returns_bytes_matching_dict():
-    """format='geojson' should serialize the same FeatureCollection to bytes."""
+@pytest.mark.usefixtures("no_network")
+def test_geojson_format_is_the_wgs84_model_conversion():
+    """format='geojson' serializes the model's EPSG:4326 conversion."""
     payload = datasets.calibration_grid(bounds=BOUNDS, format="geojson")
 
     assert isinstance(payload, bytes)
-    assert json.loads(payload) == datasets.calibration_grid(bounds=BOUNDS).to_geojson()
+    expected = datasets.calibration_grid(bounds=BOUNDS).to_geojson(crs="EPSG:4326")
+    data = json.loads(payload)
+    assert data == expected
+    assert "crs" not in data
+    assert data["metadata"]["crs"] == "EPSG:4326"
+    assert len(data["features"]) == 82
+    for feature in data["features"]:
+        for lon, lat in feature["geometry"]["coordinates"]:
+            assert -180 <= lon <= 180 and -90 <= lat <= 90
 
 
 def test_metadata_describes_the_grid():
@@ -159,10 +168,16 @@ def test_dataset_context_marks_calibration_grid_table_ready_synthetic_fixture():
 
 
 def test_crs_none_omits_crs_member():
-    """crs=None should omit the legacy GeoJSON crs member, mirroring smoke."""
+    """crs=None should omit the legacy GeoJSON crs member."""
     result = datasets.calibration_grid(bounds=BOUNDS, crs=None)
     assert "crs" not in result
     assert "crs" not in result["metadata"]
+
+
+def test_crs_none_is_rejected_for_geojson_format():
+    """The WGS84 conversion needs the declared CRS of the request bounds."""
+    with pytest.raises(ValidationError, match="format='geojson' requires a crs"):
+        datasets.calibration_grid(bounds=BOUNDS, crs=None, format="geojson")
 
 
 def test_export_writes_payload_and_manifest(tmp_path):

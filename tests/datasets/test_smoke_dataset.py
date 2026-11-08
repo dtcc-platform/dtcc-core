@@ -10,6 +10,7 @@ from io import BytesIO
 import numpy as np
 import pytest
 from PIL import Image
+from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset, load_model_package
@@ -218,22 +219,94 @@ def test_smoke_slice_snapshots_are_time_dependent():
     assert not np.isclose(first_speed, second_speed)
 
 
-def test_smoke_geojson_names_the_declared_crs_and_can_omit_z():
+def _positions(data):
+    for feature in data["features"]:
+        coordinates = feature["geometry"]["coordinates"]
+        yield from (
+            [coordinates] if feature["geometry"]["type"] == "Point" else coordinates
+        )
+
+
+@pytest.mark.usefixtures("no_network")
+@pytest.mark.parametrize("product", ["slice", "streamlines"])
+def test_smoke_geojson_is_the_wgs84_model_conversion_and_can_omit_z(product):
     arguments = {
-        "bounds": (0.0, 0.0, 10.0, 20.0),
+        "bounds": (319720.0, 6397660.0, 320220.0, 6398160.0),
         "resolution": 4,
-        "product": "slice",
-        "include_z": False,
-        "format": "geojson",
+        "product": product,
     }
 
-    data = json.loads(datasets.smoke(**arguments).decode("utf-8"))
+    data = json.loads(datasets.smoke(**arguments, format="geojson"))
+    expected = datasets.smoke(**arguments).to_geojson(crs="EPSG:4326")
+    assert data == expected
+    assert "crs" not in data
+    assert data["metadata"]["crs"] == "EPSG:4326"
+    # Oracle: the pyproj EPSG:3006 -> EPSG:4326 images of the four bounds
+    # corners span longitude 11.97558..11.98433 and latitude 57.68497..57.68966.
+    for longitude, latitude, _ in _positions(data):
+        assert 11.9755 <= longitude <= 11.9844
+        assert 57.6849 <= latitude <= 57.6897
+    if product == "slice":
+        longitude, latitude, _ = data["features"][0]["geometry"]["coordinates"]
+        assert (longitude, latitude) == pytest.approx((11.9759, 57.6849), abs=1e-3)
+
+    flat = json.loads(datasets.smoke(**arguments, include_z=False, format="geojson"))
+    assert flat == datasets.smoke(**arguments).to_geojson(
+        crs="EPSG:4326", include_z=False
+    )
+    assert {len(position) for position in _positions(flat)} == {2}
+
+
+@pytest.mark.usefixtures("no_network")
+@pytest.mark.parametrize("product", ["slice", "streamlines"])
+def test_smoke_geojson_passes_wgs84_bounds_through(product):
+    arguments = {
+        "bounds": (11.97, 57.68, 11.98, 57.69),
+        "crs": "EPSG:4326",
+        "resolution": 4,
+        "product": product,
+        "zmin": 0.0,
+        "zmax": 100.0,
+    }
+
+    data = json.loads(datasets.smoke(**arguments, format="geojson"))
+
+    assert data == datasets.smoke(**arguments).to_geojson(crs="EPSG:4326")
+    assert data["metadata"]["crs"] == "EPSG:4326"
+    for feature in data["features"]:
+        coordinates = feature["geometry"]["coordinates"]
+        for longitude, latitude, _ in (
+            [coordinates] if product == "slice" else coordinates
+        ):
+            assert 11.97 - 1e-9 <= longitude <= 11.98 + 1e-9
+            assert 57.68 - 1e-9 <= latitude <= 57.69 + 1e-9
+
+
+@pytest.mark.parametrize("product", ["slice", "streamlines"])
+def test_smoke_geojson_requires_a_declared_crs(product):
+    with pytest.raises(ValidationError, match="format='geojson' requires a crs"):
+        datasets.smoke(
+            bounds=(0.0, 0.0, 10.0, 20.0),
+            product=product,
+            crs=None,
+            format="geojson",
+        )
+
+    model = datasets.smoke(bounds=(0.0, 0.0, 10.0, 20.0), product=product, crs=None)
+    assert model.crs is None
+
+
+def test_smoke_field_geojson_keeps_native_coordinates_and_the_declared_crs():
+    arguments = {"bounds": (0.0, 0.0, 10.0, 20.0), "resolution": 4}
+
+    data = json.loads(datasets.smoke(**arguments, format="geojson"))
     assert data["crs"] == {"type": "name", "properties": {"name": "EPSG:3006"}}
     assert data["metadata"]["crs"] == "EPSG:3006"
-    assert len(data["features"][0]["geometry"]["coordinates"]) == 2
+    assert data["features"][0]["geometry"]["coordinates"][:2] == [0.0, 0.0]
 
-    with pytest.raises(ValueError, match="Cannot resolve the source CRS"):
-        datasets.smoke(**arguments, crs=None)
+    data = json.loads(datasets.smoke(**arguments, crs=None, format="geojson"))
+    assert "crs" not in data
+    assert "crs" not in data["metadata"]
 
 
 def test_smoke_streamlines_geojson_format_returns_lines():
