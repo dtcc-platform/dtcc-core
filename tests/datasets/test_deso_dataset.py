@@ -1,8 +1,21 @@
+import json
+import math
+
+import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
 import dtcc_core.datasets as datasets
-from dtcc_core.model import Bounds, DeSO
+from dtcc_core.datasets import load_model_package
+from dtcc_core.model import (
+    Bounds,
+    DeSO,
+    Field,
+    GeometryType,
+    MultiSurface,
+    Object,
+    Surface,
+)
 
 try:
     import geopandas as gpd
@@ -220,3 +233,72 @@ def test_deso_dataset_rejects_unsupported_year():
 def test_deso_dataset_rejects_unsupported_statistics():
     with pytest.raises(ValueError):
         datasets.deso(bounds=(0.0, 0.0, 2.0, 1.0), statistics=["unicorns"])
+
+
+@pytest.mark.usefixtures("no_network")
+def test_deso_canonical_geojson_round_trip(monkeypatch, tmp_path):
+    deso = DeSO()
+    deso.transform.srs = "EPSG:3006"
+    for code, offset in (("1480A0001", 0.0), ("1480A0002", 200.0)):
+        area = Object(attributes={"desokod": code})
+        area.id = code
+        square = [(0, 0), (100, 0), (100, 100), (0, 100)]
+        surface = Surface(
+            vertices=np.array(
+                [[320000 + offset + x, 6399000 + y, 0.0] for x, y in square]
+            )
+        )
+        if offset == 0.0:
+            hole = [(40, 40), (60, 40), (60, 60), (40, 60)]
+            surface.holes = [
+                np.array([[320000 + x, 6399000 + y, 0.0] for x, y in hole])
+            ]
+        area.add_geometry(MultiSurface(surfaces=[surface]), GeometryType.LOD0)
+        deso.add_child(area)
+    deso.attach_field(
+        Field(
+            name="population",
+            unit="persons",
+            values=np.array([1200.0, math.nan]),
+            association="sample",
+        )
+    )
+    calls = []
+
+    def fake_download_deso(bounds, **kwargs):
+        calls.append(bounds)
+        return deso
+
+    monkeypatch.setattr("dtcc_core.io.data.download_deso", fake_download_deso)
+    result = datasets.deso(bounds=(319900.0, 6398900.0, 320400.0, 6399200.0))
+
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert len(calls) == 1
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    first, second = payload["features"]
+    assert [first["id"], second["id"]] == ["1480A0001", "1480A0002"]
+    rings = first["geometry"]["coordinates"]
+    assert len(rings) == 2
+    # Oracles: pyproj EPSG:3006 -> EPSG:4326 for (320000, 6399000) and the
+    # first hole corner (320040, 6399040).
+    assert rings[0][0] == pytest.approx(
+        [11.979646369152894, 57.697102381277034], abs=1e-9
+    )
+    assert rings[1][0] == pytest.approx(
+        [11.980286613302345, 57.697477181573014], abs=1e-9
+    )
+    assert len(second["geometry"]["coordinates"]) == 1
+    assert first["properties"]["population"] == 1200.0
+    assert first["properties"]["population_unit"] == "persons"
+    assert second["properties"]["population"] is None
+    assert second["properties"]["population_unit"] == "persons"

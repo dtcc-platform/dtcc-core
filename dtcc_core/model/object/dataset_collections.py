@@ -42,6 +42,8 @@ class FootprintCollection(Model):
         Position of the building each footprint came from in the source list.
     """
 
+    web_geojson = True
+
     footprints: list[Surface] = field(default_factory=list)
     source_ids: list[str | None] = field(default_factory=list)
     source_indices: list[int] = field(default_factory=list)
@@ -114,32 +116,44 @@ class FootprintCollection(Model):
         return [footprint.to_polygon(simplify=0.0) for footprint in self.footprints]
 
     def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
-        """Return footprints as a GeoJSON FeatureCollection."""
+        """Return footprints as a GeoJSON FeatureCollection of Polygons.
+
+        Each non-empty footprint becomes one feature with its holes kept and
+        the ``index``, ``source_index`` and ``source_id`` properties; the
+        feature ``id`` is the source id when it is known.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            resolve_source_crs,
+        )
+
+        model = exported_coordinates(self)
+        source_crs = resolve_source_crs(model, model.footprints)
         features: list[dict[str, Any]] = []
-        for index, polygon in enumerate(self.to_shapely()):
+        for index, polygon in enumerate(model.to_shapely()):
             if polygon is None or polygon.is_empty:
                 continue
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": _polygon_coordinates(polygon),
-                    },
-                    "properties": self._feature_properties(index),
-                }
-            )
-
-        payload: dict[str, Any] = {
-            "type": "FeatureCollection",
-            "features": features,
-        }
-        if crs is not None:
-            payload["crs"] = {
-                "type": "name",
-                "properties": {"name": crs},
+            feature = {
+                "type": "Feature",
+                "geometry": _polygon_geometry(polygon, source_crs, crs),
+                "properties": model._feature_properties(index),
             }
-        return payload
+            if index < len(model.source_ids) and model.source_ids[index] is not None:
+                feature["id"] = model.source_ids[index]
+            features.append(feature)
+        return feature_collection(features, source_crs=source_crs, crs=crs)
 
     def plot(
         self,
@@ -229,6 +243,8 @@ class BuildingCollection(Model):
         Buildings in the collection.
     """
 
+    web_geojson = True
+
     buildings: list[Building] = field(default_factory=list)
 
     def _info_sections(self):
@@ -275,6 +291,30 @@ class BuildingCollection(Model):
         """
         return FootprintCollection.from_buildings(self.buildings, geom_type, z=z)
 
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the building footprints as a GeoJSON FeatureCollection.
+
+        Each building with a LOD0 footprint becomes one ``Polygon`` feature with
+        its holes kept; the feature ``id`` is the building id and the properties
+        are the building attributes. Buildings without a footprint are skipped
+        and counted in ``metadata.skipped``.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import exported_coordinates
+
+        model = exported_coordinates(self)
+        return _buildings_geojson(model, model.buildings, crs)
+
 
 @dataclass(repr=False)
 class TreeCollection(Model):
@@ -288,6 +328,8 @@ class TreeCollection(Model):
     trees : list[Tree]
         Trees in the collection.
     """
+
+    web_geojson = True
 
     trees: list[Tree] = field(default_factory=list)
 
@@ -332,6 +374,58 @@ class TreeCollection(Model):
     def bounds(self) -> Bounds:
         """Return bounds spanning all tree positions."""
         return _bounds_for_points(self.to_arrays())
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the trees as a GeoJSON FeatureCollection of Points.
+
+        Each tree with a position becomes one feature whose ``id`` is the tree
+        id and whose properties are ``height`` and ``crown_radius`` with their
+        ``_unit`` (metres).
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            positions,
+            resolve_source_crs,
+        )
+
+        model = exported_coordinates(self)
+        trees = [tree for tree in model.trees if np.asarray(tree.position).size >= 3]
+        source_crs = resolve_source_crs(model, trees)
+        coordinates = positions(
+            [
+                np.asarray(tree.position, dtype=float).reshape(-1, 3)[0]
+                for tree in trees
+            ],
+            source_crs,
+            crs,
+        )
+        features = [
+            {
+                "type": "Feature",
+                "id": tree.id,
+                "geometry": {"type": "Point", "coordinates": position},
+                "properties": {
+                    "height": tree.height,
+                    "height_unit": "m",
+                    "crown_radius": tree.crown_radius,
+                    "crown_radius_unit": "m",
+                },
+            }
+            for tree, position in zip(trees, coordinates, strict=True)
+        ]
+        return feature_collection(features, source_crs=source_crs, crs=crs)
 
     def plot(
         self,
@@ -444,6 +538,8 @@ class TreeCollection(Model):
 class CalibrationGrid(Model):
     """Semantic model for a synthetic calibration grid."""
 
+    web_geojson = True
+
     bounds: Bounds = field(default_factory=Bounds)
     divisions: int = 0
     crs: str | None = None
@@ -520,25 +616,57 @@ class CalibrationGrid(Model):
         """Return the GeoJSON representation."""
         return self.to_geojson()
 
-    def to_geojson(self) -> dict[str, Any]:
-        """Return the calibration grid as a GeoJSON FeatureCollection."""
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the calibration grid as a GeoJSON FeatureCollection.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps the grid's own coordinates and names its ``crs`` in a
+            ``crs`` member; ``"EPSG:4326"`` reprojects the LineString
+            coordinates to RFC 7946 longitude/latitude. ``metadata`` is
+            reported as stored.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import feature_collection, positions, resolve_source_crs
+
         metadata = (
             dict(self.metadata_payload)
             if self.metadata_payload
             else self._default_metadata()
         )
-        payload: dict[str, Any] = {
-            "type": "FeatureCollection",
-            "name": self.name,
-            "features": list(self.features),
-            "metadata": metadata,
-        }
         if self.crs is not None:
-            payload["crs"] = {
-                "type": "name",
-                "properties": {"name": self.crs},
-            }
-            payload["metadata"].setdefault("crs", self.crs)
+            metadata.setdefault("crs", self.crs)
+        source_crs = self.crs
+        features = list(self.features)
+        if crs is not None:
+            source_crs = resolve_source_crs(self, [])
+            for index, feature in enumerate(features):
+                geometry = feature.get("geometry") or {}
+                if geometry.get("type") != "LineString":
+                    raise ValueError(
+                        "Only LineString features can be reprojected; "
+                        f"feature {index} is {geometry.get('type')!r}"
+                    )
+                features[index] = {
+                    **feature,
+                    "geometry": {
+                        **geometry,
+                        "coordinates": positions(
+                            geometry["coordinates"], source_crs, crs
+                        ),
+                    },
+                }
+        payload = feature_collection(
+            features, source_crs=source_crs, crs=crs, metadata=metadata
+        )
+        payload["name"] = self.name
+        if source_crs is None:
+            del payload["crs"]
         return payload
 
     def _default_metadata(self) -> dict[str, Any]:
@@ -674,10 +802,63 @@ def _bounds_for_points(points: np.ndarray) -> Bounds:
     )
 
 
-def _polygon_coordinates(polygon) -> list[list[list[float]]]:
-    coordinates = [
-        [[float(x), float(y)] for x, y in polygon.exterior.coords],
+def _polygon_geometry(polygon, source_crs: str, crs: str | None) -> dict[str, Any]:
+    from ...io.geojson import polygon_rings, positions
+
+    return {
+        "type": "Polygon",
+        "coordinates": polygon_rings(
+            positions(polygon.exterior.coords, source_crs, crs),
+            [
+                positions(interior.coords, source_crs, crs)
+                for interior in polygon.interiors
+            ],
+        ),
+    }
+
+
+def _descendants(obj) -> Iterator[Any]:
+    for children in obj.children.values():
+        for child in children:
+            yield child
+            yield from _descendants(child)
+
+
+def _buildings_geojson(model, buildings: list[Building], crs: str | None):
+    """Return the LOD0 footprint of each building as a FeatureCollection.
+
+    ``model`` is the exported owner of ``buildings`` (a City or a
+    BuildingCollection) and supplies the CRS declarations.
+    """
+    from ...io.geojson import feature_collection, resolve_source_crs
+
+    members = []
+    for building in buildings:
+        footprint = building.footprint()
+        if footprint is not None:
+            members.append((building, footprint))
+    geometries = [
+        geometry
+        for building, footprint in members
+        for node in (building, *_descendants(building))
+        for geometry in (node, node.get_geometry(GeometryType.LOD0))
+        if geometry is not None
+    ] + [footprint for _, footprint in members]
+    source_crs = resolve_source_crs(model, geometries)
+    features = [
+        {
+            "type": "Feature",
+            "id": building.id,
+            "geometry": _polygon_geometry(
+                footprint.to_polygon(simplify=0.0), source_crs, crs
+            ),
+            "properties": dict(building.attributes),
+        }
+        for building, footprint in members
     ]
-    for interior in polygon.interiors:
-        coordinates.append([[float(x), float(y)] for x, y in interior.coords])
-    return coordinates
+    return feature_collection(
+        features,
+        source_crs=source_crs,
+        crs=crs,
+        metadata={"skipped": len(buildings) - len(members)},
+    )

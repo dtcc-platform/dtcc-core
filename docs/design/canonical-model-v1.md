@@ -59,6 +59,8 @@ floats, integers and strings. The wire uses an explicit value union: integers ar
 canonical decimal strings (including values outside int64), floats are doubles,
 and empty containers and null remain distinct. It is not Protobuf Struct's
 double-only numeric representation. Arbitrary Python objects remain unsupported.
+Canonical attribute maps do not preserve key insertion order across exchange;
+consumers must not rely on the order of restored keys.
 
 Mesh arrays preserve numerical dtype, shape and C-order values. The allowed wire
 dtypes are `|b1`, `|i1`, `|u1`, `<i2`, `<i4`, `<i8`, `<u2`, `<u4`, `<u8`, `<f4`,
@@ -103,11 +105,18 @@ have role `derived` and `derived_from` pointing to that artifact. Every artifact
 has a size and SHA-256 digest. Root Dataset Context, including health/warnings,
 is restored from the manifest.
 
-Artifact CRS describes the canonical root's own transform SRS, when present.
-Artifact bounds remain unset: request bounds and stored local coordinate bounds
-do not establish global bounds after composing nested transforms. Supplemental
-serializers do not yet supply reliable spatial summaries, so their CRS/bounds are
-also unset. Dataset discovery/request metadata remains Context, not an intrinsic
+The canonical artifact's CRS describes the canonical root's own transform SRS,
+when present. Its bounds remain unset: request bounds and stored local coordinate bounds
+do not establish global bounds after composing nested transforms. A derived
+artifact may carry `crs` and `bounds` when its serializer computes them from its
+own output: canonical `format="geojson"`, admitted only for model types whose
+writer follows the RFC 7946 web profile (class attribute `web_geojson = True`),
+records `crs` `EPSG:4326` and WGS84 `bounds` `[minlon, minlat, maxlon, maxlat]`,
+or six values `[minlon, minlat, minz, maxlon, maxlat, maxz]` when positions have
+z. For other types canonical `format="geojson"` is refused before anything is
+written. Other derived artifacts leave both unset. The reader accepts a derived
+`crs` only as a nonempty string and `bounds` only as four or six finite ordered
+numbers. Dataset discovery/request metadata remains Context, not an intrinsic
 artifact claim. This slice preserves transforms; it does not settle global
 transform composition or computed spatial summaries.
 
@@ -141,12 +150,30 @@ supports v3. Do not switch defaults or retire legacy readers until required type
 and Python/browser/C++ consumers have migration evidence. Unknown new fields are
 rejected by v1, so an extension needs an explicit compatibility/version decision.
 
+Derived-artifact `crs` and `bounds` are a recorded compatibility decision of the
+same kind: the manifest version stays `dtcc-dataset-manifest-v3` because the
+manifest fields already exist, are optional and are null when absent,
+and packages without them load unchanged in the current reader. Readers older
+than this change reject a package whose derived artifact carries `crs` or
+`bounds` ("Supplemental artifact must identify its canonical source"), so
+packages enriched with derived spatial metadata are not backward compatible.
+
 The generated Python binding requires existing dependency `protobuf>=5.29.0,<6`.
 Regenerate only this schema with the development compiler `grpcio-tools==1.71.0`:
 
 ```bash
 python -m grpc_tools.protoc -I dtcc_core/schemas --python_out=dtcc_core/model dtcc_core/schemas/dtcc.proto
 ```
+
+The generated file is checked by hash: hash the committed `dtcc_pb2.py`, regenerate it
+with the pinned compiler and require the hash to be unchanged.
+
+`Object.Kind` carries six root-only result-wrapper kinds: `TREE_COLLECTION` (13),
+`BUILDING_COLLECTION` (14), `FOOTPRINT_COLLECTION` (15), `CALIBRATION_GRID` (16),
+`FIELD_SLICE` (17) and `STREAMLINE_COLLECTION` (18).
+This kind extension is a recorded compatibility decision: wire version stays **6** and
+schema 0.9.0 is unchanged. The kinds are rejected anywhere below the root. A kind
+retired later is marked `reserved` in `dtcc.proto` rather than reused.
 
 LinkML remains isolated in [the profile experiment](../../sandbox/model_profiles/README.md).
 It is neither a runtime dependency nor an alternative wire authority. Python

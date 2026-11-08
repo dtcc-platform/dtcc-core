@@ -1,6 +1,7 @@
-from typing import Literal
+import warnings
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 import dtcc_core
 from dtcc_core.common.progress import ProgressTracker
@@ -53,6 +54,25 @@ class TerrainSurfaceMeshArgs(DatasetBaseArgs):
     format: Literal["tif", "obj", "stl"] | None = Field(
         None, description="Output file format"
     )
+    product: Literal["mesh", "raster"] = Field(
+        "mesh",
+        description="Return the terrain surface mesh or the terrain-height raster",
+    )
+
+    @model_validator(mode="after")
+    def validate_product(self):
+        if self.product == "raster" and self.format in ("obj", "stl"):
+            raise ValueError("product='raster' supports only format='tif'")
+        if self.format == "tif" and self.product == "mesh":
+            if "product" in self.model_fields_set:
+                raise ValueError("format='tif' requires product='raster'")
+            warnings.warn(
+                "format='tif' without product is deprecated; pass product='raster'",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.product = "raster"
+        return self
 
 
 class TerrainSurfaceMeshDataset(DatasetDescriptor):
@@ -101,7 +121,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
     processing_steps = [
         "Download point cloud data for the requested bounds in EPSG:3006",
         "Optionally remove global point-cloud outliers using remove_outlier_threshold",
-        "For format='tif', build a terrain raster with raster_resolution cell size",
+        "For product='raster', build a terrain raster with raster_resolution cell size",
         "For adaptive_mesh=True, build an adaptive terrain mesh using error_threshold and raster_resolution",
         "Otherwise build a terrain surface mesh using max_mesh_size, smoothing, and the selected mesher backend",
         "Return the native mesh/raster object or serialize the requested terrain format",
@@ -145,7 +165,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
         },
     ]
     key_points = [
-        "format='tif' returns raster bytes instead of a Mesh object",
+        "product='raster' returns a terrain-height Raster; format='tif' serializes it",
         "adaptive_mesh=True uses error_threshold rather than max_mesh_size",
         "remove_outliers=True applies a global point-cloud outlier filter before terrain construction",
         "mesher selects the 2D terrain triangulation backend when supported",
@@ -166,6 +186,7 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
         "default_crs": "EPSG:3006",
         "mesh_role": "terrain_visualization_or_preprocessing",
         "z_units": "meters",
+        "value_units": "m",
     }
     presentation_warnings = [
         "Source and license terms inherit upstream point-cloud review status.",
@@ -177,6 +198,24 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
         "The dataset does not add building, road, vegetation, or water semantics.",
         "No mesh-quality threshold is enforced beyond the selected builder parameters.",
     ]
+
+    def describe(self) -> dict[str, Any]:
+        metadata = super().describe()
+        metadata["products"] = [
+            {
+                "name": "mesh",
+                "python_return_type": "dtcc_core.model.Mesh",
+                "formats": ["obj", "stl"],
+                "description": "Triangular terrain surface mesh built from point cloud ground data.",
+            },
+            {
+                "name": "raster",
+                "python_return_type": "dtcc_core.model.Raster",
+                "formats": ["tif"],
+                "description": "Terrain-height raster in meters built from point cloud ground data.",
+            },
+        ]
+        return metadata
 
     def build(self, args: TerrainSurfaceMeshArgs):
         progress_phases = {
@@ -208,14 +247,15 @@ class TerrainSurfaceMeshDataset(DatasetDescriptor):
                 "build_terrain",
                 (
                     "Building terrain raster..."
-                    if args.format == "tif"
+                    if args.product == "raster"
                     else "Building terrain surface mesh..."
                 ),
             ):
-                if args.format == "tif":
+                if args.product == "raster":
                     result = dtcc_core.builder.build_terrain_raster(
                         pc, cell_size=args.raster_resolution
                     )
+                    result.crs = self.default_crs
                 else:
                     if args.adaptive_mesh:
                         result = dtcc_core.builder.adaptive_terrain_mesh(

@@ -732,7 +732,7 @@ def _vehicle_object_from_record(record, x: float, y: float, z: float) -> Object:
     ):
         if value is None:
             continue
-        field = DtccField()
+        field = DtccField(association="sample")
         field.name = name
         field.unit = unit
         field.dim = 1

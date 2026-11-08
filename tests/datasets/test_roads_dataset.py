@@ -1,7 +1,10 @@
+import json
+
 import numpy as np
 import pytest
 
 import dtcc_core.datasets as datasets
+from dtcc_core.datasets import load_model_package
 from dtcc_core.datasets.roads import RoadsDataset
 from dtcc_core.model import Bounds, RoadNetwork
 
@@ -106,3 +109,50 @@ def test_roads_dataset_protobuf_format(monkeypatch):
     assert np.array_equal(roads.edges, expected.edges)
     assert np.allclose(roads.length, expected.length)
     assert roads.attributes == expected.attributes
+
+
+@pytest.mark.usefixtures("no_network")
+def test_roads_canonical_geojson_round_trip(monkeypatch, tmp_path):
+    roads = RoadNetwork()
+    roads.vertices = np.array(
+        [[319950.0, 6398950.0], [320050.0, 6399000.0], [320150.0, 6398950.0]]
+    )
+    roads.edges = np.array([[0, 1], [1, 2]])
+    roads.length = np.array([111.8, 111.8])
+    roads.attributes = {"highway": ["residential", "primary"], "id": ["a", "b"]}
+    calls = []
+
+    def fake_download_roadnetwork(bounds, provider="dtcc", epsg="3006"):
+        calls.append(bounds)
+        return roads
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_roadnetwork", fake_download_roadnetwork
+    )
+    result = datasets.roads(bounds=(319900.0, 6398900.0, 320200.0, 6399100.0))
+
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert len(calls) == 1
+
+    payloads = [
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    ]
+    payload, copy = payloads
+    assert payload == copy
+    assert "crs" not in payload
+    assert payload["metadata"] == {"geometry": "chord"}
+    first, second = payload["features"]
+    assert [first["id"], second["id"]] == ["a", "b"]
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 for the first and second vertex.
+    expected = [11.9788460825461, 57.696633876500854, 11.980484024390593]
+    expected += [57.697122380732424]
+    flat = [v for position in first["geometry"]["coordinates"] for v in position]
+    assert flat == pytest.approx(expected, abs=1e-9)
+    assert first["properties"]["length"] == 111.8
+    assert first["properties"]["length_unit"] == "metre"
+    assert second["properties"]["highway"] == "primary"

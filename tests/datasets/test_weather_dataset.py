@@ -526,3 +526,57 @@ class TestParameterNames:
         field_names = {f.name for f in point.fields}
         assert "air_temperature" in field_names
         assert "wind_speed" in field_names
+
+
+@pytest.mark.usefixtures("no_network")
+def test_weather_canonical_geojson_round_trip(tmp_path):
+    """A two-station result exports RFC 7946 GeoJSON that survives a reload."""
+    import json
+
+    import dtcc_core.datasets as datasets
+    from dtcc_core.datasets import load_model_package
+
+    with patch(
+        "dtcc_core.datasets.weather._get_text", side_effect=_mock_get_text
+    ) as mock_fetch:
+        result = datasets.weather(
+            bounds=(300000, 6350000, 700000, 6600000),
+            crs="EPSG:3006",
+            parameters=[1, 4],
+        )
+        calls = mock_fetch.call_count
+        assert len(result.stations()) == 2
+
+        package = result.export(tmp_path / "p", canonical=True, format="geojson")
+        restored = load_model_package(package.path)
+        again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+        assert mock_fetch.call_count == calls
+
+    assert [a.path for a in package.artifacts] == [
+        "artifacts/model.dtcc",
+        "artifacts/weather.geojson",
+    ]
+    derived = package.artifacts[1]
+    assert derived.role == "derived"
+    assert derived.format == "geojson"
+    assert derived.derived_from == "artifacts/model.dtcc"
+    assert derived.crs == "EPSG:4326"
+    payload = json.loads((package.path / derived.path).read_text())
+    copy = json.loads((again.path / again.artifacts[1].path).read_text())
+    assert payload == copy
+    assert "crs" not in payload
+    coordinates = [f["geometry"]["coordinates"] for f in payload["features"]]
+    lon, lat, z = zip(*coordinates, strict=True)
+    assert derived.bounds == pytest.approx(
+        [min(lon), min(lat), min(z), max(lon), max(lat), max(z)]
+    )
+    assert 12.0 < derived.bounds[0] < derived.bounds[3] < 19.0
+
+    stockholm = next(f for f in payload["features"] if f["id"] == 100)
+    lon, lat, z = stockholm["geometry"]["coordinates"]
+    assert lon == pytest.approx(18.0686, abs=1e-9)
+    assert lat == pytest.approx(59.3293, abs=1e-9)
+    assert z == 28.0
+    assert stockholm["properties"]["air_temperature"] == -3.5
+    assert stockholm["properties"]["air_temperature_unit"] == "celsius"
+    assert stockholm["properties"]["wind_speed_unit"] == "m/s"

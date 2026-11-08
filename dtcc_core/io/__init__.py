@@ -13,6 +13,7 @@ from . import roadnetwork
 from . import landuse
 from . import pointcloud_directory
 from . import trees
+from . import geojson
 from .cityjson import cityjson
 from .cityjson import write_cityjson
 

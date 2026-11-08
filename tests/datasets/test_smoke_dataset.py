@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.dataset import DatasetExportResult
 from dtcc_core.datasets.smoke import SmokeArgs, SmokeDataset
 from dtcc_core.model import FieldSlice, StreamlineCollection, VolumeMesh, proto
@@ -750,6 +750,108 @@ def test_smoke_rejects_non_geojson_visualization_formats():
                 format="pb",
             )
         )
+
+
+SMOKE_PRODUCTS = {
+    "slice": (
+        FieldSlice,
+        (
+            "slice_axis",
+            "slice_position",
+            "resolution",
+            "axes",
+            "name",
+            "time",
+            "period",
+            "crs",
+            "include_z",
+            "domain_bounds",
+            "metadata_payload",
+        ),
+    ),
+    "streamlines": (
+        StreamlineCollection,
+        (
+            "seed_axis",
+            "seed_position",
+            "requested_line_count",
+            "streamline_steps",
+            "streamline_step_size",
+            "time",
+            "period",
+            "crs",
+            "include_z",
+            "axes",
+            "name",
+            "domain_bounds",
+            "metadata_payload",
+        ),
+    ),
+}
+
+
+def _assert_fields_equal(source, restored):
+    assert [(f.name, f.unit, f.dim, f.association) for f in restored] == [
+        (f.name, f.unit, f.dim, f.association) for f in source
+    ]
+    for a, b in zip(source, restored, strict=True):
+        np.testing.assert_array_equal(b.values, a.values)
+
+
+@pytest.mark.parametrize("offline", [False, True], ids=["unpatched", "no_network"])
+@pytest.mark.parametrize("product", list(SMOKE_PRODUCTS))
+def test_smoke_product_canonical_package_round_trip(
+    product, offline, request, tmp_path
+):
+    """The registered smoke Dataset call survives a canonical package round trip."""
+    if offline:
+        request.getfixturevalue("no_network")
+    cls, attributes = SMOKE_PRODUCTS[product]
+    result = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        zmax=40.0,
+        resolution=4,
+        product=product,
+        streamline_count=4,
+        streamline_steps=20,
+        time=1.5,
+        crs="EPSG:3006",
+    )
+    package = result.export(tmp_path / "smoke.dtccpkg", canonical=True)
+    restored = load_model_package(package.path)
+
+    assert type(result) is cls
+    assert type(restored) is cls
+    for name in attributes:
+        assert getattr(restored, name) == getattr(result, name), name
+    if cls is FieldSlice:
+        for name in (
+            "points",
+            "classification",
+            "intensity",
+            "return_number",
+            "num_returns",
+        ):
+            np.testing.assert_array_equal(
+                getattr(restored, name), getattr(result, name)
+            )
+        np.testing.assert_array_equal(
+            restored.transform.affine, result.transform.affine
+        )
+        assert restored.transform.srs == result.transform.srs
+        assert [f.association for f in result.fields] == ["sample"] * 3
+        _assert_fields_equal(result.fields, restored.fields)
+    else:
+        assert len(result.lines) > 0
+        assert len(restored.lines) == len(result.lines)
+        for a, b in zip(result.lines, restored.lines, strict=True):
+            np.testing.assert_array_equal(b.vertices, a.vertices)
+            np.testing.assert_array_equal(b.transform.affine, a.transform.affine)
+            assert b.transform.srs == a.transform.srs
+            assert [f.association for f in a.fields] == ["vertex"] * 3
+            _assert_fields_equal(a.fields, b.fields)
+    assert restored.dataset_context == result.dataset_context
+    assert restored.to_geojson() == result.to_geojson()
 
 
 def _assert_smoke_visual_package(

@@ -18,6 +18,8 @@ from .object import GeometryType, Object
 class DeSO(Object):
     """Collection of Swedish DeSO demographic statistical areas."""
 
+    web_geojson = True
+
     def _summary_items(self):
         return [
             ("num_areas", len(self.children.get(Object, []))),
@@ -132,6 +134,81 @@ class DeSO(Object):
             geometry=geometries,
             crs=self.transform.srs or None,
         )
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the areas as a GeoJSON FeatureCollection of polygons.
+
+        Each area with a LOD0 ``MultiSurface`` becomes one ``Polygon`` (one
+        surface) or ``MultiPolygon`` feature with its holes kept. The feature
+        ``id`` is the area id and the properties are the area attributes plus
+        ``<name>`` and ``<name>_unit`` for every area-aligned statistic Field;
+        a missing statistic is ``null``. Positions are two-dimensional because
+        the areas have no height.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            polygon_rings,
+            positions,
+            resolve_source_crs,
+        )
+
+        model = exported_coordinates(self)
+        areas = [
+            (index, area, area.get_geometry(GeometryType.LOD0))
+            for index, area in enumerate(model.areas)
+        ]
+        areas = [item for item in areas if isinstance(item[2], MultiSurface)]
+        source_crs = resolve_source_crs(
+            model,
+            [
+                member
+                for _, area, geometry in areas
+                for member in (area, geometry, *geometry.surfaces)
+            ],
+        )
+        fields = model.fields
+        features = []
+        for index, area, geometry in areas:
+            polygons = [
+                polygon_rings(
+                    positions(surface.vertices[:, :2], source_crs, crs),
+                    [positions(hole[:, :2], source_crs, crs) for hole in surface.holes],
+                )
+                for surface in geometry.surfaces
+                if len(surface.vertices) >= 3
+            ]
+            if not polygons:
+                continue
+            properties = dict(area.attributes)
+            for name, field in fields.items():
+                value = field.values[index]
+                properties[name] = value[0] if field.dim == 1 else value
+                properties[f"{name}_unit"] = field.unit
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": area.id,
+                    "geometry": (
+                        {"type": "Polygon", "coordinates": polygons[0]}
+                        if len(polygons) == 1
+                        else {"type": "MultiPolygon", "coordinates": polygons}
+                    ),
+                    "properties": properties,
+                }
+            )
+        return feature_collection(features, source_crs=source_crs, crs=crs)
 
     def to_df(self):
         """Alias for :meth:`to_dataframe`."""

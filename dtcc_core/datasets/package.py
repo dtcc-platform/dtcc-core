@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -235,6 +236,7 @@ def _write_directory_package(
     if canonical_data is not None:
         canonical_path.write_bytes(canonical_data)
     artifact_path = canonical_path
+    web_bounds = None
     if artifact_format is not None:
         extension = DatasetDescriptor.format_extension(artifact_format)
         artifact_stem = _artifact_stem(obj, context)
@@ -243,7 +245,10 @@ def _write_directory_package(
             raise ValueError(
                 "Supplemental artifact collides with the canonical model path"
             )
-        _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
+        if canonical_data is not None and artifact_format == "geojson":
+            web_bounds = _write_web_geojson(obj, artifact_path)
+        else:
+            _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
 
     artifact_files = _artifact_files(artifact_dir, artifact_path)
     artifacts = tuple(
@@ -279,8 +284,9 @@ def _write_directory_package(
             else:
                 artifact.role = "derived"
                 artifact.derived_from = CANONICAL_ARTIFACT
-                artifact.bounds = None
-                artifact.crs = None
+                web = artifact.format == "geojson"
+                artifact.bounds = web_bounds if web else None
+                artifact.crs = "EPSG:4326" if web else None
     manifest_path = package_dir / "manifest.json"
     manifest_path.write_text(
         manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
@@ -293,6 +299,43 @@ def _write_directory_package(
         artifacts=artifacts,
         files=(manifest_path, *artifact_files),
         package_format=package_format,
+    )
+
+
+def _write_web_geojson(obj, path: Path) -> list[float] | None:
+    """Write RFC 7946 GeoJSON and return its WGS84 bounds, None when empty."""
+    payload = obj.to_geojson(crs="EPSG:4326")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    found = []
+
+    def collect(coordinates):
+        if coordinates and isinstance(coordinates[0], (int, float)):
+            found.append(coordinates)
+        else:
+            for item in coordinates:
+                collect(item)
+
+    for feature in payload["features"]:
+        collect((feature.get("geometry") or {}).get("coordinates") or [])
+    if not found:
+        return None
+    lon = [float(p[0]) for p in found]
+    lat = [float(p[1]) for p in found]
+    z = [float(p[2]) for p in found if len(p) > 2]
+    if not z:
+        return [min(lon), min(lat), max(lon), max(lat)]
+    return [min(lon), min(lat), min(z), max(lon), max(lat), max(z)]
+
+
+def _valid_bounds(bounds: list[float]) -> bool:
+    half = len(bounds) // 2
+    return (
+        len(bounds) in (4, 6)
+        and all(math.isfinite(value) for value in bounds)
+        and all(bounds[i] <= bounds[i + half] for i in range(half))
     )
 
 
@@ -486,6 +529,15 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
     """Stage the existing package writer and publish the local snapshot atomically."""
     from ..model import exchange
 
+    if (
+        supplemental_format == "geojson"
+        and getattr(type(obj), "web_geojson", False) is not True
+    ):
+        raise ValueError(
+            f"Canonical GeoJSON export is not available for {type(obj).__name__}: "
+            "its GeoJSON writer does not produce RFC 7946 WGS84 coordinates"
+        )
+
     if not isinstance(obj.dataset_context, DatasetContext):
         raise ValueError("Canonical package export requires a DatasetContext")
     from ..model.object.object import _validate_attributes
@@ -652,13 +704,19 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
             if artifact is not canonical and (
                 artifact.role != "derived"
                 or artifact.derived_from != canonical.path
-                or artifact.bounds is not None
-                or artifact.crs is not None
                 or artifact.model_type is not None
                 or artifact.model_schema_version is not None
             ):
                 raise ValueError(
                     "Supplemental artifact must identify its canonical source"
+                )
+            if artifact is not canonical and (
+                (artifact.crs is not None and not artifact.crs.strip())
+                or (artifact.bounds is not None and not _valid_bounds(artifact.bounds))
+            ):
+                raise ValueError(
+                    "Derived artifact crs must be nonempty and bounds four or six "
+                    "finite ordered numbers"
                 )
             digest, size, chunks = hashlib.sha256(), 0, []
             with open_member(artifact.path) as stream:

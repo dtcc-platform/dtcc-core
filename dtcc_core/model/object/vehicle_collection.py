@@ -30,6 +30,8 @@ class VehicleCollection(Object):
     speed, bearing, and timestamp stored in attributes.
     """
 
+    web_geojson = True
+
     def _info_sections(self):
         sections = super()._info_sections()
         vehicles = self.vehicles()
@@ -128,6 +130,36 @@ class VehicleCollection(Object):
                 dtype=float,
             )
         return np.asarray(points, dtype=float), value_array
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the vehicles as a GeoJSON FeatureCollection of Points.
+
+        Each vehicle with a point geometry becomes one feature whose ``id`` is
+        its ``vehicle_id`` attribute (else the object id) and whose properties
+        are the vehicle attributes plus ``<name>`` and ``<name>_unit`` for every
+        Field attached to any vehicle; a vehicle without that value gets
+        ``null``.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import _point_feature_collection, exported_coordinates
+
+        model = exported_coordinates(self)
+        members = []
+        for vehicle in model.vehicles():
+            point = self._point_geometry(vehicle)
+            if point is not None:
+                members.append((vehicle, point))
+        return _point_feature_collection(model, members, "vehicle_id", crs)
 
     def plot(
         self,

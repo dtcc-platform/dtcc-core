@@ -57,6 +57,8 @@ class RoadNetwork(Object):
         (shape: [n_edges]).
     """
 
+    web_geojson = True
+
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
     edges: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int64)
@@ -170,6 +172,104 @@ class RoadNetwork(Object):
             arrays["line_offsets"] = np.asarray(line_offsets, dtype=np.int64)
 
         return arrays
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the road network as a GeoJSON FeatureCollection of LineStrings.
+
+        Each edge becomes one feature. When the ``MultiLineString`` geometry
+        holds one line per edge, the feature is that full line and the
+        collection ``metadata.geometry`` is ``"full"``; otherwise the feature
+        is the chord between the edge's vertices and ``metadata.geometry`` is
+        ``"chord"``. The feature ``id`` is the edge's ``id`` attribute when
+        there is one, else the edge index. Properties are the edge's entry of
+        every edge-aligned attribute list, ``length`` as stored, ``length_unit``
+        from the source CRS axis, and ``<name>`` and ``<name>_unit`` for every
+        ``sample`` Field of the ``MultiLineString`` (one row per edge). The
+        space syntax measures ``mean_depth`` and ``integration`` get a unit
+        from ``space_syntax_radius_unit``; the other measures are
+        dimensionless.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from pyproj import CRS
+
+        from ...io.geojson import (
+            _json_value,
+            exported_coordinates,
+            feature_collection,
+            positions,
+            resolve_source_crs,
+        )
+
+        model = exported_coordinates(self)
+        count = len(model.edges)
+        lines = model.linestrings
+        source_crs = resolve_source_crs(model, [*model.get_geometries(), *lines])
+        length_unit = CRS.from_user_input(source_crs).axis_info[0].unit_name
+        full = count > 0 and len(lines) == count
+        per_edge = {
+            key: value
+            for key, value in model.attributes.items()
+            if isinstance(value, (list, tuple, np.ndarray)) and len(value) == count
+        }
+        geometry = model.multilinestrings
+        carried = []
+        for item in geometry.fields if geometry is not None else []:
+            if item.association == "sample":
+                if len(item.values) != count:
+                    raise ValueError(
+                        f"Field '{item.name}' has {len(item.values)} rows, "
+                        f"but the RoadNetwork has {count} edges."
+                    )
+                carried.append((item, np.asarray(item.values).reshape(count, item.dim)))
+        if len(model.length) != count:
+            raise ValueError(
+                f"RoadNetwork has {len(model.length)} lengths, but {count} edges."
+            )
+
+        features = []
+        for i in range(count):
+            properties = {key: value[i] for key, value in per_edge.items()}
+            properties["length"] = model.length[i]
+            properties["length_unit"] = length_unit
+            unit = per_edge.get("space_syntax_radius_unit")
+            if unit is not None:
+                if "space_syntax_mean_depth" in per_edge:
+                    properties["space_syntax_mean_depth_unit"] = unit[i]
+                if "space_syntax_integration" in per_edge:
+                    properties["space_syntax_integration_unit"] = f"1/{unit[i]}"
+            for item, rows in carried:
+                properties[item.name] = rows[i, 0] if rows.shape[1] == 1 else rows[i]
+                properties[f"{item.name}_unit"] = item.unit
+            vertices = lines[i].vertices if full else model.vertices[model.edges[i]]
+            ids = per_edge.get("id")
+            ident = None if ids is None else _json_value(ids[i])
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": i if ident is None else ident,
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": positions(vertices, source_crs, crs),
+                    },
+                    "properties": properties,
+                }
+            )
+        return feature_collection(
+            features,
+            source_crs=source_crs,
+            crs=crs,
+            metadata={"geometry": "full" if full else "chord"},
+        )
 
     def _info_sections(self):
         sections = super()._info_sections()

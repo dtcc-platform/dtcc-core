@@ -11,14 +11,22 @@ import numpy as np
 import pytest
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import DatasetPackage, attach_dataset_context
+from dtcc_core.datasets import (
+    DatasetPackage,
+    attach_dataset_context,
+    load_model_package,
+)
 from dtcc_core.datasets.publish import DatasetPublishConfigurationError
 from dtcc_core.model import (
     Building,
     City,
+    Field,
     FootprintCollection,
     GeometryType,
     Mesh,
+    Object,
+    Point,
+    SensorCollection,
     Surface,
 )
 
@@ -267,6 +275,135 @@ def test_footprint_collection_export_defaults_to_geojson(tmp_path):
     assert artifact.crs == "EPSG:3006"
     assert artifact.size == artifact_path.stat().st_size
     assert artifact.sha256 == _sha256(artifact_path)
+
+
+@pytest.mark.parametrize("name", ["footprints_pkg", "footprints.dtccpkg"])
+def test_footprint_collection_canonical_geojson_round_trip(tmp_path, name):
+    surface = _surface()
+    surface.vertices = surface.vertices * 100 + [320000.0, 6399000.0, 0.0]
+    surface.transform.srs = "EPSG:3006"
+    building = Building(id="building-1")
+    building.add_geometry(surface, GeometryType.LOD0)
+    collection = FootprintCollection.from_buildings([building])
+    attach_dataset_context(collection, _context(datasets.building_footprints))
+
+    package = collection.export(tmp_path / name, canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(
+        tmp_path / f"again_{name}", canonical=True, format="geojson"
+    )
+
+    payload, copy = (_geojson_payload(p) for p in (package, again))
+    assert payload == copy
+    assert "crs" not in payload
+    [feature] = payload["features"]
+    assert feature["id"] == "building-1"
+    assert _geojson_payload(again)["features"][0]["id"] == "building-1"
+    assert feature["properties"]["source_id"] == "building-1"
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the corner (320000, 6399000).
+    assert [11.979646369152894, 57.697102381277034] in [
+        pytest.approx(position, abs=1e-9)
+        for position in feature["geometry"]["coordinates"][0]
+    ]
+    artifact = package.manifest.artifacts[0]
+    assert artifact.format == "geojson"
+    assert artifact.crs == "EPSG:4326"
+
+
+@pytest.mark.parametrize("name", ["translated_pkg", "translated.dtccpkg"])
+def test_footprint_collection_canonical_geojson_places_a_translated_building(
+    tmp_path, name
+):
+    surface = _surface()
+    surface.vertices = surface.vertices * 100
+    surface.transform.srs = "EPSG:3006"
+    building = Building(id="building-1")
+    building.add_geometry(surface, GeometryType.LOD0)
+    building.transform.affine[0, 3] = 320000.0
+    building.transform.affine[1, 3] = 6399000.0
+    collection = FootprintCollection.from_buildings([building])
+    attach_dataset_context(collection, _context(datasets.building_footprints))
+
+    package = collection.export(tmp_path / name, canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(
+        tmp_path / f"again_{name}", canonical=True, format="geojson"
+    )
+
+    payload = _geojson_payload(package)
+    assert payload == _geojson_payload(again)
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the corner (320000, 6399000).
+    assert [11.979646369152894, 57.697102381277034] in [
+        pytest.approx(position, abs=1e-9)
+        for position in payload["features"][0]["geometry"]["coordinates"][0]
+    ]
+
+
+def _geojson_payload(package) -> dict:
+    [artifact] = [a for a in package.artifacts if a.format == "geojson"]
+    if package.package_format == "dtccpkg":
+        with zipfile.ZipFile(package.path) as archive:
+            return json.loads(archive.read(artifact.path))
+    return json.loads((package.path / artifact.path).read_text())
+
+
+def _sensor_package(tmp_path):
+    collection = SensorCollection(attributes={"crs": "EPSG:3006"})
+    station = Object(attributes={"station_id": "s1"})
+    point = Point(x=319950.0, y=6398950.0)
+    point.fields = [
+        Field(
+            name="air_temperature",
+            unit="celsius",
+            association="sample",
+            values=np.array([-3.5]),
+        )
+    ]
+    station.add_geometry(point, "location")
+    collection.add_station(station)
+    attach_dataset_context(collection, _context(datasets.weather))
+    return collection.export(tmp_path / "pkg", canonical=True, format="geojson")
+
+
+def test_canonical_geojson_records_wgs84_crs_and_bounds(tmp_path):
+    package = _sensor_package(tmp_path)
+
+    derived = package.artifacts[1]
+    assert derived.role == "derived"
+    assert derived.crs == "EPSG:4326"
+    assert derived.bounds == pytest.approx(
+        [11.9788460825461, 57.696633876500854, 0.0] * 2, abs=1e-9
+    )
+    restored = load_model_package(package.path)
+    assert restored.to_geojson(crs="EPSG:4326") == json.loads(
+        (package.path / derived.path).read_text()
+    )
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"bounds": [0.0, 0.0, 1.0]}, "four or six"),
+        ({"bounds": "INFINITE"}, "finite"),
+        ({"bounds": [1.0, 0.0, 0.0, 1.0]}, "four or six"),
+        ({"crs": " "}, "four or six"),
+        ({"model_type": "SensorCollection"}, "canonical source"),
+        ({"model_schema_version": 6}, "canonical source"),
+        ({"crs": None, "bounds": None}, None),
+    ],
+)
+def test_package_reader_checks_derived_spatial_metadata(tmp_path, change, message):
+    package = _sensor_package(tmp_path)
+    manifest = json.loads(package.manifest_path.read_text())
+    manifest["artifacts"][1].update(change)
+    text = json.dumps(manifest).replace('"INFINITE"', "[0.0, 0.0, 1e999, 1.0]")
+    package.manifest_path.write_text(text)
+
+    if message is None:
+        assert type(load_model_package(package.path)) is SensorCollection
+    else:
+        with pytest.raises(ValueError, match=message):
+            load_model_package(package.path)
 
 
 def test_dtccpkg_export_writes_zip_package(tmp_path):

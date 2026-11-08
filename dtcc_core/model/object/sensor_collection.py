@@ -29,6 +29,8 @@ class SensorCollection(Object):
     in the DTCC object model.
     """
 
+    web_geojson = True
+
     def _info_sections(self):
         from ...common._display import value_text
 
@@ -186,6 +188,38 @@ class SensorCollection(Object):
             return np.empty((0, 3)), np.empty(0)
 
         return np.array(points), np.array(values)
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the stations as a GeoJSON FeatureCollection of Points.
+
+        Each station with a Point geometry becomes one feature whose ``id`` is
+        its ``station_id`` attribute (else the object id) and whose properties
+        are the station attributes plus ``<name>`` and ``<name>_unit`` for every
+        Field attached to any station; a station without that value gets
+        ``null``.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import _point_feature_collection, exported_coordinates
+
+        model = exported_coordinates(self)
+        members = []
+        for station in model.stations():
+            point = next(
+                (g for g in station.get_geometries() if isinstance(g, Point)), None
+            )
+            if point is not None:
+                members.append((station, point))
+        return _point_feature_collection(model, members, "station_id", crs)
 
     def plot(
         self,

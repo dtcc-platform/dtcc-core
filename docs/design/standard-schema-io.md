@@ -111,6 +111,7 @@ mapping native type names to schema classes.
 | --- | --- |
 | Object | Generic object, containment and declared attributes/references. |
 | City, Building, BuildingPart | Native bindings supply the corresponding validation class when no declared semantic URI matches. [Optional building attributes](building-attributes.md), including separate measured/estimated heights; sibling Building/BuildingPart schema classes and declared containment restrictions. |
+| TreeCollection, BuildingCollection, FootprintCollection, CalibrationGrid, FieldSlice, StreamlineCollection | Root-only result wrappers have no schema binding. The root of a wrapper payload validates as the generic `dtcc:Object` class, with typed members where the wrapper has children (Tree, Building); issue paths identify members as `objects[id]`, and shape violations raise `ValueError` naming the wrapper class. |
 | Tree | Native height and crown_radius project as height and crown_radius; other declared plant attributes retain their meaning. |
 | Landuse | Native enum-name list projects as native_landuses. Source class/function/usage codes are not translated into native codes. |
 | Mesh, Point, Surface, MultiSurface, Solid | Supported standalone roots; semantic regions and field metadata are evaluated. Numerical arrays, topology, transforms and shell structure stay in Core. |

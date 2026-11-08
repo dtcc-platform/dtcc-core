@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 
 import pytest
+
+from dtcc_core.datasets import get_dataset, load_model_package
 
 LIVE_DATASET_TESTS_ENV = "DTCC_LIVE_DATASET_TESTS"
 
@@ -68,3 +71,26 @@ def _live_path_requested(args: list[str]) -> bool:
         if "tests/datasets/live" in str(arg).replace("\\", "/"):
             return True
     return False
+
+
+@pytest.fixture
+def canonical_round_trip(tmp_path):
+    """Export a Dataset result as a canonical package and load it back.
+
+    Asserts the restored type is the Dataset's ``python_return_type`` and the
+    whole ``dataset_context`` survives, then returns the restored object.
+    """
+
+    def run(dataset_name, result):
+        module_name, _, class_name = get_dataset(
+            dataset_name
+        ).python_return_type.rpartition(".")
+        expected = getattr(importlib.import_module(module_name), class_name)
+        package = result.export(tmp_path / "x.dtccpkg", canonical=True)
+        restored = load_model_package(package.path)
+        assert type(restored) is expected
+        assert result.dataset_context is not None
+        assert restored.dataset_context == result.dataset_context
+        return restored
+
+    return run

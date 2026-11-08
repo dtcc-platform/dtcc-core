@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.calibration_grid import (
     CalibrationGridArgs,
     CalibrationGridDataset,
@@ -195,3 +196,58 @@ def test_args_model_defaults():
     assert args.divisions == 40
     assert args.crs == "EPSG:3006"
     assert args.format is None
+
+
+@pytest.mark.usefixtures("no_network")
+def test_calibration_grid_canonical_round_trip(canonical_round_trip):
+    """The generated grid survives a canonical package round trip."""
+    result = datasets.calibration_grid(bounds=BOUNDS)
+    restored = canonical_round_trip("calibration_grid", result)
+
+    assert len(restored.features) == len(result.features) > 0
+    assert restored.to_geojson() == result.to_geojson()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_calibration_grid_empty_canonical_round_trip(canonical_round_trip):
+    """An empty FeatureCollection built by the Dataset round-trips too."""
+    empty = {"type": "FeatureCollection", "name": "calibration_grid", "features": []}
+    with patch.object(get_dataset("calibration_grid"), "build", return_value=empty):
+        result = datasets.calibration_grid(bounds=BOUNDS)
+    restored = canonical_round_trip("calibration_grid", result)
+
+    assert len(restored.features) == len(result.features) == 0
+    assert restored.to_geojson() == result.to_geojson()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_calibration_grid_canonical_geojson_round_trip(tmp_path):
+    """Canonical GeoJSON is WGS84, reloads from the package and re-exports equal."""
+    result = datasets.calibration_grid(bounds=BOUNDS)
+
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    assert len(payload["features"]) == len(result.features) > 0
+    for feature in payload["features"]:
+        for lon, lat in feature["geometry"]["coordinates"]:
+            assert -180 <= lon <= 180 and -90 <= lat <= 90
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the table corner
+    # (319720, 6397660); the frame lines start there.
+    positions = [
+        position
+        for feature in payload["features"]
+        for position in feature["geometry"]["coordinates"]
+    ]
+    assert [11.975957858852261, 57.684970513932505] in [
+        pytest.approx(position, abs=1e-9) for position in positions
+    ]

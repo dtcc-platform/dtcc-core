@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
+import pytest
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.buildings import BuildingArgs, BuildingDataset
 from dtcc_core.model import Building, BuildingCollection, GeometryType, Surface
 
@@ -374,3 +376,85 @@ def _building_with_footprint(
     building.id = building_id
     building.add_geometry(surface, GeometryType.LOD0)
     return building
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.build_lod1_buildings")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.compute_building_heights")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.extract_roof_points")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.buildings.City")
+@pytest.mark.parametrize(
+    "ids", [["building-1", "building-2"], []], ids=["populated", "empty"]
+)
+def test_buildings_canonical_round_trip(
+    mock_city_cls,
+    mock_build_terrain_raster,
+    mock_extract_roof_points,
+    mock_compute_building_heights,
+    mock_build_lod1_buildings,
+    ids,
+    canonical_round_trip,
+):
+    """The registered Dataset call survives a canonical package round trip."""
+    city = Mock(name="city")
+    city.buildings = []
+    mock_city_cls.return_value = city
+    mock_build_lod1_buildings.return_value = [Building(id=i) for i in ids]
+
+    result = datasets.buildings(bounds=(0.0, 0.0, 1.0, 1.0))
+    restored = canonical_round_trip("buildings", result)
+
+    assert [b.id for b in restored.buildings] == ids
+    assert len(restored.buildings) == len(result.buildings)
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.build_lod1_buildings")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.compute_building_heights")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.extract_roof_points")
+@patch("dtcc_core.datasets.buildings.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.buildings.City")
+def test_buildings_canonical_geojson_round_trip(
+    mock_city_cls,
+    mock_build_terrain_raster,
+    mock_extract_roof_points,
+    mock_compute_building_heights,
+    mock_build_lod1_buildings,
+    tmp_path,
+):
+    """Canonical GeoJSON is WGS84, reloads from the package and re-exports equal."""
+    city = Mock(name="city")
+    city.buildings = []
+    mock_city_cls.return_value = city
+    footprinted = _building_with_footprint(
+        "building-1", 319900.0, 6397900.0, 319960.0, 6397940.0
+    )
+    footprinted.attributes["storeys"] = 4
+    mock_build_lod1_buildings.return_value = [footprinted, Building(id="building-2")]
+
+    result = datasets.buildings(bounds=(319720.0, 6397660.0, 320220.0, 6398160.0))
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert city.download_footprints.call_count == 1
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    assert payload["metadata"] == {"skipped": 1}
+    [feature] = payload["features"]
+    assert feature["id"] == "building-1"
+    assert feature["properties"]["storeys"] == 4
+    [ring] = feature["geometry"]["coordinates"]
+    assert all(-180 <= lon <= 180 and -90 <= lat <= 90 for lon, lat in ring)
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the footprint corner
+    # (319900, 6397900); rings are counter-clockwise.
+    assert [11.97879311854237, 57.68719536715784] in [
+        pytest.approx(position, abs=1e-9) for position in ring
+    ]

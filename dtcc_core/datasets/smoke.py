@@ -1527,6 +1527,7 @@ def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     )
     field_slice.add_field(
         Field(
+            association="sample",
             name="velocity",
             unit="m/s",
             description="Synthetic analytical velocity sampled on the slice plane.",
@@ -1536,6 +1537,7 @@ def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     )
     field_slice.add_field(
         Field(
+            association="sample",
             name="speed",
             unit="m/s",
             description="Magnitude of the synthetic analytical velocity field.",
@@ -1545,6 +1547,7 @@ def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     )
     field_slice.add_field(
         Field(
+            association="sample",
             name="pressure",
             unit="Pa",
             description="Synthetic gauge pressure sampled on the slice plane.",
@@ -1583,6 +1586,7 @@ def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollect
         linestring = LineString(vertices=physical_line)
         linestring.add_field(
             Field(
+                association="vertex",
                 name="velocity",
                 unit="m/s",
                 description="Synthetic analytical velocity sampled on streamline vertices.",
@@ -1592,6 +1596,7 @@ def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollect
         )
         linestring.add_field(
             Field(
+                association="vertex",
                 name="speed",
                 unit="m/s",
                 description="Magnitude of the synthetic analytical velocity field.",
@@ -1601,6 +1606,7 @@ def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollect
         )
         linestring.add_field(
             Field(
+                association="vertex",
                 name="pressure",
                 unit="Pa",
                 description="Synthetic gauge pressure sampled on streamline vertices.",
