@@ -7,6 +7,7 @@ normals, local affine transforms and DatasetContext still require explicit
 transformation rules. Z values are retained, not reprojected.
 """
 
+import functools
 import warnings
 
 import numpy as np
@@ -44,6 +45,16 @@ def _crs_pair(value, src_crs, target_crs, *, override=False):
                 "Reprojection supports horizontal two-axis CRSs only; Z is unchanged"
             )
     return source, target
+
+
+@functools.lru_cache(maxsize=128)
+def _transformer(source: CRS, target: CRS) -> Transformer:
+    """Return the shared XY-ordered transformer for a CRS pair.
+
+    Transformers keep their native PROJ object in thread-local storage, so one
+    instance may be used from several threads.
+    """
+    return Transformer.from_crs(source, target, always_xy=True)
 
 
 def _check_reprojection_state(value):
@@ -94,8 +105,9 @@ def reproject_array(points: np.ndarray, src_crs: str, target_crs: str) -> np.nda
         raise ValueError(
             "Unchanged integer Z values must be exactly representable in floating-point output"
         )
-    transformer = Transformer.from_crs(source, target, always_xy=True)
-    x, y = transformer.transform(points[:, 0], points[:, 1], errcheck=True)
+    x, y = _transformer(source, target).transform(
+        points[:, 0], points[:, 1], errcheck=True
+    )
     result = np.column_stack((x, y, points[:, 2]))
     if not np.isfinite(result).all():
         raise ValueError("Reprojection produced nonfinite coordinates")
