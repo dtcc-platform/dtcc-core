@@ -5,6 +5,9 @@ web form also exports, in the same package, one map-displayable artifact:
 RFC 7946 GeoJSON, a map-placed PNG or a GeoTIFF. This page lists what each
 product supports, shows the calls, and describes what a consumer reads.
 
+A [sandbox example](../../sandbox/web_map/README.md) draws one package of each web
+family on a Leaflet map.
+
 ## Coverage
 
 One row per declared (Dataset, product) pair, generated from the Dataset
