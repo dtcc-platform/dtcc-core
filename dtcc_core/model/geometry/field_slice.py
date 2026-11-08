@@ -31,6 +31,7 @@ class FieldSlice(PointCloud):
     domain_bounds: Bounds | None = None
     metadata_payload: dict[str, Any] = dataclass_field(default_factory=dict)
     default_artifact_format: str = "png"
+    web_geojson = True
 
     def _summary_items(self):
         return super()._summary_items() + [
@@ -56,61 +57,96 @@ class FieldSlice(PointCloud):
         include_z: bool | None = None,
         crs: str | None = None,
     ) -> dict[str, Any]:
-        """Return a GeoJSON adapter representation for debug/vector workflows."""
+        """Return the slice as a GeoJSON FeatureCollection of Points.
+
+        Positions are the stored points with the slice's own transform applied,
+        so every ``slice_axis`` exports real x, y (and z when ``include_z``).
+        Each feature carries ``sample_index`` and every Field with one row per
+        point as ``<name>`` (a number, or a component list for a vector Field)
+        with ``<name>_unit`` and, for vectors, ``<name>_components``. A Field
+        associated with the geometry holds one value for the whole slice and
+        goes into ``metadata`` under the same keys. These keys must not
+        already exist among the feature properties or metadata keys. Vector
+        Fields of two or three components are mapped by the linear part of the
+        slice's transform, so their components follow the exported axes; this
+        needs an orthogonal linear part (rotation or reflection), and scale or
+        shear raises while such a Field is present. Two-component Fields need a
+        transform that keeps the x/y plane separate from z. Fields of more than
+        three components are labelled ``c0``, ``c1``, ... and are never
+        transformed. Reprojection leaves components in the axis frame of the
+        source CRS. ``time``, ``period`` and the product parameters are
+        collection-level ``metadata``, which describes the payload's own
+        frame: ``metadata.crs`` names the CRS of the positions and
+        ``metadata.bounds`` is the envelope of the eight corners of the domain
+        bounds, or the sample bounds when none are stored, after the slice's
+        transform and, when reprojected, after reprojecting their x and y.
+
+        Parameters
+        ----------
+        include_z : bool, optional
+            Whether positions carry z; None uses ``self.include_z``.
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+
+        Raises
+        ------
+        ValueError
+            If the source CRS cannot be resolved, a Field does not have one
+            row per point (one row for a geometry Field), a Field would
+            overwrite a property or metadata key, or the transform cannot map
+            a vector Field.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            positions,
+            resolve_source_crs,
+        )
+
         include_z = self.include_z if include_z is None else include_z
-        crs = self.crs if crs is None else crs
-        velocity = self.field("velocity")
-        speed = self.field("speed")
-        pressure = self.field("pressure")
-        velocity_values = _field_values(velocity)
-        speed_values = _field_values(speed)
-        pressure_values = _field_values(pressure)
+        model = exported_coordinates(self)
+        source_crs = resolve_source_crs(model, [])
+        count = len(model.points)
+        linear = self.transform.affine[:3, :3]
+        linear = None if np.array_equal(linear, np.eye(3)) else linear
+        rows = []
+        metadata = self._metadata(
+            count, include_z=include_z, source_crs=source_crs, crs=crs
+        )
+        for item in model.fields:
+            values = _field_rows(item, count, "point", linear)
+            if item.association == "geometry":
+                _add_field(metadata, item, _field_value(values[0], item.dim))
+            else:
+                rows.append((item, values))
+        points = np.asarray(model.points, dtype=float)
+        if points.size == 0:
+            points = points.reshape(-1, 3)
+        coordinates = positions(points[:, : 3 if include_z else 2], source_crs, crs)
 
         features: list[dict[str, Any]] = []
-        for index, point in enumerate(np.asarray(self.points, dtype=float)):
+        for index, position in enumerate(coordinates):
             properties: dict[str, Any] = {"sample_index": index}
-            if velocity_values is not None and index < len(velocity_values):
-                vector = np.asarray(velocity_values[index], dtype=float).reshape(-1)
-                if len(vector) >= 3:
-                    properties.update(
-                        {
-                            "u": float(vector[0]),
-                            "v": float(vector[1]),
-                            "w": float(vector[2]),
-                        }
-                    )
-            if speed_values is not None and index < len(speed_values):
-                properties["speed"] = float(
-                    np.asarray(speed_values[index], dtype=float).reshape(-1)[0]
-                )
-            if pressure_values is not None and index < len(pressure_values):
-                properties["pressure"] = float(
-                    np.asarray(pressure_values[index], dtype=float).reshape(-1)[0]
-                )
-
+            for item, values in rows:
+                _add_field(properties, item, _field_value(values[index], item.dim))
             features.append(
                 {
                     "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": _coordinates(point, include_z),
-                    },
+                    "geometry": {"type": "Point", "coordinates": position},
                     "properties": properties,
                 }
             )
 
-        payload: dict[str, Any] = {
-            "type": "FeatureCollection",
-            "name": self.name,
-            "features": features,
-            "metadata": self._metadata(len(features), include_z=include_z),
-        }
-        if crs is not None:
-            payload["crs"] = {
-                "type": "name",
-                "properties": {"name": crs},
-            }
-            payload["metadata"]["crs"] = crs
+        payload = feature_collection(
+            features, source_crs=source_crs, crs=crs, metadata=metadata
+        )
+        payload["name"] = self.name
         return payload
 
     def to_python(self) -> dict[str, Any]:
@@ -233,13 +269,19 @@ class FieldSlice(PointCloud):
             f"FieldSlice object-first export does not support format {fmt!r}."
         )
 
-    def _metadata(self, sample_count: int, *, include_z: bool) -> dict[str, Any]:
+    def _metadata(
+        self,
+        sample_count: int,
+        *,
+        include_z: bool,
+        source_crs: str,
+        crs: str | None,
+    ) -> dict[str, Any]:
         metadata = {
             "dataset": "smoke",
             "product": "slice",
             "geometry": "Point",
             "sample_count": sample_count,
-            "bounds": _bounds_values(self.domain_bounds or self.bounds),
             "fields": self.field_names,
             "include_z": include_z,
             "slice_axis": self.slice_axis,
@@ -249,21 +291,62 @@ class FieldSlice(PointCloud):
             "time": self.time,
             "time_period": self.period,
             **dict(self.metadata_payload),
+            "bounds": _payload_bounds(
+                self.domain_bounds or self.bounds, source_crs, crs, self.transform
+            ),
+            "crs": source_crs if crs is None else crs,
         }
         return metadata
 
 
-def _field_values(field: Field | None) -> np.ndarray | None:
-    if field is None:
-        return None
-    return np.asarray(field.values, dtype=float)
+def _field_rows(
+    field: Field, count: int, unit: str, linear: np.ndarray | None = None
+) -> np.ndarray:
+    if field.association == "geometry":
+        count, unit = 1, "geometry"
+    values = np.asarray(field.values, dtype=float)
+    if len(values) != count:
+        raise ValueError(
+            f"Field '{field.name}' has {len(values)} rows, "
+            f"expected {count} (one per {unit})."
+        )
+    rows = values.reshape(count, field.dim)
+    if linear is not None and field.dim in (2, 3):
+        if not np.allclose(linear @ linear.T, np.eye(3), atol=1e-9):
+            raise ValueError(
+                f"Vector Field '{field.name}' requires an orthogonal root "
+                "transform (rotation or reflection); scale or shear is not supported."
+            )
+        if field.dim == 2 and (linear[:2, 2].any() or linear[2, :2].any()):
+            raise ValueError(
+                f"Two-component Field '{field.name}' requires a root transform "
+                "that keeps the x/y plane separate from z."
+            )
+        rows = rows @ linear[: field.dim, : field.dim].T
+    return rows
 
 
-def _coordinates(point: np.ndarray, include_z: bool) -> list[float]:
-    values = np.asarray(point, dtype=float).reshape(-1)
-    if not include_z:
-        values = values[:2]
-    return values.tolist()
+def _field_value(row: np.ndarray, dim: int) -> float | list[float]:
+    return float(row[0]) if dim == 1 else row.tolist()
+
+
+def _field_labels(field: Field) -> dict[str, Any]:
+    labels: dict[str, Any] = {f"{field.name}_unit": field.unit}
+    if field.dim > 1:
+        labels[f"{field.name}_components"] = (
+            ["u", "v", "w"][: field.dim]
+            if field.dim <= 3
+            else [f"c{i}" for i in range(field.dim)]
+        )
+    return labels
+
+
+def _add_field(target: dict[str, Any], field: Field, value: Any) -> None:
+    entries = {field.name: value, **_field_labels(field)}
+    clash = sorted(set(entries) & set(target))
+    if clash:
+        raise ValueError(f"Field '{field.name}' would overwrite existing keys {clash}.")
+    target.update(entries)
 
 
 def _bounds_values(bounds: Bounds) -> list[float]:
@@ -275,6 +358,22 @@ def _bounds_values(bounds: Bounds) -> list[float]:
         float(bounds.ymax),
         float(bounds.zmax),
     ]
+
+
+def _payload_bounds(
+    bounds: Bounds, source_crs: str, crs: str | None, transform=None
+) -> list[float]:
+    xmin, ymin, zmin, xmax, ymax, zmax = _bounds_values(bounds)
+    corners = np.array(
+        [[x, y, z] for x in (xmin, xmax) for y in (ymin, ymax) for z in (zmin, zmax)]
+    )
+    if transform is not None:
+        corners = transform(corners)
+    if crs is not None:
+        from ...io.geojson import positions
+
+        corners = np.array(positions(corners, source_crs, crs))
+    return [*map(float, corners.min(axis=0)), *map(float, corners.max(axis=0))]
 
 
 def _axis_names(axes: tuple[int, int]) -> tuple[str, str]:

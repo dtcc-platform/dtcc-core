@@ -218,20 +218,22 @@ def test_smoke_slice_snapshots_are_time_dependent():
     assert not np.isclose(first_speed, second_speed)
 
 
-def test_smoke_geojson_can_omit_crs_and_z_coordinates():
-    payload = datasets.smoke(
-        bounds=(0.0, 0.0, 10.0, 20.0),
-        resolution=4,
-        product="slice",
-        crs=None,
-        include_z=False,
-        format="geojson",
-    )
+def test_smoke_geojson_names_the_declared_crs_and_can_omit_z():
+    arguments = {
+        "bounds": (0.0, 0.0, 10.0, 20.0),
+        "resolution": 4,
+        "product": "slice",
+        "include_z": False,
+        "format": "geojson",
+    }
 
-    data = json.loads(payload.decode("utf-8"))
-    assert "crs" not in data
-    assert "crs" not in data["metadata"]
+    data = json.loads(datasets.smoke(**arguments).decode("utf-8"))
+    assert data["crs"] == {"type": "name", "properties": {"name": "EPSG:3006"}}
+    assert data["metadata"]["crs"] == "EPSG:3006"
     assert len(data["features"][0]["geometry"]["coordinates"]) == 2
+
+    with pytest.raises(ValueError, match="Cannot resolve the source CRS"):
+        datasets.smoke(**arguments, crs=None)
 
 
 def test_smoke_streamlines_geojson_format_returns_lines():
