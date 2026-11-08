@@ -151,6 +151,16 @@ class TransitVehiclesDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "vehicle_collection"
     python_return_type = "dtcc_core.model.VehicleCollection"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     timeout_hint = 20
     provider = [
         provider_entry("trafiklab", role="source_provider"),

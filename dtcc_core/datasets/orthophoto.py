@@ -209,6 +209,31 @@ class OrthophotoDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.Raster"
+    export_capabilities = [
+        {
+            "product": "raster",
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "unit": {"formats": ["png", "tif"], "default": None},
+            },
+            "exclusions": [],
+        },
+        {
+            "product": "tiles",
+            "canonical": True,
+            "web_formats": [],
+            "constraints": {},
+            "options": {},
+            "exclusions": [
+                {
+                    "formats": ["geojson", "png", "tif"],
+                    "reason": "web output out of scope by operator decision on #194",
+                }
+            ],
+        },
+    ]
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("lantmateriet", role="source_provider"),

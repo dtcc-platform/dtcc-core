@@ -307,6 +307,60 @@ class SmokeDataset(DatasetDescriptor):
     data_category = "synthetic"
     result_kind = "vector_field"
     python_return_type = "dtcc_core.model.VolumeMesh"
+    export_capabilities = [
+        {
+            "product": "field",
+            "canonical": True,
+            "web_formats": [],
+            "constraints": {},
+            "options": {},
+            "exclusions": [
+                {
+                    "formats": ["geojson", "png", "tif"],
+                    "reason": "3D-only product: no map-placed or RFC 7946 web form",
+                }
+            ],
+        },
+        {
+            "product": "slice",
+            "canonical": True,
+            "web_formats": ["geojson", "png", "tif"],
+            "constraints": {
+                "geojson": {"arguments": {}, "preconditions": ["crs_resolvable"]},
+                "png": {
+                    "arguments": {"slice_axis": "z"},
+                    "preconditions": [
+                        "translation_only_root_transform",
+                        "crs_resolvable",
+                    ],
+                },
+                "tif": {
+                    "arguments": {"slice_axis": "z"},
+                    "preconditions": [
+                        "translation_only_root_transform",
+                        "crs_resolvable",
+                    ],
+                },
+            },
+            "options": {
+                "field": {"formats": ["png", "tif"], "default": "speed"},
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "Field unit"},
+            },
+            "exclusions": [],
+        },
+        {
+            "product": "streamlines",
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {
+                "geojson": {"arguments": {}, "preconditions": ["crs_resolvable"]},
+            },
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     timeout_hint = 2
     provider = [
         {

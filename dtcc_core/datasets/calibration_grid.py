@@ -72,6 +72,18 @@ class CalibrationGridDataset(DatasetDescriptor):
     data_category = "synthetic"
     result_kind = "calibration_grid"
     python_return_type = "dtcc_core.model.CalibrationGrid"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {
+                "geojson": {"arguments": {}, "preconditions": ["crs_resolvable"]},
+            },
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     timeout_hint = 2
     provider = [{"name": "DTCC Platform", "role": "synthetic_generator"}]
     source = [

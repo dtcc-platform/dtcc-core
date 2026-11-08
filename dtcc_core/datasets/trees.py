@@ -72,6 +72,28 @@ class TreesDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "tree_collection"
     python_return_type = "dtcc_core.model.TreeCollection"
+    export_capabilities = [
+        {
+            "product": "trees",
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+        {
+            "product": "raster",
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "m"},
+            },
+            "exclusions": [],
+        },
+    ]
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
         provider_entry("dtcc-platform", role="processor"),

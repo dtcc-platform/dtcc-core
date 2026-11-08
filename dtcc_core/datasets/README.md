@@ -71,6 +71,12 @@ Every dataset is a `DatasetDescriptor` with:
 - `timeout_hint`: optional expected upper bound in seconds for service UIs.
 - `multi_file_formats`: serialized formats that usually produce companion
   files, such as `xdmf`.
+- `export_capabilities`: one entry per product: whether it exports as a
+  canonical package, its web formats for `export(canonical=True, format=...)`,
+  the constraints per format (Dataset `arguments` and data `preconditions`),
+  its export options with their formats and defaults, and `exclusions` with
+  reasons. `describe()["export"]` returns it, and `datasets.info()` lists the
+  web formats per product, a `*` marking a format that carries a constraint.
 
 The shared API is:
 
@@ -461,6 +467,10 @@ For a generated download:
    protobuf, or an unsupported download-only artifact.
 6. Use `dataset.export(path, ...)` when Atlas needs both the serialized data
    file and a manifest sidecar for that concrete request.
+7. Read `describe()["export"]` for what each product's result supports as a
+   canonical package and as a web format (map-placed PNG/GeoTIFF or RFC 7946
+   GeoJSON), the constraints and options of each format, and the reasons a
+   product has no web format.
 
 Creating Custom Datasets
 ------------------------

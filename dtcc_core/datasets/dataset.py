@@ -1,3 +1,4 @@
+import copy
 import json
 import tempfile
 from abc import ABC, abstractmethod
@@ -225,6 +226,10 @@ class DatasetDescriptor(ABC):
     python_return_type: str = "object"
     timeout_hint: int | None = None
     multi_file_formats: Sequence[str] = ()
+    # One entry per product: canonical package support, the web formats of
+    # export(canonical=True, format=...), their Dataset argument and data
+    # precondition constraints, export options, and exclusions with reasons.
+    export_capabilities: Sequence[dict[str, Any]] = ()
 
     def __init_subclass__(cls, register=True, **kwargs):
         """
@@ -583,6 +588,7 @@ class DatasetDescriptor(ABC):
             "supported_formats": formats,
             "formats": self.format_metadata(),
             "multi_file_formats": list(getattr(self, "multi_file_formats", ())),
+            "export": copy.deepcopy(list(self.export_capabilities)),
             "timeout_hint": getattr(self, "timeout_hint", None),
             "serialization": {
                 "python_object_when_format_omitted": True,
