@@ -145,7 +145,10 @@ size and SHA-256 digest before use.
 
 1. Read `placement` from the artifact. The PNG is a north-up RGBA image on a
    grid in `EPSG:3857`, of `placement.width` by `placement.height` pixels.
-   Pixels without a valid value are transparent.
+   Pixels without a valid value are transparent. With rasterio 1.5 or later
+   the pixels are placed exactly; older rasterio, which is what Python 3.11
+   installs, uses rasterio's approximate transformer, within 1/8 source pixel,
+   and warns once per process.
 2. Anchor the image at `placement.bounds_wgs84`, `[minlon, minlat, maxlon,
    maxlat]`: its corners, with north at the top, are the image's corners on a
    Web Mercator map. `placement.bounds` holds the same box in EPSG:3857, and

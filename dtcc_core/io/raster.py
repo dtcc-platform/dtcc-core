@@ -1,4 +1,5 @@
-from functools import partial
+import warnings
+from functools import cache, partial
 from pathlib import Path
 
 import numpy as np
@@ -206,6 +207,18 @@ def _placement(crs, transform, width, height, nodata):
     }
 
 
+@cache
+def _warn_approximate_placement():
+    """Warn, once per process, that PNG placement is approximate."""
+    warnings.warn(
+        f"rasterio {rasterio.__version__} cannot place PNG pixels exactly; "
+        "placement is approximate to within 1/8 source pixel. Python 3.12+ with "
+        "rasterio 1.5+ places exactly.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def write_placed_png(raster, path, *, band=None, value_range=None, colormap=None):
     """Write a north-up EPSG:3857 RGBA PNG of ``raster`` and return its placement.
 
@@ -223,10 +236,11 @@ def write_placed_png(raster, path, *, band=None, value_range=None, colormap=None
     from rasterio.control import GroundControlPoint
     from rasterio.warp import Resampling, calculate_default_transform, reproject
 
-    if "tolerance" not in signature(reproject).parameters:
-        raise RuntimeError(
-            "Exact PNG placement needs a rasterio whose reproject accepts tolerance"
-        )
+    # Exact transformation: the approximate default moves pixel picks. Older
+    # rasterio lacks the parameter and would pass it on to GDAL unchecked.
+    exact = {"tolerance": 0} if "tolerance" in signature(reproject).parameters else {}
+    if not exact:
+        _warn_approximate_placement()
     width, height = raster.width, raster.height
     corners = ((0, 0), (width, 0), (0, height), (width, height))
     gcps = [
@@ -250,8 +264,7 @@ def write_placed_png(raster, path, *, band=None, value_range=None, colormap=None
             dst_crs="EPSG:3857",
             dst_nodata=nodata,
             resampling=resampling,
-            # Exact transformation: the approximate default moves pixel picks.
-            tolerance=0,
+            **exact,
         )
         return destination
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
+import warnings
 
 import matplotlib
 import numpy as np
@@ -19,7 +21,7 @@ from rasterio.warp import Resampling, reproject
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import attach_dataset_context, load_model_package
 from dtcc_core.datasets.schema import DatasetArtifact, DatasetManifest
-from dtcc_core.io.raster import valid_pixels
+from dtcc_core.io.raster import _warn_approximate_placement, valid_pixels
 from dtcc_core.model import FieldSlice, Raster, StreamlineCollection
 
 ROTATED = (
@@ -30,6 +32,13 @@ ROTATED = (
 NORTH_UP = Affine(10.0, 0.0, 674000.0, 0.0, -10.0, 6580000.0)
 TO_SOURCE = Transformer.from_crs("EPSG:3857", "EPSG:3006", always_xy=True)
 TO_WGS84 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+# The pixel oracle below is exact; rasterio < 1.5 (Python 3.11) only warps
+# approximately, and these fixtures put pixel centres within 1/8 pixel of a
+# source pixel edge.
+exact_placement = pytest.mark.skipif(
+    "tolerance" not in inspect.signature(reproject).parameters,
+    reason="exact PNG placement needs rasterio 1.5+ (Python 3.12+)",
+)
 
 
 def _context(dataset):
@@ -102,6 +111,7 @@ def _assert_3857_grid(placement):
     assert placement.bounds_wgs84 == pytest.approx([lon0, lat0, lon1, lat1], abs=1e-9)
 
 
+@exact_placement
 def test_png_places_integer_labels_by_nearest_source_pixel(tmp_path):
     labels = np.arange(1, 25, dtype=np.int32).reshape(4, 6) * 7
     labels[2, 3] = -1
@@ -140,6 +150,7 @@ def test_png_places_integer_labels_by_nearest_source_pixel(tmp_path):
     np.testing.assert_array_equal(restored.data, labels)
 
 
+@exact_placement
 def test_png_interpolates_floating_values_bilinearly(tmp_path):
     values = _smooth()
     values[0, 0] = np.nan
@@ -216,6 +227,7 @@ def test_png_keeps_the_alpha_of_uint8_rgba(tmp_path):
     assert {128, 255} <= set(np.unique(image[..., 3]).tolist())
 
 
+@exact_placement
 def test_png_makes_finite_sentinel_pixels_transparent(tmp_path):
     values = _smooth()
     values[:, :8] = -9999.0
@@ -443,15 +455,33 @@ def test_other_image_formats_are_refused_in_canonical_packages(tmp_path, name):
     assert not (tmp_path / name).exists()
 
 
-def test_png_placement_requires_an_exact_reproject(tmp_path, monkeypatch):
-    def reproject(source, destination=None, **kwargs):
-        raise AssertionError("must not warp")
+def test_png_placement_without_tolerance_is_approximate_and_warns(
+    tmp_path, monkeypatch
+):
+    calls = []
 
-    monkeypatch.setattr(rasterio.warp, "reproject", reproject)
+    def approximate(source, destination=None, **kwargs):
+        calls.append(kwargs)
+        return reproject(source, destination, **kwargs)
 
-    with pytest.raises(RuntimeError, match="reproject accepts tolerance"):
-        _raster(_smooth()).export(tmp_path / "pkg", canonical=True, format="png")
-    assert not (tmp_path / "pkg").exists()
+    monkeypatch.setattr(rasterio.warp, "reproject", approximate)
+    _warn_approximate_placement.cache_clear()
+
+    message = "approximate to within 1/8 source pixel"
+    with pytest.warns(UserWarning, match=message) as caught:
+        package, artifact = _export(_raster(_smooth()), tmp_path / "pkg", format="png")
+    with warnings.catch_warnings(record=True) as again:
+        warnings.simplefilter("always")
+        _export(_raster(_smooth()), tmp_path / "again", format="png")
+
+    assert len(caught) == 1 and rasterio.__version__ in str(caught[0].message)
+    assert caught[0].filename.endswith("package.py")
+    assert not [w for w in again if message in str(w.message)]
+    assert calls and not any("tolerance" in kwargs for kwargs in calls)
+    _assert_3857_grid(artifact.placement)
+    image = _png(package, artifact)
+    assert image.shape[:2] == (artifact.placement.height, artifact.placement.width)
+    assert (image[..., 3] == 255).any()
 
 
 # Applicability of the options: positive cases
