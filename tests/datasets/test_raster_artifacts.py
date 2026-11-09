@@ -27,8 +27,8 @@ from dtcc_core.model import FieldSlice, Raster, StreamlineCollection
 
 ROTATED = (
     Affine.translation(674000.0, 6580000.0)
-    @ Affine.rotation(30.0)
-    @ Affine.scale(10.0, -10.0)
+    * Affine.rotation(30.0)
+    * Affine.scale(10.0, -10.0)
 )
 NORTH_UP = Affine(10.0, 0.0, 674000.0, 0.0, -10.0, 6580000.0)
 TO_SOURCE = Transformer.from_crs("EPSG:3857", "EPSG:3006", always_xy=True)
@@ -82,9 +82,9 @@ def _source_positions(placement, georef):
     """Source pixel coordinates of every destination pixel centre."""
     grid = Affine(*placement.transform)
     rows, cols = np.mgrid[0 : placement.height, 0 : placement.width]
-    x, y = grid @ (cols + 0.5, rows + 0.5)
+    x, y = grid * (cols + 0.5, rows + 0.5)
     sx, sy = TO_SOURCE.transform(x, y)
-    return ~georef @ (sx, sy)
+    return ~georef * (sx, sy)
 
 
 def _nearest(placement, georef, shape):
@@ -105,7 +105,7 @@ def _assert_3857_grid(placement):
     grid = Affine(*placement.transform)
     assert grid.b == grid.d == 0.0 and grid.a > 0.0 and grid.e < 0.0
     xmin, ymax = grid.c, grid.f
-    xmax, ymin = grid @ (placement.width, placement.height)
+    xmax, ymin = grid * (placement.width, placement.height)
     assert placement.bounds == pytest.approx([xmin, ymin, xmax, ymax], abs=1e-6)
     lon0, lat0 = TO_WGS84.transform(xmin, ymin)
     lon1, lat1 = TO_WGS84.transform(xmax, ymax)
@@ -388,7 +388,7 @@ def test_tif_keeps_the_source_grid_nodata_and_view_hint_unit(
     assert placement.transform == list(ROTATED)[:6]
     assert (placement.width, placement.height) == (values.shape[1], values.shape[0])
     h, w = values.shape
-    corners = [ROTATED @ c for c in ((0, 0), (w, 0), (0, h), (w, h))]
+    corners = [ROTATED * c for c in ((0, 0), (w, 0), (0, h), (w, h))]
     xs, ys = zip(*corners, strict=True)
     assert placement.bounds == pytest.approx([min(xs), min(ys), max(xs), max(ys)])
     lon, lat = 17.9, 59.3  # Stockholm area
@@ -475,8 +475,17 @@ def test_png_placement_without_tolerance_is_approximate_and_warns(
         warnings.simplefilter("always")
         _export(_raster(_smooth()), tmp_path / "again", format="png")
 
-    assert len(caught) == 1 and rasterio.__version__ in str(caught[0].message)
-    assert caught[0].filename.endswith("package.py")
+    affine_mul = "Use `@` matmul instead of `*` mul operator"
+    placement = [
+        w
+        for w in caught
+        if not (
+            issubclass(w.category, PendingDeprecationWarning)
+            and str(w.message).startswith(affine_mul)
+        )
+    ]
+    assert len(placement) == 1 and rasterio.__version__ in str(placement[0].message)
+    assert placement[0].filename.endswith("package.py")
     assert not [w for w in again if message in str(w.message)]
     assert calls and not any("tolerance" in kwargs for kwargs in calls)
     _assert_3857_grid(artifact.placement)

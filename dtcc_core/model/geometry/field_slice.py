@@ -244,7 +244,7 @@ class FieldSlice(PointCloud):
 
         data = np.full((resolution, resolution), np.nan)
         data[row, col] = values
-        georef = Affine.translation(affine[0, 3], affine[1, 3]) @ Affine(
+        georef = Affine.translation(affine[0, 3], affine[1, 3]) * Affine(
             spacing[0],
             0.0,
             domain.xmin - spacing[0] / 2,

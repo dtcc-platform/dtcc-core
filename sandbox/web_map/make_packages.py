@@ -29,8 +29,8 @@ BOUNDS = (319700.0, 6397600.0, 320300.0, 6398200.0)
 # Source grid: 40 x 40 pixels of 10 m, rotated 30 degrees about its origin.
 GEOREF = (
     Affine.translation(319732.0, 6397973.0)
-    @ Affine.rotation(30.0)
-    @ Affine.scale(10.0, -10.0)
+    * Affine.rotation(30.0)
+    * Affine.scale(10.0, -10.0)
 )
 NODATA = -1
 # Label -> (row, column) of the top-left pixel of its 2 x 2 block.
@@ -107,8 +107,8 @@ def expected_controls(raster, placement, rendering):
     to_wgs84 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
     grid = Affine(*placement.transform)
     rows, cols = np.mgrid[0 : placement.height, 0 : placement.width]
-    x, y = grid @ (cols + 0.5, rows + 0.5)
-    u, v = ~raster.georef @ to_source.transform(x, y)
+    x, y = grid * (cols + 0.5, rows + 0.5)
+    u, v = ~raster.georef * to_source.transform(x, y)
     colormap = matplotlib.colormaps[rendering.colormap]
     low, high = rendering.value_range
     controls = []

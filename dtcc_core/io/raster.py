@@ -192,7 +192,7 @@ def _placement(crs, transform, width, height, nodata):
     from rasterio.warp import transform_bounds
 
     corners = [
-        transform @ c for c in ((0, 0), (width, 0), (0, height), (width, height))
+        transform * c for c in ((0, 0), (width, 0), (0, height), (width, height))
     ]
     xs, ys = zip(*corners, strict=True)
     bounds = [min(xs), min(ys), max(xs), max(ys)]
@@ -244,7 +244,7 @@ def write_placed_png(raster, path, *, band=None, value_range=None, colormap=None
     width, height = raster.width, raster.height
     corners = ((0, 0), (width, 0), (0, height), (width, height))
     gcps = [
-        GroundControlPoint(row, col, *(raster.georef @ (col, row)), z=0.0)
+        GroundControlPoint(row, col, *(raster.georef * (col, row)), z=0.0)
         for col, row in corners
     ]
     transform, dst_width, dst_height = calculate_default_transform(
