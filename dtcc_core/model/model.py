@@ -76,6 +76,17 @@ class Model(ABC):
         lod=None,
         representation=None,
         field=None,
+        projection=None,
+        face_mask=None,
+        context_mask=None,
+        vmin=None,
+        vmax=None,
+        cmap=None,
+        title=None,
+        coordinate_unit=None,
+        xlabel=None,
+        ylabel=None,
+        scale_bar=False,
         max_elements=20000,
         theme="dark",
         show=True,
@@ -91,6 +102,14 @@ class Model(ABC):
         samples; vector fields use magnitude. Large inputs are sampled within
         ``max_elements``. This is a preview, not a full scene renderer.
 
+        Use ``projection="xy"`` on a triangular Mesh to fill scalar face values.
+        ``context_mask`` selects neutral faces excluded from the colour range;
+        ``face_mask`` selects field faces (default: all non-context faces).
+        Both masks are boolean arrays in face order. ``vmin``/``vmax`` share a
+        colour range. ``title``, ``cmap``, ``xlabel`` and ``ylabel`` customize maps.
+        ``coordinate_unit`` explicitly labels coordinate units without conversion;
+        ``scale_bar=True`` requires it. No coordinate units are assumed.
+
         See docs/model-preview.md for selection, geometry and coordinate limits.
         """
         from ..plotting.model import _plot_model
@@ -101,6 +120,19 @@ class Model(ABC):
             lod=lod,
             representation=representation,
             field=field,
+            projection=projection,
+            map_options=dict(
+                face_mask=face_mask,
+                context_mask=context_mask,
+                vmin=vmin,
+                vmax=vmax,
+                cmap=cmap,
+                title=title,
+                coordinate_unit=coordinate_unit,
+                xlabel=xlabel,
+                ylabel=ylabel,
+                scale_bar=scale_bar,
+            ),
             max_elements=max_elements,
             theme=theme,
             show=show,
