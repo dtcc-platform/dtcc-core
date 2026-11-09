@@ -84,7 +84,7 @@ def _has_sum_resampling() -> bool:
 
 HAS_SUM_RESAMPLING = _has_sum_resampling()
 # Bumped when cached values would differ, so older cache files are not reused.
-_CACHE_VERSION = 2
+_CACHE_VERSION = 3
 # Source cells read around the requested area so reprojection covers its edges.
 _WINDOW_MARGIN_CELLS = 2
 
@@ -140,7 +140,7 @@ def download_built_up(
         name = _PRODUCT_NAMES[component].format(epoch=epoch)
         info(f"Reading GHSL {name} from the JRC server")
         source, source_transform, source_crs = _read_window(
-            BUILT_UP_URL.format(name=name), bounds
+            BUILT_UP_URL.format(name=name), _grid_bounds(transform, width, height)
         )
         data = _reproject_preserving_totals(
             source, source_transform, source_crs, transform, width, height
@@ -235,6 +235,16 @@ def _target_grid(bounds: Bounds):
     height = max(1, math.ceil(round((bounds.ymax - bounds.ymin) / cell, 6)))
     transform = Affine(cell, 0, bounds.xmin, 0, -cell, bounds.ymax)
     return transform, width, height
+
+
+def _grid_bounds(transform: Affine, width: int, height: int) -> Bounds:
+    """Extent of the target grid, which can reach past the requested bounds."""
+    return Bounds(
+        transform.c,
+        transform.f + height * transform.e,
+        transform.c + width * transform.a,
+        transform.f,
+    )
 
 
 def _write_cache(path: Path, data, transform: Affine):
