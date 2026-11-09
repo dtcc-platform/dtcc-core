@@ -224,7 +224,8 @@ def download_settlement_class(
         name = _SETTLEMENT_CLASS_NAME.format(epoch=epoch)
         info(f"Reading GHSL {name} from the JRC server")
         values, source_transform, source_crs = _read_window(
-            SETTLEMENT_CLASS_URL.format(name=name), bounds
+            SETTLEMENT_CLASS_URL.format(name=name),
+            _grid_bounds(transform, width, height),
         )
         source = np.where(np.isnan(values), SETTLEMENT_CLASS_NODATA, values).astype(
             np.int16

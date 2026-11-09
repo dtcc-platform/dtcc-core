@@ -130,3 +130,49 @@ def test_every_class_has_a_name():
 def test_unsupported_epoch_raises():
     with pytest.raises(ValueError, match="Unsupported GHSL epoch"):
         ghsl.download_settlement_class(BOUNDS, epoch=2021)
+
+
+def test_edge_cells_past_uneven_bounds_get_a_class(monkeypatch, tmp_path):
+    # Bounds that are not whole 1 km cells round the grid up past their east
+    # and south edges. The real read must cover those extra cells too.
+    import rasterio
+
+    data, transform, crs = _mollweide_window(lambda x, y: 30, margin=8000.0)
+    name = ghsl._SETTLEMENT_CLASS_NAME.format(epoch=2020)
+    with rasterio.open(
+        tmp_path / f"{name}.tif",
+        "w",
+        driver="GTiff",
+        width=data.shape[1],
+        height=data.shape[0],
+        count=1,
+        dtype="float32",
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data, 1)
+    monkeypatch.setattr(ghsl, "SETTLEMENT_CLASS_URL", str(tmp_path / "{name}.tif"))
+    monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
+
+    for dx in range(0, 1000, 70):
+        for dy in range(0, 1000, 110):
+            bounds = Bounds(
+                BOUNDS.xmin + dx,
+                BOUNDS.ymin + dy,
+                BOUNDS.xmin + dx + 3001.0,
+                BOUNDS.ymin + dy + 2001.0,
+            )
+            raster = ghsl.download_settlement_class(bounds, use_cache=False)
+            assert raster.data.shape == (3, 4)
+            assert (raster.data == 30).all()
+
+
+def test_read_covers_the_whole_rounded_up_grid(fake_read):
+    ghsl.download_settlement_class(
+        Bounds(BOUNDS.xmin, BOUNDS.ymin + 1.0, BOUNDS.xmax + 1.0, BOUNDS.ymax)
+    )
+
+    _, bounds = fake_read.calls[0]
+    assert bounds.tuple == pytest.approx(
+        (BOUNDS.xmin, BOUNDS.ymax - 2000.0, BOUNDS.xmin + 4000.0, BOUNDS.ymax)
+    )
