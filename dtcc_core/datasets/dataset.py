@@ -115,6 +115,22 @@ class DatasetBaseArgs(BaseModel):
         return v
 
 
+def _is_read_timeout(exc: Exception) -> bool:
+    """Whether ``exc`` is a read timeout that requests reports as a connection error.
+
+    With no read retries left, urllib3 raises ``MaxRetryError`` with a
+    ``ReadTimeoutError`` reason, and requests wraps that in ``ConnectionError``.
+    """
+    try:
+        from urllib3.exceptions import MaxRetryError, ReadTimeoutError
+    except ImportError:
+        return False
+    reason = exc.args[0] if exc.args else None
+    return isinstance(reason, MaxRetryError) and isinstance(
+        reason.reason, ReadTimeoutError
+    )
+
+
 class DatasetUpstreamError(RuntimeError):
     """Typed error for live upstream failures.
 
@@ -1003,7 +1019,7 @@ class DatasetDescriptor(ABC):
         status_code = None
 
         if requests is not None:
-            if isinstance(exc, requests.Timeout):
+            if isinstance(exc, requests.Timeout) or _is_read_timeout(exc):
                 failure_class = "timeout"
             elif isinstance(exc, requests.ConnectionError):
                 failure_class = "connection"

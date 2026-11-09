@@ -7,6 +7,7 @@ import rasterio
 import requests
 from affine import Affine
 from pyproj import Transformer
+from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError
 from dtcc_core.io.data import imperviousness
@@ -349,6 +350,13 @@ def test_non_image_response_raises(service):
     [
         (requests.ConnectTimeout("slow"), "timeout"),
         (requests.ConnectionError("down"), "connection"),
+        # How requests reports a read timeout once urllib3 has no read retries left.
+        (
+            requests.ConnectionError(
+                MaxRetryError(None, "/", reason=ReadTimeoutError(None, "/", "slow"))
+            ),
+            "timeout",
+        ),
         (FakeResponse(b"", status=503), "http_5xx"),
         (FakeResponse(b"", status=404), "http_4xx"),
     ],
@@ -361,6 +369,30 @@ def test_request_failures_are_typed_and_not_cached(service, result, failure_clas
 
     assert info.value.failure_class == failure_class
     assert not imperviousness._cache_path(BOUNDS, 2018).exists()
+
+
+def test_read_timeout_from_a_server_that_never_answers_is_a_timeout():
+    import socket
+    import threading
+
+    from dtcc_core.datasets.dataset import DatasetDescriptor
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    held = []
+    threading.Thread(target=lambda: held.append(server.accept()), daemon=True).start()
+    url = f"http://127.0.0.1:{server.getsockname()[1]}/"
+    try:
+        with pytest.raises(requests.RequestException) as info:
+            imperviousness._session().get(url, timeout=(5, 0.2))
+    finally:
+        for connection, _ in held:
+            connection.close()
+        server.close()
+
+    error = DatasetDescriptor.build_upstream_error("d", "op", url, info.value)
+    assert error.failure_class == "timeout"
 
 
 def test_download_uses_cache_on_second_call(service):
