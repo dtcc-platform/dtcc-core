@@ -170,7 +170,7 @@ class VolumeGrid(Geometry):
     width: int = 0
     height: int = 0
     depth: int = 0
-    z_levels: ArrayLike | None = field(default=None, kw_only=True, compare=False)
+    z_levels: ArrayLike | None = field(default=None, kw_only=True)
 
     def _summary_items(self):
         return [
@@ -199,7 +199,9 @@ class VolumeGrid(Geometry):
             self.z_levels, other.z_levels
         ):
             return False
-        compared = [f.name for f in fields(self) if f.compare]
+        compared = [
+            f.name for f in fields(VolumeGrid) if f.compare and f.name != "z_levels"
+        ]
         return tuple(getattr(self, name) for name in compared) == tuple(
             getattr(other, name) for name in compared
         )

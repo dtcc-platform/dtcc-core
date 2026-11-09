@@ -1,6 +1,6 @@
 """Regression tests for geometry metadata and mutation contracts."""
 
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import pytest
@@ -399,6 +399,26 @@ def test_volume_grid_equality_distinguishes_explicit_and_uniform_layers():
     grid = VolumeGrid(width=1, height=1, depth=2)
     assert grid == replace(grid)
     assert grid != replace(grid, z_levels=[0, 1, 2])
+
+
+def test_volume_grid_subclass_equality_does_not_ignore_layer_boundaries():
+    @dataclass(repr=False)
+    class LayeredGrid(VolumeGrid):
+        pass
+
+    grid = LayeredGrid(width=1, height=1, z_levels=[0, 1, 3])
+    with pytest.raises(ValueError, match="ambiguous"):
+        bool(grid == replace(grid, z_levels=[0, 2, 3]))
+
+
+def test_volume_grid_equality_inherited_by_subclass_compares_base_fields():
+    @dataclass(repr=False, eq=False)
+    class TaggedGrid(VolumeGrid):
+        tag: str = field(default="a", kw_only=True)
+
+    grid = TaggedGrid(width=1, height=1, z_levels=[0, 1, 3])
+    assert grid == replace(grid, tag="b")
+    assert grid != replace(grid, z_levels=[0, 2, 3])
 
 
 def test_volume_grid_rejects_layer_boundaries_inconsistent_with_wire_depth():

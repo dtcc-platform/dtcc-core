@@ -78,7 +78,7 @@ derived caches.
 | VolumeMesh | Vertices, tetrahedral cells, markers | Generic Geometry; simulation mesh is not a CityGML Solid shell |
 | PointCloud | Points, classification, intensity, return_number, num_returns | Generic Geometry; classification numbers do not establish city-feature semantics |
 | Grid | Width, height, domain bounds | Generic Geometry; numerical discretization; explicit domain retained independently of cell resolution |
-| VolumeGrid | Width, height, depth, domain bounds | Generic Geometry; numerical discretization; explicit domain retained independently of cell resolution |
+| VolumeGrid | Width, height, depth, domain bounds, optional layer boundary elevations | Generic Geometry; numerical discretization; explicit domain retained independently of cell resolution |
 | Field | Values, name, unit, description, dim, association | Field metadata projected to schema; arrays and counts checked natively; general time/scenario axes missing |
 | Raster | Data array, six affine coefficients, nodata, CRS | Generic Entity; Terrain can associate schema-declared elevation interpretation by representation ID. Native DEM support is not a CityGML RasterRelief or CityJSON conversion |
 | Bounds | Six finite ordered bounds | Generic Entity; standalone bounds or explicit representation, not cached Object extent |
