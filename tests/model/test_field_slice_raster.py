@@ -353,3 +353,110 @@ def test_translation_and_rotation_behave_the_same_after_a_reload(tmp_path):
     _, turned = _smoke_slice(tmp_path / "turned", rotate)
     with pytest.raises(ValueError, match="GeoJSON"):
         turned.to_raster()
+
+
+def _integer_slice(**fields):
+    model = _slice()
+    model.fields = [
+        Field(
+            association="sample",
+            name=name,
+            unit="m/s",
+            values=np.asarray(values, dtype=np.int64).reshape(len(model.points), -1),
+            dim=np.asarray(values).reshape(len(model.points), -1).shape[1],
+        )
+        for name, values in fields.items()
+    ]
+    return model
+
+
+def _counts(value=2**53 + 1):
+    counts = np.arange(25, dtype=np.int64)
+    counts[7] = value
+    return counts
+
+
+def test_a_scalar_field_float64_would_round_is_refused():
+    model = _integer_slice(count=_counts())
+
+    with pytest.raises(ValueError, match=rf"Field 'count'.*{2**53 + 1}"):
+        model.to_raster(field="count")
+
+
+def test_a_selected_component_float64_would_round_is_refused():
+    rows = np.zeros((25, 3), dtype=np.int64)
+    rows[4, 0] = 2**53 + 1
+    model = _integer_slice(flow=rows)
+
+    with pytest.raises(ValueError, match=rf"Field 'flow'.*{2**53 + 1}"):
+        model.to_raster(field="flow:u")
+
+
+def test_an_integer_field_float64_holds_exactly_fills_the_raster():
+    values = 2**60 - 2**10 * np.arange(25, dtype=np.int64)
+    model = _integer_slice(count=values)
+
+    raster, rendering = model.to_raster(field="count")
+
+    assert rendering == {"field": "count", "unit": "m/s"}
+    for (x, y, _), value in zip(model.points, values.tolist(), strict=True):
+        assert int(raster.get_value(x, y)) == value
+    assert raster.get_value(*model.points[0][:2]) == float(2**60)
+
+
+def _published(model, tmp_path, name, **kwargs):
+    from dtcc_core.datasets import attach_dataset_context
+    from dtcc_core.datasets.schema import (
+        DatasetContext,
+        DatasetIdentity,
+        DatasetMetadata,
+        DatasetPresentation,
+        DatasetProvenance,
+        DatasetRequest,
+    )
+
+    attach_dataset_context(
+        model,
+        DatasetContext(
+            identity=DatasetIdentity(name="example", title="Example"),
+            metadata=DatasetMetadata(crs=["EPSG:3006"]),
+            provenance=DatasetProvenance(sources=["example"]),
+            presentation=DatasetPresentation(),
+            request=DatasetRequest(dataset_name="example", bounds=[0.0, 0.0, 1.0, 1.0]),
+            health={"status": "ok"},
+            warnings=[],
+        ),
+    )
+    return model.export(tmp_path / name, canonical=True, **kwargs)
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_canonical_package_keeps_an_integer_but_a_tif_refuses_it(tmp_path):
+    model = _integer_slice(speed=_counts())
+
+    package = _published(model, tmp_path, "plain")
+    restored = load_model_package(package.path)
+    assert int(restored.field("speed").values[7, 0]) == 2**53 + 1
+
+    for format in ("tif", "geojson"):
+        target = tmp_path / f"{format}_pkg"
+        with pytest.raises(ValueError, match=rf"Field 'speed'.*{2**53 + 1}"):
+            model.export(target, canonical=True, format=format)
+        assert not target.exists()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_canonical_tif_holds_an_integer_float64_holds_exactly(tmp_path):
+    import rasterio
+
+    values = np.full(25, 2**60, dtype=np.int64)
+    model = _integer_slice(speed=values)
+
+    package = _published(model, tmp_path, "pkg", format="tif")
+
+    [artifact] = [a for a in package.artifacts if a.format == "tif"]
+    x, y, _ = model.points[7]
+    with rasterio.open(package.path / artifact.path) as dataset:
+        row, column = dataset.index(x, y)
+        value = dataset.read(1)[row, column]
+    assert int(value) == 2**60

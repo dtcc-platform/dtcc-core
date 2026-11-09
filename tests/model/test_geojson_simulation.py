@@ -724,3 +724,75 @@ def test_a_vertical_slice_exports_real_easting_and_northing(crs):
         expected = np.array([_lonlat(x, y) for x, y in stored[:, :2]])
         np.testing.assert_allclose(positions[:, :2], expected, atol=1e-9)
         assert np.ptp(positions[:, 1]) > 0.0
+
+
+def _integer_field(name, values, association, dim=1):
+    return Field(
+        name=name,
+        unit="m",
+        values=np.asarray(values, dtype=np.int64).reshape(-1, dim),
+        dim=dim,
+        association=association,
+    )
+
+
+def _with_integer(product, value, kind):
+    if kind == "geometry":
+        field = _integer_field("count", [value], "geometry")
+        target = product if isinstance(product, FieldSlice) else product.lines[0]
+    elif kind == "vector":
+        rows = np.zeros((4, 3), dtype=np.int64)
+        rows[2, 1] = value
+        field = _integer_field("flow", rows, "sample", dim=3)
+        target = product
+    else:
+        association = (
+            "vertex" if isinstance(product, StreamlineCollection) else "sample"
+        )
+        count = 3 if association == "vertex" else 4
+        values = np.zeros(count, dtype=np.int64)
+        values[-1] = value
+        field = _integer_field("count", values, association)
+        target = product if isinstance(product, FieldSlice) else product.lines[0]
+    target.fields.append(field)
+    return product
+
+
+@pytest.mark.parametrize("kind", ["scalar", "vector", "geometry"])
+def test_a_slice_field_float64_would_round_is_refused(kind):
+    model = _with_integer(_slice(), 2**53 + 1, kind)
+
+    with pytest.raises(ValueError, match=rf"Field '\w+'.*{2**53 + 1}"):
+        model.to_geojson()
+
+
+def test_a_slice_field_float64_holds_exactly_is_exported():
+    properties = _with_integer(_slice(), 2**60, "scalar").to_geojson()["features"][-1][
+        "properties"
+    ]
+
+    assert properties["count"] == float(2**60)
+
+
+@pytest.mark.parametrize("kind", ["scalar", "geometry"])
+def test_a_streamline_field_float64_would_round_is_refused(kind):
+    model = _with_integer(_streamlines(), 2**53 + 1, kind)
+
+    with pytest.raises(ValueError, match=rf"Field 'count'.*{2**53 + 1}"):
+        model.to_geojson()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_canonical_package_keeps_the_integer_float64_would_round(tmp_path):
+    model = _with_integer(_slice(), 2**53 + 1, "scalar")
+    attach_dataset_context(model, _context(["EPSG:3006"]))
+
+    package = model.export(tmp_path / "pkg", canonical=True)
+    restored = load_model_package(package.path)
+
+    assert restored.field("count").values.dtype == np.int64
+    assert int(restored.field("count").values[-1, 0]) == 2**53 + 1
+    target = tmp_path / "geojson"
+    with pytest.raises(ValueError, match=rf"Field 'count'.*{2**53 + 1}"):
+        model.export(target, canonical=True, format="geojson")
+    assert not target.exists()

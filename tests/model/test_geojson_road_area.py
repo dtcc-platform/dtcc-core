@@ -452,3 +452,29 @@ def test_deso_canonical_round_trip(tmp_path):
     )
     assert second["properties"]["population"] is None
     assert second["properties"]["population_unit"] == "persons"
+
+
+def test_deso_area_field_float64_would_round_is_refused():
+    deso = _deso()
+    geometry = deso.areas[1].get_geometry(GeometryType.LOD0)
+    geometry.fields.append(
+        Field(
+            name="households",
+            unit="count",
+            values=np.array([2**53 + 1], dtype=np.int64),
+            association="geometry",
+        )
+    )
+
+    with pytest.raises(ValueError, match=rf"Field 'households'.*{2**53 + 1}"):
+        deso.to_geojson()
+
+
+def test_deso_area_without_the_statistic_still_exports_null():
+    deso = _deso()
+    deso.areas[1].get_geometry(GeometryType.LOD0).fields.clear()
+
+    first, second = deso.to_geojson()["features"]
+
+    assert first["properties"]["population"] == 1200.0
+    assert second["properties"]["population"] is None

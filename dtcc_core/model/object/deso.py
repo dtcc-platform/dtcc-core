@@ -11,6 +11,7 @@ from ...plotting.style import (
 )
 from ..geometry import MultiSurface
 from ..values import Field
+from ..values.field import _float64_exact
 from .object import GeometryType, Object
 
 
@@ -179,6 +180,9 @@ class DeSO(Object):
                 for member in (area, geometry, *geometry.surfaces)
             ],
         )
+        for _, _, geometry in areas:
+            for field in geometry.fields:
+                _float64_exact(field.values, f"Field '{field.name}'")
         fields = model.fields
         features = []
         for index, area, geometry in areas:

@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from ..values import Field
+from ..values.field import _float64_exact
 from .bounds import Bounds
 from .pointcloud import PointCloud
 
@@ -435,7 +436,7 @@ def _field_rows(
 ) -> np.ndarray:
     if field.association == "geometry":
         count, unit = 1, "geometry"
-    values = np.asarray(field.values, dtype=float)
+    values = _float64_exact(field.values, f"Field '{field.name}'")
     if len(values) != count:
         raise ValueError(
             f"Field '{field.name}' has {len(values)} rows, "
