@@ -71,6 +71,8 @@ arrays are never replaced or interpolated into the model.
   `value_range` view hint (such as `imperviousness`): a flat 2D map coloured
   over that range, with NaN cells left blank, the dataset headline as title and
   the hint's `unit` on the colorbar. Large rasters are sampled as for images.
+  A supplied 3D `ax` keeps the 3D preview, so the raster can share a scene
+  with other models.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
 
 The global `max_elements` budget bounds drawn faces, segments, samples and image

@@ -333,7 +333,13 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
         return _plot_image_raster(
             root, ax=ax, max_elements=max_elements, theme=theme, show=show
         )
-    if isinstance(root, Raster) and root.data.ndim == 2 and field is None:
+    # A supplied 3D axes keeps the 3D preview, so the raster can share a scene.
+    if (
+        isinstance(root, Raster)
+        and root.data.ndim == 2
+        and field is None
+        and getattr(ax, "name", None) != "3d"
+    ):
         scalar = _scalar_hints(root)
         if scalar is not None:
             return _plot_image_raster(

@@ -254,6 +254,26 @@ def test_raster_with_value_range_hint_is_a_2d_map(monkeypatch):
     assert ax.get_xlim() == pytest.approx((100, 120))
 
 
+def test_raster_with_value_range_hint_draws_into_supplied_3d_axes(monkeypatch):
+    import dtcc_core.datasets as datasets
+
+    monkeypatch.setattr(
+        "dtcc_core.io.data.download_imperviousness",
+        lambda bounds, year: Raster(
+            data=np.array([[0.0, 50.0], [100.0, 20.0]], dtype=np.float32),
+            georef=Affine(10, 0, 100, 0, -10, 200),
+            crs="EPSG:3006",
+        ),
+    )
+    raster = datasets.imperviousness(bounds=(100.0, 180.0, 120.0, 200.0))
+    ax3d = plt.figure().add_subplot(projection="3d")
+
+    ax = raster.plot(ax=ax3d, show=False)
+
+    assert ax is ax3d
+    assert ax.collections
+
+
 def test_raster_without_value_range_hint_keeps_the_3d_preview():
     raster = Raster(
         data=np.array([[0.0, 50.0], [100.0, 20.0]]),
