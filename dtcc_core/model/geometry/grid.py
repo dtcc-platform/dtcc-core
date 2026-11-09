@@ -26,6 +26,12 @@ def _step(extent: float, count: int, dimension: str) -> float:
     return extent / count
 
 
+def _z_tolerance(levels: ArrayLike) -> float:
+    # Rounding in each boundary grows with its magnitude and the layers summed into it.
+    levels = np.asarray(levels, dtype=float)
+    return levels.size * np.finfo(float).eps * np.max(np.abs(levels))
+
+
 @dataclass(repr=False)
 class Grid(Geometry):
     """Represents a structured quadrilateral grid in 2D.
@@ -145,9 +151,11 @@ class VolumeGrid(Geometry):
     z_levels : array-like, optional
         Absolute layer boundary elevations in the geometry's local coordinate
         system, not cell thicknesses or offsets from bounds.zmin. Accepts lists,
-        tuples and NumPy arrays; stored as a float NumPy array. Must contain
-        depth + 1 finite, strictly increasing values and agree with explicit
-        vertical bounds. If absent, vertical spacing is uniform.
+        tuples and NumPy arrays. The constructor stores a float NumPy array; a
+        value assigned later is kept as given and validated when used. Must
+        contain depth + 1 finite, strictly increasing values and agree with
+        explicit vertical bounds to within floating-point rounding. If absent,
+        vertical spacing is uniform.
 
     Examples
     --------
@@ -244,8 +252,11 @@ class VolumeGrid(Geometry):
             raise ValueError("VolumeGrid z_levels would lose precision in a double.")
         if not np.all(levels[1:] > levels[:-1]):
             raise ValueError("VolumeGrid z_levels must be strictly increasing.")
-        if self._bounds is not None and (
-            self._bounds.zmin != levels[0] or self._bounds.zmax != levels[-1]
+        if self._bounds is not None and not np.allclose(
+            (self._bounds.zmin, self._bounds.zmax),
+            (levels[0], levels[-1]),
+            rtol=0,
+            atol=_z_tolerance(levels),
         ):
             raise ValueError("VolumeGrid z_levels must match vertical bounds.")
 
@@ -297,10 +308,15 @@ class VolumeGrid(Geometry):
 
     @property
     def zstep(self) -> float:
-        """Return uniform vertical spacing; raise for nonuniform layer thicknesses."""
+        """Return uniform vertical spacing; raise for nonuniform layer thicknesses.
+
+        Thicknesses that differ only by floating-point rounding count as uniform.
+        """
         if self.z_levels is not None:
             steps = self.zsteps
-            if steps.size and not np.allclose(steps, steps[0], rtol=1e-12, atol=0):
+            if steps.size and not np.allclose(
+                steps, steps[0], rtol=1e-12, atol=_z_tolerance(self.z_levels)
+            ):
                 raise ValueError("VolumeGrid has nonuniform z spacing; use zsteps.")
         return _step(self.bounds.depth, self.depth, "depth")
 

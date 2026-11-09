@@ -339,6 +339,36 @@ def test_volume_grid_rejects_conflicting_vertical_bounds():
         grid.to_proto()
 
 
+@pytest.mark.parametrize(
+    ("steps", "zmax"),
+    [([0.1] * 10, 1.0), ([0.1, 0.2], 0.3), ([0.1] * 1000, 100.0)],
+)
+def test_volume_grid_accepts_vertical_bounds_within_rounding(steps, zmax):
+    grid = VolumeGrid.from_zsteps(steps, width=1, height=1)
+    grid.bounds = Bounds(xmax=1, ymax=1, zmax=zmax)
+    assert len(grid.coordinates()) == grid.num_vertices
+    grid.to_proto()
+
+
+def test_volume_grid_rejects_vertical_bounds_beyond_rounding():
+    with pytest.raises(ValueError, match="vertical bounds"):
+        VolumeGrid(_bounds=Bounds(zmin=8848, zmax=8849.000001), z_levels=[8848, 8849])
+
+
+@pytest.mark.parametrize(
+    ("zmin", "step"), [(0, 0.1), (1000, 0.1), (5000, 0.1), (100, 0.01), (8848, 0.01)]
+)
+def test_volume_grid_uniform_decimal_layers_keep_scalar_step_at_elevation(zmin, step):
+    grid = VolumeGrid.from_zsteps([step] * 10, zmin=zmin, width=1, height=1)
+    assert grid.zstep == pytest.approx(step)
+
+
+def test_volume_grid_rejects_nonuniform_layers_beyond_rounding():
+    grid = VolumeGrid(width=1, height=1, z_levels=[1000, 1001, 1002.000001])
+    with pytest.raises(ValueError, match="nonuniform"):
+        _ = grid.zstep
+
+
 def test_volume_grid_layer_boundaries_roundtrip_and_clear():
     grid = VolumeGrid(
         width=2,
