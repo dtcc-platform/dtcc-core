@@ -335,6 +335,59 @@ def test_read_window_marks_cells_beyond_a_file_without_nodata_as_nan(tmp_path):
     assert set(np.unique(data[~np.isnan(data)])) <= {500.0}
 
 
+def test_edge_cells_past_uneven_bounds_get_their_full_area(monkeypatch, tmp_path):
+    # Bounds that are not whole 100 m cells round the grid up past their east
+    # and south edges. The real read must cover those extra cells too, at
+    # every alignment against the source grid.
+    import rasterio
+
+    data, transform, crs = _mollweide_window(value=10_000.0, margin=3000.0)
+    name = ghsl._BUILT_UP_NAMES["total"].format(epoch=2020)
+    with rasterio.open(
+        tmp_path / f"{name}.tif",
+        "w",
+        driver="GTiff",
+        width=data.shape[1],
+        height=data.shape[0],
+        count=1,
+        dtype="float32",
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        dst.write(data, 1)
+    monkeypatch.setattr(ghsl, "BUILT_UP_URL", str(tmp_path / "{name}.tif"))
+    monkeypatch.setattr(ghsl, "cache_dir", tmp_path)
+
+    lowest = np.inf
+    for dx in range(0, 100, 7):
+        for dy in range(0, 100, 11):
+            bounds = Bounds(
+                BOUNDS.xmin + dx,
+                BOUNDS.ymin + dy,
+                BOUNDS.xmin + dx + 1001.0,
+                BOUNDS.ymin + dy + 1001.0,
+            )
+            raster = ghsl.download_built_up(bounds, use_cache=False)
+            assert raster.data.shape == (11, 11)
+            lowest = min(lowest, float(np.nanmin(raster.data)))
+            assert not np.isnan(raster.data).any()
+
+    # A fully built-up 100 m cell holds about 9,970 m² here; see
+    # test_returns_100m_raster_preserving_totals for the scale difference.
+    assert lowest > 9_900.0
+
+
+def test_read_covers_the_whole_rounded_up_grid(fake_read):
+    ghsl.download_built_up(
+        Bounds(BOUNDS.xmin, BOUNDS.ymin + 1.0, BOUNDS.xmax + 1.0, BOUNDS.ymax)
+    )
+
+    _, bounds = fake_read.calls[0]
+    assert bounds.tuple == pytest.approx(
+        (BOUNDS.xmin, BOUNDS.ymax - 1000.0, BOUNDS.xmin + 1100.0, BOUNDS.ymax)
+    )
+
+
 def test_http_timeout_is_read_when_requesting(monkeypatch):
     monkeypatch.setenv("DTCC_GHSL_HTTP_TIMEOUT", "600")
     assert ghsl._gdal_env()["GDAL_HTTP_TIMEOUT"] == "600"
