@@ -36,7 +36,9 @@ VIOLATION_MESSAGES = {
     "crs_resolvable": "source CRS",
 }
 REASON_3D = "3D-only product: no map-placed or RFC 7946 web form"
-REASON_TILES = "web output out of scope by operator decision on #194"
+REASON_TILES = (
+    "tile collections have no web artifact; use the raster product for imagery"
+)
 
 BUILTINS = {
     name: dataset

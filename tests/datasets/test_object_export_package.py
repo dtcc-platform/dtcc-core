@@ -347,6 +347,16 @@ def _geojson_payload(package) -> dict:
     return json.loads((package.path / artifact.path).read_text())
 
 
+def test_package_geojson_is_one_compact_line(tmp_path):
+    package = _sensor_package(tmp_path)
+
+    [artifact] = [a for a in package.artifacts if a.format == "geojson"]
+    text = (package.path / artifact.path).read_text()
+    assert text.endswith("}\n")
+    assert "\n" not in text[:-1]
+    assert ", " not in text and ": " not in text
+
+
 def _sensor_package(tmp_path):
     collection = SensorCollection(attributes={"crs": "EPSG:3006"})
     station = Object(attributes={"station_id": "s1"})

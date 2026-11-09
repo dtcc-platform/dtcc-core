@@ -33,12 +33,12 @@ ROTATED = (
 NORTH_UP = Affine(10.0, 0.0, 674000.0, 0.0, -10.0, 6580000.0)
 TO_SOURCE = Transformer.from_crs("EPSG:3857", "EPSG:3006", always_xy=True)
 TO_WGS84 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
-# The pixel oracle below is exact; rasterio < 1.5 (Python 3.11) only warps
+# The pixel oracle below is exact; rasterio < 1.5.1 (Python 3.11) only warps
 # approximately, and these fixtures put pixel centres within 1/8 pixel of a
 # source pixel edge.
 exact_placement = pytest.mark.skipif(
     "tolerance" not in inspect.signature(reproject).parameters,
-    reason="exact PNG placement needs rasterio 1.5+ (Python 3.12+)",
+    reason="exact PNG placement needs rasterio 1.5.1+ (Python 3.12+)",
 )
 
 

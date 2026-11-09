@@ -223,8 +223,8 @@ Regenerate only this schema with the development compiler `grpcio-tools==1.71.0`
 python -m grpc_tools.protoc -I dtcc_core/schemas --python_out=dtcc_core/model dtcc_core/schemas/dtcc.proto
 ```
 
-The generated file is checked by hash: hash the committed `dtcc_pb2.py`, regenerate it
-with the pinned compiler and require the hash to be unchanged.
+To verify the generated file by hand, hash the committed `dtcc_pb2.py`, regenerate it
+with the pinned compiler and compare the two hashes; they must be equal.
 
 `Object.Kind` carries seven root-only result-wrapper kinds: `TREE_COLLECTION` (13),
 `BUILDING_COLLECTION` (14), `FOOTPRINT_COLLECTION` (15), `CALIBRATION_GRID` (16),

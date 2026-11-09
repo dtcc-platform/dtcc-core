@@ -32,7 +32,7 @@ and fails when this page differs.
 | `metros` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `ocean` | - | `SensorCollection` | yes | `geojson` | none | none |
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
-| `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: web output out of scope by operator decision on #194 |
+| `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: tile collections have no web artifact; use the raster product for imagery |
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
 | `smoke` | `field` | `VolumeMesh` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
@@ -118,6 +118,12 @@ A package is a directory or a `.dtccpkg` archive with:
   A GeoJSON artifact records `crs` `EPSG:4326` and its WGS84 `bounds`. A PNG
   or GeoTIFF artifact records `placement` and `rendering` instead, with `crs`
   and `bounds` null.
+
+  The derived artifact is a map view, not a second copy of the model. GeoJSON
+  carries no mesh connectivity, and simulation products become point and line
+  samples. GeoJSON can substantially increase package size, export time and
+  parsing cost; the overhead depends on the data. Leave out `format=` when no
+  map view is needed.
 - For a `RasterTileCollection`, one artifact with role `tile` and format
   `tif` per tile, under `artifacts/tiles/`. The model refers to the tiles by
   these package-relative paths. The tiles reload after the original cache is
@@ -145,7 +151,7 @@ size and SHA-256 digest before use.
 
 1. Read `placement` from the artifact. The PNG is a north-up RGBA image on a
    grid in `EPSG:3857`, of `placement.width` by `placement.height` pixels.
-   Pixels without a valid value are transparent. With rasterio 1.5 or later
+   Pixels without a valid value are transparent. With rasterio 1.5.1 or later
    the pixels are placed exactly; older rasterio, which is what Python 3.11
    installs, uses rasterio's approximate transformer, within 1/8 source pixel,
    and warns once per process.
@@ -202,7 +208,7 @@ and `urn:ogc:def:crs:EPSG::3006` for the explicit footprints case. `smoke`
 with `product="field"` GeoJSON keeps native coordinates and names the declared
 `crs`.
 
-By operator decision, web output for `orthophoto` tiles, and conversion of
-the trees-circle and footprint-attribute paths to the shared model conversion,
-are out of scope. The orthophoto `raster` product is the web route for
+`orthophoto` tiles have no web output, and the trees-circle and
+footprint-attribute GeoJSON writers keep their own conversion rather than the
+shared model conversion. The orthophoto `raster` product is the route for
 imagery.

@@ -213,7 +213,7 @@ def _warn_approximate_placement():
     warnings.warn(
         f"rasterio {rasterio.__version__} cannot place PNG pixels exactly; "
         "placement is approximate to within 1/8 source pixel. Python 3.12+ with "
-        "rasterio 1.5+ places exactly.",
+        "rasterio 1.5.1+ places exactly.",
         UserWarning,
         stacklevel=3,
     )

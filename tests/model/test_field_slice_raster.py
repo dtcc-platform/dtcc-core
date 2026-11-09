@@ -449,14 +449,15 @@ def test_a_canonical_package_keeps_an_integer_but_a_tif_refuses_it(tmp_path):
 def test_a_canonical_tif_holds_an_integer_float64_holds_exactly(tmp_path):
     import rasterio
 
-    values = np.full(25, 2**60, dtype=np.int64)
+    values = 2**60 - 2**10 * np.arange(25, dtype=np.int64)
+    assert not np.array_equal(values.astype(np.float32).astype(np.int64), values)
     model = _integer_slice(speed=values)
 
     package = _published(model, tmp_path, "pkg", format="tif")
 
     [artifact] = [a for a in package.artifacts if a.format == "tif"]
-    x, y, _ = model.points[7]
     with rasterio.open(package.path / artifact.path) as dataset:
-        row, column = dataset.index(x, y)
-        value = dataset.read(1)[row, column]
-    assert int(value) == 2**60
+        band = dataset.read(1)
+        for point, expected in zip(model.points, values, strict=True):
+            row, column = dataset.index(point[0], point[1])
+            assert int(band[row, column]) == int(expected)

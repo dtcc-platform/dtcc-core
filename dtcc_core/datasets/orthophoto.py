@@ -229,7 +229,7 @@ class OrthophotoDataset(DatasetDescriptor):
             "exclusions": [
                 {
                     "formats": ["geojson", "png", "tif"],
-                    "reason": "web output out of scope by operator decision on #194",
+                    "reason": "tile collections have no web artifact; use the raster product for imagery",
                 }
             ],
         },

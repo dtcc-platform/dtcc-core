@@ -364,7 +364,8 @@ def _write_web_geojson(obj, path: Path) -> list[float] | None:
     """Write RFC 7946 GeoJSON and return its WGS84 bounds, None when empty."""
     payload = obj.to_geojson(crs="EPSG:4326")
     path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        json.dumps(payload, separators=(",", ":"), sort_keys=True, allow_nan=False)
+        + "\n",
         encoding="utf-8",
     )
     found = []
