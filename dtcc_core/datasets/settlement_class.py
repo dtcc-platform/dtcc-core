@@ -147,7 +147,12 @@ class SettlementClassDataset(DatasetDescriptor):
     ]
     presentation_limitations = [
         "The 1 km grid describes districts, not individual streets or blocks.",
-        "Cells near the requested edge take the class of the nearest source cell.",
+        (
+            "Each cell takes the class of the nearest source cell. Source cells are "
+            "distorted in Sweden, so about 1 in 10 of them (1 in 5 in the far north) "
+            "is left out and as many appear twice, anywhere in the grid. A single-cell "
+            "settlement can vanish or double depending on where the requested area starts."
+        ),
     ]
 
     def build(self, args: SettlementClassArgs):
