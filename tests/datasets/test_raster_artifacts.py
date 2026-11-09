@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import inspect
 import json
 import math
@@ -808,3 +809,28 @@ def test_models_without_a_hook_are_refused(tmp_path, format):
     with pytest.raises(ValueError, match=r'Dataset-level format="png"'):
         model.export(tmp_path / "pkg", canonical=True, format=format)
     assert not (tmp_path / "pkg").exists()
+
+
+@exact_placement
+def test_png_warps_pass_zero_tolerance(tmp_path, monkeypatch):
+    real_reproject = rasterio.warp.reproject
+    calls = []
+
+    @functools.wraps(real_reproject)
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return real_reproject(*args, **kwargs)
+
+    monkeypatch.setattr(rasterio.warp, "reproject", spy)
+    _warn_approximate_placement.cache_clear()
+    labels = np.arange(1, 25, dtype=np.int32).reshape(4, 6)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _export(_raster(labels, nodata=-1), tmp_path / "ints", format="png")
+        _export(_raster(_smooth()), tmp_path / "floats", format="png")
+
+    # data and mask warp for each of the two exports
+    assert len(calls) >= 4
+    assert all(call.get("tolerance") == 0 for call in calls)
+    assert not [w for w in caught if "approximate" in str(w.message)]
