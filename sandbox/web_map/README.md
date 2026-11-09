@@ -12,12 +12,12 @@ From the repository root:
 
 ```bash
 uv run python sandbox/web_map/make_packages.py
-uv run python sandbox/web_map/serve.py        # then open http://127.0.0.1:8000
+uv run python -m http.server 8000 --bind 127.0.0.1 --directory sandbox/web_map
 ```
 
-`make_packages.py` works offline and writes `sandbox/web_map/out/` (ignored by git).
-`serve.py` listens on 127.0.0.1 (`--port` changes 8000) and serves only `index.html`
-and `out/`.
+Then open http://127.0.0.1:8000/. `make_packages.py` works offline and writes
+`sandbox/web_map/out/` (ignored by git); refresh the page after regenerating the
+packages.
 
 ## Layers
 
