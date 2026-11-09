@@ -211,6 +211,8 @@ message VolumeGrid {
   uint32 height = 2;
   uint32 depth = 3;
   Bounds bounds = 4;
+  // Optional layer boundary elevations; absent means uniform vertical spacing.
+  repeated double z_levels = 5;
 }
 message RoadNetwork {
   Array vertices = 1;
