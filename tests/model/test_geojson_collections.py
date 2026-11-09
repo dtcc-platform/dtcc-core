@@ -600,3 +600,93 @@ def test_components_declaring_different_crs_are_refused():
 
     with pytest.raises(ValueError, match="Conflicting CRS declarations"):
         building.footprint()
+
+
+@pytest.mark.parametrize("crs", [None, "EPSG:4326"])
+@pytest.mark.parametrize("payload", [{}, {"note": "stored"}])
+def test_calibration_grid_refuses_negative_divisions(crs, payload):
+    grid = _framed_grid(divisions=-3, metadata_payload=payload)
+
+    with pytest.raises(ValueError, match="divisions"):
+        grid.to_geojson(crs=crs)
+
+
+@pytest.mark.parametrize("crs", [None, "EPSG:4326"])
+@pytest.mark.parametrize("stored", [-3, None, 1.5, True])
+def test_calibration_grid_refuses_invalid_stored_divisions(crs, stored):
+    grid = _framed_grid(divisions=2, metadata_payload={"divisions": stored})
+
+    with pytest.raises(ValueError, match="divisions"):
+        grid.to_geojson(crs=crs)
+
+
+@pytest.mark.parametrize("divisions", [-3, -0.5, 3.0, "3", True])
+def test_calibration_grid_from_geojson_refuses_invalid_divisions(divisions):
+    payload = _framed_grid().to_geojson()
+    payload["metadata"]["divisions"] = divisions
+
+    with pytest.raises(ValueError, match="divisions"):
+        CalibrationGrid.from_geojson(payload)
+
+
+def test_calibration_grid_from_geojson_without_divisions_has_none():
+    payload = _framed_grid().to_geojson()
+    del payload["metadata"]["divisions"]
+
+    grid = CalibrationGrid.from_geojson(payload)
+
+    assert grid.divisions == 0
+    assert "divisions" not in grid.metadata_payload
+
+
+def test_calibration_grid_from_geojson_normalises_null_divisions():
+    from dtcc_core.model import exchange
+
+    payload = _framed_grid().to_geojson()
+    payload["metadata"].update(divisions=None, note="kept")
+
+    grid = CalibrationGrid.from_geojson(payload)
+
+    assert grid.divisions == 0
+    assert grid.metadata_payload["divisions"] == 0
+    assert grid.metadata_payload["note"] == "kept"
+    assert grid.to_geojson()["metadata"]["note"] == "kept"
+    restored = exchange.loads(exchange.dumps(grid))
+    assert restored.divisions == 0
+    assert restored.metadata_payload == grid.metadata_payload
+
+
+def test_calibration_grid_from_geojson_keeps_other_metadata_untouched():
+    payload = {"features": [], "metadata": {"divisions": None, "note": "kept"}}
+
+    grid = CalibrationGrid.from_geojson(payload)
+
+    assert grid.metadata_payload == {"divisions": 0, "note": "kept"}
+
+
+@pytest.mark.parametrize(
+    "lists",
+    [
+        {"source_ids": ["a"], "source_indices": [0, 1]},
+        {"source_ids": ["a", None], "source_indices": [0, 1, 2]},
+        {"source_ids": ["a", None], "source_indices": [0, -1]},
+    ],
+)
+def test_footprint_collection_refuses_invalid_source_lists(lists):
+    collection = FootprintCollection(footprints=[_surface(), _surface()], **lists)
+
+    with pytest.raises(ValueError, match="FootprintCollection.source_"):
+        collection.to_geojson()
+
+
+def test_footprint_collection_accepts_sparse_source_lists():
+    collection = FootprintCollection(
+        footprints=[_surface(), _surface()],
+        source_ids=[None, "b"],
+        source_indices=[0, 7],
+    )
+
+    [first, second] = collection.to_geojson()["features"]
+
+    assert first["properties"]["source_index"] == 0
+    assert second["properties"]["source_index"] == 7

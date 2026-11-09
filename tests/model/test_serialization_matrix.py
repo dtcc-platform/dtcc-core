@@ -116,7 +116,7 @@ def _populated_wrapper(name):
         return model.BuildingCollection(buildings=[building, model.Building(id="b2")])
     if name == "FootprintCollection":
         return model.FootprintCollection(
-            footprints=[model.Surface(vertices=square)],
+            footprints=[model.Surface(vertices=square)] * 2,
             source_ids=["building", None],
             source_indices=[0, 3],
         )

@@ -24,6 +24,50 @@ from .object import GeometryType
 from .tree import Tree
 
 
+def _check_footprint_lists(footprints, source_ids, source_indices):
+    """Raise ValueError unless the footprint source lists are valid.
+
+    ``source_ids`` is a list of str or None and ``source_indices`` a list of
+    non-negative int; each is empty (unknown) or has one entry per footprint.
+    Indices have no upper bound: they index the original building list.
+    """
+    if not isinstance(source_ids, list) or any(
+        id is not None and not isinstance(id, str) for id in source_ids
+    ):
+        raise ValueError("FootprintCollection.source_ids must be a list of str or None")
+    if not isinstance(source_indices, list) or any(
+        type(index) is not int or index < 0 for index in source_indices
+    ):
+        raise ValueError(
+            "FootprintCollection.source_indices must be a list of int >= 0"
+        )
+    for name, values in (
+        ("source_ids", source_ids),
+        ("source_indices", source_indices),
+    ):
+        if values and len(values) != len(footprints):
+            raise ValueError(
+                f"FootprintCollection.{name} must be empty or have one entry per "
+                f"footprint, not {len(values)} for {len(footprints)} footprints"
+            )
+
+
+def _check_calibration_divisions(divisions, metadata_payload):
+    """Raise ValueError unless divisions, and any stored one, is an int >= 0."""
+    for where, value in (
+        ("divisions", divisions),
+        *(
+            [("metadata_payload['divisions']", metadata_payload["divisions"])]
+            if isinstance(metadata_payload, dict) and "divisions" in metadata_payload
+            else []
+        ),
+    ):
+        if type(value) is not int or value < 0:
+            raise ValueError(
+                f"CalibrationGrid requires int divisions >= 0, got {value!r} in {where}"
+            )
+
+
 @dataclass(repr=False)
 class FootprintCollection(Model):
     """Collection of building footprint surfaces.
@@ -40,6 +84,11 @@ class FootprintCollection(Model):
         Id of the building each footprint came from, when known.
     source_indices : list[int]
         Position of the building each footprint came from in the source list.
+
+    ``source_ids`` and ``source_indices`` are each either empty (unknown) or
+    have exactly one entry per footprint. Ids may be None; indices are
+    non-negative ints with no upper bound, because they index the original
+    building list. ``to_geojson`` raises ValueError when this does not hold.
     """
 
     web_geojson = True
@@ -139,6 +188,7 @@ class FootprintCollection(Model):
             resolve_source_crs,
         )
 
+        _check_footprint_lists(self.footprints, self.source_ids, self.source_indices)
         model = exported_coordinates(self)
         source_crs = resolve_source_crs(model, model.footprints)
         features: list[dict[str, Any]] = []
@@ -563,6 +613,12 @@ class CalibrationGrid(Model):
     def from_geojson(cls, geojson: dict[str, Any]) -> CalibrationGrid:
         """Build a calibration grid model from its GeoJSON representation."""
         metadata = dict(geojson.get("metadata") or {})
+        divisions = metadata.get("divisions")
+        if divisions is None:
+            divisions = 0
+            if "divisions" in metadata:
+                metadata["divisions"] = 0
+        _check_calibration_divisions(divisions, None)
         bounds_values = metadata.get("bounds") or [0.0, 0.0, 0.0, 0.0]
         bounds = Bounds(
             xmin=float(bounds_values[0]),
@@ -575,7 +631,7 @@ class CalibrationGrid(Model):
             crs = geojson.get("crs", {}).get("properties", {}).get("name")
         return cls(
             bounds=bounds,
-            divisions=int(metadata.get("divisions") or 0),
+            divisions=divisions,
             crs=crs,
             features=list(geojson.get("features") or []),
             name=str(geojson.get("name") or "calibration_grid"),
@@ -638,6 +694,7 @@ class CalibrationGrid(Model):
         """
         from ...io.geojson import feature_collection, positions, resolve_source_crs
 
+        _check_calibration_divisions(self.divisions, self.metadata_payload)
         metadata = (
             dict(self.metadata_payload)
             if self.metadata_payload

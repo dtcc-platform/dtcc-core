@@ -263,6 +263,11 @@ REASONS = {
     "nested_relation_collection": "member relations must not target 'collection'",
     "missing_source_indices": "exactly the attributes",
     "non_list_source_indices": "source_indices must be a list",
+    "negative_divisions": "int divisions >= 0",
+    "negative_stored_divisions": "int divisions >= 0",
+    "short_source_ids": "source_ids must be empty or have one entry per footprint",
+    "long_source_indices": "source_indices must be empty or have one entry per",
+    "negative_source_index": "source_indices must be a list of int >= 0",
     "missing_bounds": "exactly the representations",
     "root_transform": "transform must be identity",
     "root_srs": "transform must be identity",
@@ -282,6 +287,13 @@ REASONS = {
 }
 
 
+FOOTPRINT_LISTS = {
+    "short_source_ids": {"source_ids": ["a"], "source_indices": [0, 1]},
+    "long_source_indices": {"source_ids": ["a", None], "source_indices": [0, 1, 2]},
+    "negative_source_index": {"source_ids": ["a", None], "source_indices": [0, -1]},
+}
+
+
 def native_failure(failure):
     """Invalid wrapper state constructible through the native classes."""
     if failure == "building_in_tree_collection":
@@ -298,6 +310,15 @@ def native_failure(failure):
             source_ids=["a"],
             source_indices=(0,),
         )
+    if failure == "negative_divisions":
+        return CalibrationGrid(divisions=-1)
+    if failure == "negative_stored_divisions":
+        return CalibrationGrid(divisions=2, metadata_payload={"divisions": -3})
+    if failure in FOOTPRINT_LISTS:
+        return FootprintCollection(
+            footprints=[Surface(vertices=square()), Surface(vertices=square(20.0))],
+            **FOOTPRINT_LISTS[failure],
+        )
     city = City(id="city")
     city.children[TreeCollection] = [populated(TreeCollection)]
     return city
@@ -311,6 +332,9 @@ def native_failure(failure):
         "member_id_collection",
         "member_relation_collection",
         "non_list_source_indices",
+        "negative_divisions",
+        "negative_stored_divisions",
+        *FOOTPRINT_LISTS,
         "wrapper_under_city",
     ],
 )
@@ -368,6 +392,34 @@ MUTATIONS = {
     "non_list_source_indices": (
         FootprintCollection,
         lambda root: root.attributes["source_indices"].CopyFrom(wire.Value(text="0")),
+    ),
+    "negative_divisions": (
+        CalibrationGrid,
+        lambda root: root.attributes["divisions"].CopyFrom(wire.Value(integer="-1")),
+    ),
+    "negative_stored_divisions": (
+        CalibrationGrid,
+        lambda root: (
+            root.attributes["metadata"]
+            .object.values["divisions"]
+            .CopyFrom(wire.Value(integer="-3"))
+        ),
+    ),
+    "short_source_ids": (
+        FootprintCollection,
+        lambda root: root.attributes["source_ids"].list.values.pop(),
+    ),
+    "long_source_indices": (
+        FootprintCollection,
+        lambda root: root.attributes["source_indices"].list.values.add(integer="3"),
+    ),
+    "negative_source_index": (
+        FootprintCollection,
+        lambda root: (
+            root.attributes["source_indices"]
+            .list.values[1]
+            .CopyFrom(wire.Value(integer="-1"))
+        ),
     ),
     "missing_bounds": (
         CalibrationGrid,

@@ -242,6 +242,13 @@ def missing_artifact(records):
     del records[0]["artifact"]
 
 
+def first_value(key, value):
+    def mutate(records):
+        records[0][key].CopyFrom(value)
+
+    return mutate
+
+
 TILE = "0-o65775_6725_25_mr25.tif"
 INVALID_RECORDS = {
     "absolute": (
@@ -270,6 +277,23 @@ INVALID_RECORDS = {
     ),
     "duplicate": (duplicate_artifact, "must be 'artifacts/tiles/orto-o2-2017/1-"),
     "missing": (missing_artifact, "exactly the keys"),
+    "negative_size": (
+        first_value("size_bytes", wire.Value(integer="-1")),
+        "size_bytes must be >= 0",
+    ),
+    "zero_resolution": (
+        first_value("resolution", wire.Value(number=0.0)),
+        "resolution must be positive",
+    ),
+    "negative_resolution": (
+        first_value("resolution", wire.Value(number=-0.2)),
+        "resolution must be positive",
+    ),
+}
+NATIVE_INVALID_TILES = {
+    "negative_size": ({"size_bytes": -1}, "size_bytes must be >= 0"),
+    "zero_resolution": ({"resolution": 0}, "resolution must be positive"),
+    "negative_resolution": ({"resolution": -0.2}, "resolution must be positive"),
 }
 
 
@@ -280,6 +304,19 @@ def test_bytes_boundary_rejects_invalid_tile_records(failure):
     mutate([value.object.values for value in pb.object.attributes["tiles"].list.values])
     with pytest.raises(ValueError, match=reason):
         exchange.loads(pb.SerializeToString())
+
+
+@pytest.mark.parametrize("failure", NATIVE_INVALID_TILES)
+def test_native_save_rejects_invalid_tile_values(failure, tmp_path):
+    changes, reason = NATIVE_INVALID_TILES[failure]
+    source = RasterTileCollection(tiles=[replace(make_tile(tmp_path), **changes)])
+    with pytest.raises(ValueError, match=reason):
+        exchange.dumps(source)
+    target = tmp_path / "tiles.dtcc"
+    target.write_bytes(b"previous")
+    with pytest.raises(ValueError, match=reason):
+        save_model(source, target)
+    assert target.read_bytes() == b"previous"
 
 
 def test_bytes_boundary_rejects_the_kind_under_a_city():

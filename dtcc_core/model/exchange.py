@@ -54,6 +54,10 @@ from .object import (
     TreeCollection,
     VehicleCollection,
 )
+from .object.dataset_collections import (
+    _check_calibration_divisions,
+    _check_footprint_lists,
+)
 from .object.landuse import LanduseClasses
 from .object.object import _validate_attributes
 from .values import Field, Raster
@@ -625,14 +629,7 @@ def _footprint_collection(obj):
         )
     source_ids = obj.attributes["source_ids"]
     source_indices = obj.attributes["source_indices"]
-    if not isinstance(source_ids, list) or any(
-        id is not None and not isinstance(id, str) for id in source_ids
-    ):
-        raise ValueError("FootprintCollection.source_ids must be a list of str or None")
-    if not isinstance(source_indices, list) or any(
-        type(index) is not int for index in source_indices
-    ):
-        raise ValueError("FootprintCollection.source_indices must be a list of int")
+    _check_footprint_lists(carrier.surfaces, source_ids, source_indices)
     return FootprintCollection(
         footprints=carrier.surfaces,
         source_ids=source_ids,
@@ -663,6 +660,7 @@ def _calibration_grid(obj):
             "CalibrationGrid requires int divisions, str or None crs, a list of "
             "feature dictionaries, a str name and a metadata dictionary"
         )
+    _check_calibration_divisions(attributes["divisions"], attributes["metadata"])
     return CalibrationGrid(
         bounds=obj.geometry["bounds"].geometry,
         divisions=attributes["divisions"],
@@ -725,6 +723,10 @@ def _field_slice(obj):
     _simulation_attributes("FieldSlice", attributes, "slice_axis", "slice_position")
     if type(attributes["resolution"]) is not int:
         raise ValueError("FieldSlice requires an int resolution")
+    if attributes["resolution"] < 0:
+        raise ValueError(
+            f"FieldSlice requires an int resolution >= 0, not {attributes['resolution']}"
+        )
     samples = obj.geometry["samples"].geometry
     domain = obj.geometry.get("domain")
     return FieldSlice(
@@ -792,6 +794,11 @@ def _streamline_collection(obj):
             "StreamlineCollection requires int requested_line_count and "
             "streamline_steps and a numeric streamline_step_size"
         )
+    for key in ("requested_line_count", "streamline_steps", "streamline_step_size"):
+        if attributes[key] < 0:
+            raise ValueError(
+                f"StreamlineCollection requires {key} >= 0, not {attributes[key]}"
+            )
     domain = obj.geometry.get("domain")
     return StreamlineCollection(
         lines=carrier.linestrings,
@@ -869,6 +876,16 @@ def _raster_tile_collection(obj):
                 "RasterTileCollection tile records require str id, collection, "
                 "datetime, crs, spektraltyp and artifact, six numeric extent "
                 "values, numeric or None resolution and int or None size_bytes"
+            )
+        if record["resolution"] is not None and not record["resolution"] > 0:
+            raise ValueError(
+                "RasterTileCollection tile resolution must be positive when given, "
+                f"not {record['resolution']}"
+            )
+        if record["size_bytes"] is not None and record["size_bytes"] < 0:
+            raise ValueError(
+                "RasterTileCollection tile size_bytes must be >= 0 when given, "
+                f"not {record['size_bytes']}"
             )
         try:
             moment = datetime.fromisoformat(record["datetime"])

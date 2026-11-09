@@ -302,6 +302,10 @@ REASONS = {
     "slice_under_city": "FieldSlice is unsupported|kind 17",
     "streamlines_under_city": "StreamlineCollection is unsupported|kind 18",
     "float_resolution": "int resolution",
+    "negative_resolution": "int resolution >= 0",
+    "negative_requested_line_count": "requested_line_count >= 0",
+    "negative_streamline_steps": "streamline_steps >= 0",
+    "negative_streamline_step_size": "streamline_step_size >= 0",
     "three_axes": "two int axes",
     "axes_out_of_range": "two int axes in 0..2",
     "samples_not_point_cloud": "exactly the representations",
@@ -321,6 +325,13 @@ REASONS = {
 }
 
 
+NEGATIVE_STREAMLINE_COUNTS = {
+    "negative_requested_line_count": {"requested_line_count": -1},
+    "negative_streamline_steps": {"streamline_steps": -1},
+    "negative_streamline_step_size": {"streamline_step_size": -0.5},
+}
+
+
 def native_failure(failure):
     """Invalid product state constructible through the native classes."""
     if failure == "slice_field_without_association":
@@ -337,6 +348,10 @@ def native_failure(failure):
         return source
     if failure == "float_resolution":
         return FieldSlice(resolution=2.5)
+    if failure == "negative_resolution":
+        return FieldSlice(resolution=-1)
+    if failure in NEGATIVE_STREAMLINE_COUNTS:
+        return StreamlineCollection(**NEGATIVE_STREAMLINE_COUNTS[failure])
     if failure == "three_axes":
         return StreamlineCollection(axes=(0, 1, 2))
     if failure == "axes_out_of_range":
@@ -355,6 +370,8 @@ def native_failure(failure):
         "line_field_without_association",
         "non_line_child",
         "float_resolution",
+        "negative_resolution",
+        *NEGATIVE_STREAMLINE_COUNTS,
         "three_axes",
         "axes_out_of_range",
         "slice_under_city",
@@ -453,6 +470,28 @@ MUTATIONS = {
     "float_resolution": (
         FieldSlice,
         lambda root: root.attributes["resolution"].CopyFrom(wire.Value(number=2.5)),
+    ),
+    "negative_resolution": (
+        FieldSlice,
+        lambda root: root.attributes["resolution"].CopyFrom(wire.Value(integer="-1")),
+    ),
+    "negative_requested_line_count": (
+        StreamlineCollection,
+        lambda root: root.attributes["requested_line_count"].CopyFrom(
+            wire.Value(integer="-1")
+        ),
+    ),
+    "negative_streamline_steps": (
+        StreamlineCollection,
+        lambda root: root.attributes["streamline_steps"].CopyFrom(
+            wire.Value(integer="-1")
+        ),
+    ),
+    "negative_streamline_step_size": (
+        StreamlineCollection,
+        lambda root: root.attributes["streamline_step_size"].CopyFrom(
+            wire.Value(number=-0.5)
+        ),
     ),
     "three_axes": (
         StreamlineCollection,
