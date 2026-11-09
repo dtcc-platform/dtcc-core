@@ -24,6 +24,8 @@ from dtcc_core.io.raster_tiles import without_tracebacks
 from dtcc_core.model import Bounds
 from dtcc_core.model.values.raster_tiles import RasterTile, RasterTileCollection
 
+from .timeouts import is_read_timeout
+
 SERVER_URL_ENV = "DTCC_ORTHOPHOTO_URL"
 CRS = "EPSG:3006"
 MAX_DETAIL_CHARS = 1024
@@ -423,7 +425,7 @@ def _normalize_server_url(server_url: str) -> str:
 
 def _raise_transport_error(error, fail, status_code=None):
     """Raise a client error for a transport failure, else re-raise ``error``."""
-    if isinstance(error, requests.Timeout):
+    if isinstance(error, requests.Timeout) or is_read_timeout(error):
         failure_class = "timeout"
         message = f"Request timed out ({NETWORK_HINT}): {error}"
     elif isinstance(

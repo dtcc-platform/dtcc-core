@@ -357,6 +357,8 @@ def test_non_image_response_raises(service):
             ),
             "timeout",
         ),
+        # How requests reports a read timeout while the body is being read.
+        (requests.ConnectionError(ReadTimeoutError(None, "/", "slow")), "timeout"),
         (FakeResponse(b"", status=503), "http_5xx"),
         (FakeResponse(b"", status=404), "http_4xx"),
     ],
@@ -388,6 +390,41 @@ def test_read_timeout_from_a_server_that_never_answers_is_a_timeout():
             imperviousness._session().get(url, timeout=(5, 0.2))
     finally:
         for connection, _ in held:
+            connection.close()
+        server.close()
+
+    error = DatasetDescriptor.build_upstream_error("d", "op", url, info.value)
+    assert error.failure_class == "timeout"
+
+
+def test_read_timeout_from_a_server_that_stalls_mid_body_is_a_timeout():
+    import socket
+    import threading
+
+    from dtcc_core.datasets.dataset import DatasetDescriptor
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    held = []
+
+    def serve():
+        connection, _ = server.accept()
+        held.append(connection)
+        connection.recv(4096)
+        connection.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n" + b"x" * 10
+        )
+
+    threading.Thread(target=serve, daemon=True).start()
+    url = f"http://127.0.0.1:{server.getsockname()[1]}/"
+    try:
+        with pytest.raises(requests.RequestException) as info:
+            response = imperviousness._session().get(url, timeout=(5, 0.2), stream=True)
+            for _ in response.iter_content(65536):
+                pass
+    finally:
+        for connection in held:
             connection.close()
         server.close()
 
