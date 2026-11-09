@@ -134,7 +134,7 @@ def test_unsupported_epoch_raises():
 
 def test_edge_cells_past_uneven_bounds_get_a_class(monkeypatch, tmp_path):
     # Bounds that are not whole 1 km cells round the grid up past their east
-    # and south edges. The real read must cover those extra cells too.
+    # and south edges. With the real read, those extra cells still get a class.
     import rasterio
 
     data, transform, crs = _mollweide_window(lambda x, y: 30, margin=8000.0)
