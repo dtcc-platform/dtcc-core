@@ -15,6 +15,7 @@ import requests
 from affine import Affine
 from rasterio.transform import from_bounds
 from requests.structures import CaseInsensitiveDict
+from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 
 from dtcc_core.io.data import orthophoto
 from dtcc_core.io.data.orthophoto import (
@@ -573,6 +574,13 @@ def test_invalid_required_fields_are_rejected(monkeypatch, overrides):
         (requests.ConnectTimeout("connect timed out"), "timeout"),
         (requests.ReadTimeout("read timed out"), "timeout"),
         (requests.ConnectionError("refused"), "connection"),
+        # How requests reports a read timeout once no read retries are left.
+        (
+            requests.ConnectionError(
+                MaxRetryError(None, "/", reason=ReadTimeoutError(None, "/", "slow"))
+            ),
+            "timeout",
+        ),
     ],
 )
 def test_transport_failures_are_classified(monkeypatch, exc, failure_class):
@@ -980,6 +988,21 @@ def test_body_interrupted_mid_stream_is_connection_failure(monkeypatch, tmp_path
     )
     error = download_error(monkeypatch, tmp_path / "cache", response)
     assert error.failure_class == "connection"
+    assert error.status_code == 200
+    assert response.closed
+
+
+def test_body_stalling_mid_stream_is_a_timeout(monkeypatch, tmp_path):
+    # requests reports a read timeout while reading the body as a
+    # ConnectionError around urllib3's ReadTimeoutError.
+    body = tiff_bytes(tmp_path)
+    response = tile_response(
+        body[:200],
+        length=str(len(body)),
+        exc=requests.ConnectionError(ReadTimeoutError(None, "/", "Read timed out.")),
+    )
+    error = download_error(monkeypatch, tmp_path / "cache", response)
+    assert error.failure_class == "timeout"
     assert error.status_code == 200
     assert response.closed
 

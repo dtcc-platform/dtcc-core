@@ -202,8 +202,27 @@ def _field_locations(g, f, limit, notes):
     return _xyz(points), values
 
 
-def _plot_image_raster(raster, *, ax, max_elements, theme, show):
-    """Preview RGB/RGBA pixels in their georeferenced 2D frame."""
+def _scalar_hints(raster):
+    """Return the dataset's value range, unit and headline, or None.
+
+    A single-band raster is drawn as a 2D map only when its dataset context
+    declares a ``value_range`` view hint.
+    """
+    context = getattr(raster, "dataset_context", None)
+    presentation = getattr(context, "presentation", None)
+    hints = getattr(presentation, "view_hints", None) or {}
+    value_range = hints.get("value_range")
+    if not (isinstance(value_range, (list, tuple)) and len(value_range) == 2):
+        return None
+    return value_range, hints.get("unit"), getattr(presentation, "headline", None)
+
+
+def _plot_image_raster(raster, *, ax, max_elements, theme, show, scalar=None):
+    """Preview raster pixels in their georeferenced 2D frame.
+
+    RGB/RGBA pixels are drawn as colours. With ``scalar`` (value range, unit,
+    title), a single band is drawn with a colormap and a colorbar.
+    """
     from matplotlib.transforms import Affine2D
 
     plt = require_matplotlib("raster previews")
@@ -226,12 +245,18 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show):
         raise ValueError("Image raster previews require a Matplotlib 2D axes")
     t = raster.georef
     transform = Affine2D.from_values(t.a, t.d, t.b, t.e, t.c, t.f)
-    ax.imshow(
+    color = {}
+    if scalar is not None:
+        (vmin, vmax), unit, title = scalar
+        data = np.ma.masked_invalid(np.asarray(data, dtype=float))
+        color = {"cmap": resolve_colormap(), "vmin": vmin, "vmax": vmax}
+    artist = ax.imshow(
         data,
         origin="upper",
         extent=(0, width, height, 0),
         interpolation="nearest",
         transform=transform + ax.transData,
+        **color,
     )
     bounds = raster.bounds
     ax.set(xlim=(bounds.xmin, bounds.xmax), ylim=(bounds.ymin, bounds.ymax))
@@ -239,10 +264,15 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show):
         ax,
         theme=theme,
         equal_aspect=True,
-        title="Raster preview",
+        title=(scalar[2] if scalar and scalar[2] else "Raster preview"),
         xlabel="X",
         ylabel="Y",
     )
+    if scalar is not None:
+        style_colorbar(
+            ax.figure.colorbar(artist, ax=ax, shrink=0.8, pad=0.02, label=unit or ""),
+            theme=theme,
+        )
     if sampled:
         ax.text(
             0.01,
@@ -303,6 +333,23 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
         return _plot_image_raster(
             root, ax=ax, max_elements=max_elements, theme=theme, show=show
         )
+    # A supplied 3D axes keeps the 3D preview, so the raster can share a scene.
+    if (
+        isinstance(root, Raster)
+        and root.data.ndim == 2
+        and field is None
+        and getattr(ax, "name", None) != "3d"
+    ):
+        scalar = _scalar_hints(root)
+        if scalar is not None:
+            return _plot_image_raster(
+                root,
+                ax=ax,
+                max_elements=max_elements,
+                theme=theme,
+                show=show,
+                scalar=scalar,
+            )
     limit = max_elements
     polygons, polygon_colors, lines, line_colors, points, point_colors = (
         [],
