@@ -26,6 +26,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_buses.py` | Live buses over streets in a 2 km area around Poseidon | `LiveVehiclePlot.run()` |
 | `demos/dataset_transit_vehicles.py` | Live bus positions | `vehicles.plot()` |
 | `demos/dataset_trees.py` | Point-cloud-derived trees | `trees.plot()` |
+| `demos/dataset_urban_atlas.py` | Copernicus Urban Atlas land use classes | `landuse.plot()` |
 | `demos/dataset_terrain_surface_mesh.py` | Terrain surface mesh | `terrain.plot()` / `.view()` |
 | `demos/dataset_city_surface_mesh.py` | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
 | `demos/dataset_city_flat_mesh.py` | Flat mesh with footprint subdomains | `flat_mesh.plot()` / `.view()` |
