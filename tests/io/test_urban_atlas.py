@@ -12,7 +12,7 @@ BOUNDS = Bounds(0.0, 0.0, 100.0, 100.0)
 def _feature(code, label, geometry):
     return {
         "type": "Feature",
-        "properties": {"code_2018": code, "class_2018": label, "fua_name": "Göteborg"},
+        "properties": {"code_2012": code, "class_2012": label, "fua_name": "Göteborg"},
         "geometry": mapping(geometry),
     }
 
@@ -94,7 +94,7 @@ def test_download_urban_atlas_returns_landuse_with_codes(fake_service):
     assert landuse.attributes["ua_code"] == ["11210", "14100", "12220"]
     assert landuse.attributes["ua_class"][1] == "Green urban areas"
     assert landuse.attributes["fua_name"] == ["Göteborg"] * 3
-    assert landuse.attributes["year"] == 2018
+    assert landuse.attributes["year"] == 2012
     assert "Copernicus" in landuse.attributes["attribution"]
 
 

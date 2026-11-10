@@ -66,7 +66,7 @@ def test_plot_colors_urban_atlas_classes_and_ranks_legend_by_area(plt):
         "Continuous urban fabric (>80% sealed) (36%)",
         "Other roads (4%)",
     ]
-    assert ax.get_title() == "Copernicus Urban Atlas 2018: Göteborg"
+    assert ax.get_title() == "Copernicus Urban Atlas 2012: Göteborg"
     assert any("Copernicus Land Monitoring Service" in t for t in _texts(ax))
     assert ax.get_aspect() == 1.0
 

@@ -15,10 +15,10 @@ from .providers import provider_entry
 class UrbanAtlasArgs(DatasetBaseArgs):
     """Arguments for the Copernicus Urban Atlas land use dataset."""
 
-    year: Literal[2018] = Field(
-        2018,
+    year: Literal[2012] = Field(
+        2012,
         description=(
-            "Urban Atlas reference year. Only 2018 is available without a "
+            "Urban Atlas reference year. Only 2012 is available without a "
             "Copernicus account."
         ),
     )
@@ -54,11 +54,11 @@ class UrbanAtlasDataset(DatasetDescriptor):
     ]
     source = [
         {
-            "name": "EEA ArcGIS REST service UA_UrbanAtlas_2018",
+            "name": "EEA ArcGIS REST service UA_UrbanAtlas_2012",
             "role": "source_provider",
             "service": "image.discomap.eea.europa.eu",
-            "supported_years": [2018],
-            "doi": "10.2909/fb4dffa1-6ceb-4cc0-8372-1ed354c285e6",
+            "supported_years": [2012],
+            "doi": "10.2909/debc1869-a4a2-4611-ae95-daeefce23490",
             "source_terms_status": "requires_review",
         }
     ]
@@ -66,12 +66,14 @@ class UrbanAtlasDataset(DatasetDescriptor):
         "Copernicus full, free and open data policy (Regulation (EU) 2021/696). "
         "Attribution: \"Generated using European Union's Copernicus Land "
         "Monitoring Service information; https://doi.org/10.2909/"
-        'fb4dffa1-6ceb-4cc0-8372-1ed354c285e6". State any modification and do '
+        'debc1869-a4a2-4611-ae95-daeefce23490". State any modification and do '
         "not imply EU endorsement. Requires review before redistribution."
     )
-    collection_period = "Urban Atlas 2018 reference year (imagery 2017-2019)"
+    collection_period = "Urban Atlas 2012 reference year (data period 2011-2013)"
     data_types = ["vector", "polygons", "landuse"]
-    geographic_coverage = "European Functional Urban Areas (12 in Sweden), constrained by requested bounds"
+    geographic_coverage = (
+        "European Functional Urban Areas, constrained by requested bounds"
+    )
     update_frequency = "Urban Atlas releases every three to six years"
     processing_steps = [
         "Query the anonymous EEA ArcGIS REST service by bounding box in EPSG:3006",
@@ -112,7 +114,7 @@ class UrbanAtlasDataset(DatasetDescriptor):
         {
             "heading": "Limitations",
             "body": (
-                "Only Functional Urban Areas are covered, the 2018 data may be out "
+                "Only Functional Urban Areas are covered, the 2012 data may be out "
                 "of date, and the coarse LanduseClasses mapping loses detail; use "
                 "the ua_code attribute for the original 27 classes."
             ),
@@ -122,7 +124,7 @@ class UrbanAtlasDataset(DatasetDescriptor):
         "Covers 100% of the requested area inside a Functional Urban Area, including roads",
         "Housing classes are graded by sealing degree (from <10% to >80%)",
         "ua_code and ua_class keep the original Urban Atlas nomenclature",
-        "Only 2018 is available without a Copernicus account",
+        "Only 2012 is available without a Copernicus account",
     ]
     presentation_legend = {
         "title": "Urban Atlas attributes",
