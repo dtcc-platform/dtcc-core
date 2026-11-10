@@ -25,19 +25,21 @@ except ImportError:
     HAS_GEOPANDAS = False
 
 
-URBAN_ATLAS_SUPPORTED_YEARS = (2018,)
+# 2012 is the newest year the EEA serves anonymously; later years need a
+# Copernicus account to download.
+URBAN_ATLAS_SUPPORTED_YEARS = (2012,)
 URBAN_ATLAS_SERVICE_URL = (
     "https://image.discomap.eea.europa.eu/arcgis/rest/services/UrbanAtlas/"
     "UA_UrbanAtlas_{year}/MapServer/2/query"
 )
-URBAN_ATLAS_DOI = {2018: "https://doi.org/10.2909/fb4dffa1-6ceb-4cc0-8372-1ed354c285e6"}
+URBAN_ATLAS_DOI = {2012: "https://doi.org/10.2909/debc1869-a4a2-4611-ae95-daeefce23490"}
 URBAN_ATLAS_ATTRIBUTION = "Generated using European Union's Copernicus Land Monitoring Service information; {doi}"
 URBAN_ATLAS_PAGE_SIZE = 1000
 # Stops paging if the service keeps reporting more results (a million features).
 URBAN_ATLAS_MAX_PAGES = 1000
 URBAN_ATLAS_CACHE_VERSION = 2
-# "Other roads" is one polygon per Functional Urban Area (Göteborg: 8,284 ha,
-# 1.1 M vertices). Unsimplified bbox queries that include it fail with HTTP 500,
+# "Other roads" is one polygon per Functional Urban Area (Göteborg: 8,126 ha).
+# Unsimplified bbox queries that include it fail with HTTP 500,
 # so it is fetched separately with server-side simplification.
 URBAN_ATLAS_ROAD_CODE = "12220"
 URBAN_ATLAS_ROAD_SIMPLIFY_M = 0.5
@@ -50,7 +52,7 @@ URBAN_ATLAS_READ_TIMEOUT_SECONDS = float(
 _MIN_PIECE_AREA_M2 = 0.01
 URBAN_ATLAS_COLUMNS = ["ua_code", "ua_class", "fua_name", "geometry"]
 
-# The 27 Urban Atlas 2018 classes mapped onto the coarser LanduseClasses.
+# The 27 Urban Atlas classes mapped onto the coarser LanduseClasses.
 # The original code and label are kept as surface-aligned attributes.
 URBAN_ATLAS_LANDUSE_MAP = {
     "11100": LanduseClasses.HEAVY_URBAN,  # Continuous urban fabric (>80%)
@@ -84,7 +86,7 @@ URBAN_ATLAS_LANDUSE_MAP = {
 
 
 def download_urban_atlas(
-    bounds: Bounds, year: int = 2018, use_cache: bool = True
+    bounds: Bounds, year: int = 2012, use_cache: bool = True
 ) -> Landuse:
     """Download Urban Atlas land use for ``bounds`` as a :class:`Landuse`.
 
@@ -92,8 +94,8 @@ def download_urban_atlas(
     ----------
     bounds : Bounds
         Area of interest in EPSG:3006.
-    year : int, default 2018
-        Urban Atlas reference year. Only 2018 is served anonymously.
+    year : int, default 2012
+        Urban Atlas reference year. Only 2012 is served anonymously.
     use_cache : bool, default True
         Reuse a cached download for the same bounds and year.
 
@@ -119,7 +121,7 @@ def download_urban_atlas(
 
 
 def download_urban_atlas_geodataframe(
-    bounds: Bounds, year: int = 2018, use_cache: bool = True
+    bounds: Bounds, year: int = 2012, use_cache: bool = True
 ):
     """Download Urban Atlas polygons clipped to ``bounds`` as a GeoDataFrame.
 
@@ -166,7 +168,7 @@ def download_urban_atlas_geodataframe(
     return gdf
 
 
-def landuse_from_urban_atlas(gdf, year: int = 2018) -> Landuse:
+def landuse_from_urban_atlas(gdf, year: int = 2012) -> Landuse:
     """Convert an Urban Atlas GeoDataFrame to a :class:`Landuse`."""
     landuse = Landuse()
     surfaces = MultiSurface()

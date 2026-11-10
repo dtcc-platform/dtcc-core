@@ -35,7 +35,7 @@ def test_urban_atlas_dataset_registered():
 def test_urban_atlas_dataset_returns_landuse(monkeypatch):
     calls = []
 
-    def fake_download(bounds, year=2018):
+    def fake_download(bounds, year=2012):
         calls.append((bounds, year))
         return urban_atlas.landuse_from_urban_atlas(_gdf(), year=year)
 
@@ -46,14 +46,14 @@ def test_urban_atlas_dataset_returns_landuse(monkeypatch):
     assert isinstance(landuse, Landuse)
     assert landuse.attributes["ua_code"] == ["14100"]
     assert isinstance(calls[0][0], Bounds)
-    assert calls[0][1] == 2018
+    assert calls[0][1] == 2012
 
 
 def test_urban_atlas_dataset_exports_gpkg(monkeypatch, tmp_path):
     monkeypatch.setattr(
         urban_atlas,
         "download_urban_atlas_geodataframe",
-        lambda bounds, year=2018: _gdf(),
+        lambda bounds, year=2012: _gdf(),
     )
 
     payload = datasets.urban_atlas(bounds=(0.0, 0.0, 2.0, 1.0), format="gpkg")
@@ -66,7 +66,7 @@ def test_urban_atlas_dataset_exports_gpkg(monkeypatch, tmp_path):
 def test_urban_atlas_dataset_protobuf(monkeypatch):
     monkeypatch.setattr(
         "dtcc_core.io.data.download_urban_atlas",
-        lambda bounds, year=2018: urban_atlas.landuse_from_urban_atlas(_gdf()),
+        lambda bounds, year=2012: urban_atlas.landuse_from_urban_atlas(_gdf()),
     )
 
     payload = datasets.urban_atlas(bounds=(0.0, 0.0, 2.0, 1.0), format="pb")
@@ -82,7 +82,7 @@ def _failing(*args, **kwargs):
         operation="query_features",
         target="https://example",
         failure_class="timeout",
-        message="Urban Atlas 2018 query failed: read timed out",
+        message="Urban Atlas 2012 query failed: read timed out",
     )
 
 
@@ -134,7 +134,7 @@ def test_strict_live_raises_for_vector_export(monkeypatch):
 def test_successful_result_is_not_partial(monkeypatch):
     monkeypatch.setattr(
         "dtcc_core.io.data.download_urban_atlas",
-        lambda bounds, year=2018: urban_atlas.landuse_from_urban_atlas(
+        lambda bounds, year=2012: urban_atlas.landuse_from_urban_atlas(
             _gdf(), year=year
         ),
     )
