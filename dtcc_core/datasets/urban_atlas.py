@@ -121,7 +121,7 @@ class UrbanAtlasDataset(DatasetDescriptor):
         },
     ]
     key_points = [
-        "Covers 100% of the requested area inside a Functional Urban Area, including roads",
+        "Covers the whole requested area inside a Functional Urban Area, including roads",
         "Housing classes are graded by sealing degree (from <10% to >80%)",
         "ua_code and ua_class keep the original Urban Atlas nomenclature",
         "Only 2012 is available without a Copernicus account",
@@ -149,7 +149,16 @@ class UrbanAtlasDataset(DatasetDescriptor):
     presentation_limitations = [
         "Areas outside Functional Urban Areas return no polygons.",
         "Blocks do not resolve individual buildings, streets inside blocks, or small green areas.",
-        "Urban Atlas 2021 needs a Copernicus account and is not supported yet.",
+        "Urban Atlas 2018 and 2021 need a Copernicus account and are not supported.",
+        (
+            "The first request for a new area takes about 20 s: it downloads the whole "
+            "Functional Urban Area's 'Other roads' polygon (18 MB for Göteborg) and "
+            "clips it locally. Repeating the same bounds is served from the cache."
+        ),
+        (
+            "The roads polygon is simplified by up to 0.5 m, so road edges overlap or "
+            "leave gaps against neighbouring blocks, about 0.1% of the area."
+        ),
     ]
 
     def build(self, args: UrbanAtlasArgs):
