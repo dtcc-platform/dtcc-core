@@ -152,12 +152,12 @@ class UrbanAtlasDataset(DatasetDescriptor):
         "Urban Atlas 2018 and 2021 need a Copernicus account and are not supported.",
         (
             "The first request for a new area takes about 20 s: it downloads the whole "
-            "Functional Urban Area's 'Other roads' polygon (18 MB for Göteborg) and "
+            "Functional Urban Area's 'Other roads' polygon (about 17 MB for Göteborg) and "
             "clips it locally. Repeating the same bounds is served from the cache."
         ),
         (
             "The roads polygon is simplified by up to 0.5 m, so road edges overlap or "
-            "leave gaps against neighbouring blocks, about 0.1% of the area."
+            "leave gaps against neighbouring blocks, each about 0.1-0.2% of the area."
         ),
     ]
 

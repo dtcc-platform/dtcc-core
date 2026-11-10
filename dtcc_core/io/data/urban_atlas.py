@@ -38,8 +38,8 @@ URBAN_ATLAS_PAGE_SIZE = 1000
 # Stops paging if the service keeps reporting more results (a million features).
 URBAN_ATLAS_MAX_PAGES = 1000
 URBAN_ATLAS_CACHE_VERSION = 2
-# "Other roads" is one polygon per Functional Urban Area (Göteborg in 2018:
-# 8,284 ha, 1.1 M vertices). Unsimplified bbox queries that include it fail with HTTP 500,
+# "Other roads" is one polygon per Functional Urban Area (Göteborg: 8,126 ha).
+# Unsimplified bbox queries that include it fail with HTTP 500,
 # so it is fetched separately with server-side simplification.
 URBAN_ATLAS_ROAD_CODE = "12220"
 URBAN_ATLAS_ROAD_SIMPLIFY_M = 0.5
