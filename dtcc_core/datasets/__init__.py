@@ -56,18 +56,6 @@ from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
 from .orthophoto import OrthophotoDataset
 
-# Remote dataset support (optional, requires httpx)
-try:
-    from .remote import (
-        RemoteDatasetDescriptor,
-        RemoteValidationError,
-        register_remote_service,
-        register_remote_descriptors_from_cache,
-        get_cached_discoveries,
-    )
-except ImportError:
-    pass
-
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
     _register_dataset_class,
@@ -110,7 +98,7 @@ calibration_grid = get_dataset("calibration_grid")
 orthophoto = get_dataset("orthophoto")
 
 
-_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
+_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "unknown")
 
 
 def info(print: bool = True) -> str | None:

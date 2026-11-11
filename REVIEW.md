@@ -6,10 +6,13 @@ a Ruff rule or a test instead of a line here.
 
 ## What failure looks like here
 
-- A function exported in an `__all__` changes signature or behaviour without
-  the PR saying so; the other DTCC repositories build on this one.
+- A function or class exported in an `__all__`, a method registered on a
+  model class (`@register_model_method` or `add_methods`), or a registered
+  dataset changes arguments, defaults, return type or behaviour without the
+  PR saying so; the other DTCC repositories build on this one.
 - Geometry that is wrong but valid-looking: wrong CRS or units, non-watertight
-  shells, flipped face orientation.
+  shells, flipped face orientation. Look for existing or added tests asserting
+  the affected geometry contract.
 - Files written today that cannot be read tomorrow: `dtcc.proto`, CityJSON
   writers or dataset package formats changed without a round-trip test.
 - A slower `import dtcc_core`: heavy third-party imports at module level
@@ -42,6 +45,7 @@ a Ruff rule or a test instead of a line here.
 
 - Each finding once, with file and line, labelled important or nit; label code
   the PR did not introduce as pre-existing.
+- Say what you could not verify; uncertainty alone is not a finding.
 - End with the finding count, or "no issues".
 - On a re-review, start from the commits added since your last review and
   review them the same way.

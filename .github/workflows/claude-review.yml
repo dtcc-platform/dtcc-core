@@ -9,6 +9,12 @@ on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
+# Reviews of one pull request run one at a time: a running review finishes, so
+# the next one can start from its comment; a push replaces a run still waiting.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   review:
     if: >-
