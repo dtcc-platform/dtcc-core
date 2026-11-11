@@ -147,7 +147,7 @@ def test_get_map_raises_on_service_exception():
 def test_get_map_rejects_date_outside_archive():
     response = DummyResponse(status_code=400, content_type="application/xml")
     response.text = '<ServiceException code="InvalidDimensionValue"/>'
-    with pytest.raises(ValueError, match="outside the date range"):
+    with pytest.raises(digitalearth.DateNotServedError, match="outside the date range"):
         digitalearth.get_map(
             RecordingSession(response),
             "sentinel2_reflectance",
@@ -167,11 +167,9 @@ def test_get_map_raises_on_bad_status():
         )
 
 
-def test_tile_to_array_treats_greyscale_as_transparent():
+def test_tile_to_array_reports_greyscale_as_no_data():
     # A date with no data comes back as a tiny greyscale image.
-    data = digitalearth._tile_to_array(make_png(1), 4, 4)
-    assert data.shape == (4, 4, 4)
-    assert not data[3].any()
+    assert digitalearth._tile_to_array(make_png(1), 4, 4) is None
 
 
 def test_tile_to_array_adds_alpha_to_rgb():
@@ -272,6 +270,41 @@ def test_latest_clear_date_skips_dates_without_pixels(monkeypatch):
 
     assert digitalearth.latest_clear_date(BBOX, session=object()) == "2026-07-15"
     assert probed == ["2026-08-24", "2026-07-15"]
+
+
+def test_latest_clear_date_skips_dates_the_imagery_server_does_not_serve(monkeypatch):
+    # The catalogue and the imagery server update separately, so the newest
+    # catalogue date can lie outside the server's time range for a while.
+    probed = []
+
+    def fake_coverage(session, bbox, date):
+        probed.append(date)
+        if date == "2026-08-24":
+            raise digitalearth.DateNotServedError(f"{date} is not served")
+        return 1.0
+
+    monkeypatch.setattr(
+        digitalearth,
+        "list_available_dates",
+        lambda *a, **k: [("2026-08-24", 7.0), ("2026-07-15", 3.0)],
+    )
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", fake_coverage)
+
+    assert digitalearth.latest_clear_date(BBOX, session=object()) == "2026-07-15"
+    assert probed == ["2026-08-24", "2026-07-15"]
+
+
+def test_latest_clear_date_does_not_hide_other_errors(monkeypatch):
+    monkeypatch.setattr(
+        digitalearth, "list_available_dates", lambda *a, **k: [("2026-08-24", 7.0)]
+    )
+
+    def broken(session, bbox, date):
+        raise ValueError("decoder bug")
+
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", broken)
+    with pytest.raises(ValueError, match="decoder bug"):
+        digitalearth.latest_clear_date(BBOX, session=object())
 
 
 def test_latest_clear_date_raises_when_catalogue_is_empty(monkeypatch):
@@ -686,6 +719,30 @@ def test_download_imagery_collects_failed_tiles_when_asked(
     # The failed tile is the top right one: columns 512 onwards of rows 0-511.
     assert not raster.data[:512, 512:, 3].any()
     assert raster.data[:512, :512, 3].all()
+    assert _cached_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("style", ["ndvi", "rgb"])
+def test_download_imagery_does_not_cache_a_blank_tile(monkeypatch, tmp_path, style):
+    # The server can answer a tile with its greyscale "no data" image even
+    # though the rgb probe saw imagery; the decoder returns None for it.
+    warnings, _ = _stub_download(monkeypatch, tmp_path, alpha_fraction=1.0)
+    tiles = []
+
+    def tile_with_a_blank(png_bytes, width, height):
+        tiles.append(None)
+        if len(tiles) == 2:
+            return None
+        return np.full((4, height, width), 255, dtype=np.uint8)
+
+    monkeypatch.setattr(digitalearth, "_tile_to_array", tile_with_a_blank)
+
+    raster = digitalearth.download_imagery(
+        (0, 0, 6000, 6000), date="2026-05-05", style=style
+    )
+
+    assert raster.data.shape == (600, 600, 4)
+    assert len(warnings) == 1 and "not cached" in warnings[0]
     assert _cached_files(tmp_path) == []
 
 

@@ -81,6 +81,7 @@ MAX_DATE_CANDIDATES = 12
 # Warn when less than this fraction of the requested area has imagery.
 COVERAGE_WARNING_THRESHOLD = 0.99
 
+
 # WMS layer serving the whole Sentinel-2 archive.
 LAYER = "sentinel2_reflectance"
 
@@ -131,6 +132,14 @@ def create_session(retries=HTTP_RETRIES, backoff_factor=1.0):
 
 class ServiceError(requests.RequestException):
     """The imagery server answered with an error report instead of an image."""
+
+
+class DateNotServedError(ValueError):
+    """The imagery server does not serve the requested date.
+
+    The STAC catalogue and the WMS time range update separately, so a date
+    the catalogue lists can be missing from the server for a while.
+    """
 
 
 # ------------------------------------------------------------------------
@@ -313,7 +322,11 @@ def _pick_clear_date(bbox, max_cloud, search_days, session, max_candidates):
     probed = candidates[:max_candidates]
     best = None
     for date, cloud in probed:
-        coverage = _imagery_coverage(session, bbox, date)
+        try:
+            coverage = _imagery_coverage(session, bbox, date)
+        except DateNotServedError:
+            debug(f"{date} is listed in the catalogue but not served yet")
+            continue
         if coverage >= COVERAGE_WARNING_THRESHOLD:
             info(f"Using acquisition from {date} ({cloud:.1f}% cloud cover)")
             return date, coverage
@@ -448,7 +461,7 @@ def get_map(session, layer, style, bbox, width, height, date):
     debug(f"[GET] {WMS_URL} bbox={params['bbox']} time={date}")
     resp = session.get(WMS_URL, params=params, timeout=120)
     if resp.status_code == 400 and "InvalidDimensionValue" in resp.text:
-        raise ValueError(
+        raise DateNotServedError(
             f"{date} is outside the date range served by Digital Earth Sweden."
         )
     if resp.status_code != 200:
@@ -472,7 +485,7 @@ def _tile_to_array(png_bytes, width, height):
     Decode a PNG tile into an (4, height, width) uint8 RGBA array.
 
     Tiles with no data for the requested date come back as a small greyscale
-    image rather than RGBA, and are treated as fully transparent.
+    image rather than RGBA; for those it returns None.
     """
     # Tiles are plain PNGs; their position comes from the request, so the
     # warning that they carry no georeferencing does not apply.
@@ -483,7 +496,7 @@ def _tile_to_array(png_bytes, width, height):
                 data = src.read()
 
     if data.shape[0] < 3:
-        return np.zeros((4, height, width), dtype=np.uint8)
+        return None
     if data.shape[0] == 3:
         alpha = np.full((1, data.shape[1], data.shape[2]), 255, dtype=np.uint8)
         data = np.concatenate([data, alpha], axis=0)
@@ -500,7 +513,10 @@ def _imagery_coverage(session, bbox, date):
     since the index styles leave pixels transparent where they have data.
     """
     png_bytes = get_map(session, LAYER, "rgb", bbox, PROBE_PIXELS, PROBE_PIXELS, date)
-    alpha = _tile_to_array(png_bytes, PROBE_PIXELS, PROBE_PIXELS)[3]
+    data = _tile_to_array(png_bytes, PROBE_PIXELS, PROBE_PIXELS)
+    if data is None:
+        return 0.0
+    alpha = data[3]
     return float((alpha > 0).mean())
 
 
@@ -556,14 +572,16 @@ def _download_mosaic(session, bbox, resolution, style, date, tile_errors):
     """
     Download 'bbox' tile by tile and stitch the tiles into one mosaic.
 
-    Returns (mosaic, failed_fraction): a (4, height, width) uint8 RGBA array
-    and the fraction of its pixels whose tile failed. Failed tiles are handled
-    as described for download_imagery's 'tile_errors'.
+    Returns (mosaic, missing_fraction): a (4, height, width) uint8 RGBA array
+    and the fraction of its pixels whose tile failed or came back as the
+    server's "no data" tile; both are left transparent. Failed tiles are
+    handled as described for download_imagery's 'tile_errors'.
     """
     width, height, tiles = _tile_grid(bbox, resolution)
     mosaic = np.zeros((4, height, width), dtype=np.uint8)
 
     failed_pixels = 0
+    blank_pixels = 0
     for index, tile in enumerate(tiles, start=1):
         message = f"Downloading tile {index}/{len(tiles)} for {date}"
         info(message)
@@ -580,6 +598,9 @@ def _download_mosaic(session, bbox, resolution, style, date, tile_errors):
             warning(f"Tile {index}/{len(tiles)} failed and was left transparent: {exc}")
             continue
         data = _tile_to_array(png_bytes, tile["width"], tile["height"])
+        if data is None:
+            blank_pixels += tile["width"] * tile["height"]
+            continue
         rows = slice(tile["row_off"], tile["row_off"] + tile["height"])
         cols = slice(tile["col_off"], tile["col_off"] + tile["width"])
         mosaic[:, rows, cols] = data
@@ -587,7 +608,7 @@ def _download_mosaic(session, bbox, resolution, style, date, tile_errors):
 
     if failed_pixels == width * height:
         raise tile_errors[-1]
-    return mosaic, failed_pixels / (width * height)
+    return mosaic, (failed_pixels + blank_pixels) / (width * height)
 
 
 # ------------------------------------------------------------------------
@@ -662,16 +683,16 @@ def download_imagery(
                 "Use list_available_dates() to pick a date, or omit date."
             )
 
-    mosaic, failed_fraction = _download_mosaic(
+    mosaic, missing_fraction = _download_mosaic(
         session, bbox, resolution, style, date, tile_errors
     )
 
     # For opaque styles the full mosaic also reveals a single tile that came
-    # back blank; index styles rely on the rgb probe and the failed tiles.
+    # back blank; index styles rely on the rgb probe and the missing tiles.
     if style in OPAQUE_STYLES:
         covered = float((mosaic[3] > 0).mean())
     else:
-        covered = probe_coverage * (1.0 - failed_fraction)
+        covered = probe_coverage * (1.0 - missing_fraction)
     if covered == 0.0:
         raise RuntimeError(
             f"The imagery returned for {date} is empty. The area may lie outside "
