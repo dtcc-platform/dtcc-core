@@ -5,12 +5,14 @@ import os
 import re
 
 import geopandas as gpd
-import pyproj
 import requests
 from platformdirs import user_cache_dir
 from requests.adapters import HTTPAdapter
 from shapely.geometry import LineString, Polygon, box
+from shapely.ops import polygonize, unary_union
 from urllib3.util.retry import Retry
+
+from ...reproject.bounds import bounds_to_wgs84
 
 # ``warning`` is re-exported for tests that assert nothing warns here.
 from .logging import debug, error, info, warning  # noqa: F401
@@ -30,7 +32,8 @@ OVERPASS_ENDPOINTS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
-ROAD_CACHE_VERSION = 2
+ROAD_CACHE_VERSION = 4
+BUILDING_CACHE_VERSION = 3
 OVERPASS_ENDPOINT_METADATA_KEY = "_dtcc_overpass_endpoint"
 OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
 OVERPASS_CONNECT_TIMEOUT_SECONDS = float(
@@ -200,6 +203,48 @@ def filter_gdf_to_bbox(gdf, bbox_3006):
     return gdf[gdf.geometry.intersects(bbox_poly)].copy()
 
 
+# Extra OSM way tags kept as road attributes, mapped to column names.
+ROAD_EXTRA_TAG_COLUMNS = {
+    "surface": "surface",
+    "lit": "lit",
+    "sidewalk": "sidewalk",
+    "sidewalk:left": "sidewalk_left",
+    "sidewalk:right": "sidewalk_right",
+    "sidewalk:both": "sidewalk_both",
+    "cycleway": "cycleway",
+    "cycleway:left": "cycleway_left",
+    "cycleway:right": "cycleway_right",
+    "cycleway:both": "cycleway_both",
+    "footway": "footway",
+    "width": "width",
+    "access": "access",
+    "service": "service",
+    "foot": "foot",
+    "bicycle": "bicycle",
+    "vehicle": "vehicle",
+    "motor_vehicle": "motor_vehicle",
+    "motorcar": "motorcar",
+    "motorroad": "motorroad",
+}
+
+# Point features on road nodes kept as segment end attributes.
+ROAD_NODE_HIGHWAYS = ("crossing", "traffic_signals")
+
+# OSM building tags kept as building attributes, mapped to column names.
+# ``height`` is stored as ``osm_height`` so the raw tag text is not mistaken
+# for the numeric building height used elsewhere in dtcc-core.
+BUILDING_TAG_COLUMNS = {
+    "building": "building",
+    "building:levels": "building_levels",
+    "roof:shape": "roof_shape",
+    "height": "osm_height",
+    "addr:street": "addr_street",
+    "addr:housenumber": "addr_housenumber",
+    "addr:postcode": "addr_postcode",
+    "addr:city": "addr_city",
+}
+
+
 def _parse_bool_tag(value):
     if value is None:
         return False
@@ -308,14 +353,14 @@ def download_overpass_buildings(bbox_3006):
     2) Query Overpass for building footprints in that bounding box.
     3) Return a GeoDataFrame in EPSG:3006.
     """
-    transformer = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
-    xmin, ymin, xmax, maxy = bbox_3006
-    min_lon, min_lat = transformer.transform(xmin, ymin)
-    max_lon, max_lat = transformer.transform(xmax, maxy)
+    min_lon, min_lat, max_lon, max_lat = bounds_to_wgs84(bbox_3006, "EPSG:3006")
 
     query = f"""
     [out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECONDS}];
-    way["building"]({min_lat},{min_lon},{max_lat},{max_lon});
+    (
+      way["building"]({min_lat},{min_lon},{max_lat},{max_lon});
+      relation["building"]["type"="multipolygon"]({min_lat},{min_lon},{max_lat},{max_lon});
+    );
     out geom;
     """
     info(f"Querying Overpass for buildings in bbox={bbox_3006}")
@@ -331,23 +376,39 @@ def download_overpass_buildings(bbox_3006):
             lon = elem["lon"]
             nodes[nid] = (lat, lon)
 
-    footprints_ll = []
-    for elem in data.get("elements", []):
-        if elem["type"] == "way" and "nodes" in elem:
-            coords = _way_coordinates_latlon(elem, nodes)
-            if len(coords) > 2:
-                if coords[0] != coords[-1]:
-                    coords.append(coords[0])  # close ring
-                footprints_ll.append(coords)
+    elements = data.get("elements", [])
+    relations, relation_outlines = _building_relations(elements)
 
-    # Convert lat-lon -> polygons in EPSG:4326
+    building_rows = []
     polygons_4326 = []
-    for ring in footprints_ll:
-        ring_lonlat = [(lon, lat) for (lat, lon) in ring]
-        polygons_4326.append(Polygon(ring_lonlat))
+    for elem in elements:
+        if elem["type"] == "way":
+            if elem["id"] in relation_outlines or "nodes" not in elem:
+                continue
+            coords = _way_coordinates_latlon(elem, nodes)
+            if len(coords) <= 2:
+                continue
+            if coords[0] != coords[-1]:
+                coords.append(coords[0])  # close ring
+            polygon = Polygon([(lon, lat) for (lat, lon) in coords])
+            tags = elem.get("tags", {})
+        elif elem["type"] == "relation" and elem["id"] in relations:
+            polygon, tags = relations[elem["id"]]
+        else:
+            continue
 
+        row = {"osm_id": elem["id"], "osm_type": elem["type"]}
+        for tag, column in BUILDING_TAG_COLUMNS.items():
+            row[column] = tags.get(tag)
+        building_rows.append(row)
+        polygons_4326.append(polygon)
+
+    building_columns = ["osm_id", "osm_type", *BUILDING_TAG_COLUMNS.values()]
     gdf_4326 = gpd.GeoDataFrame(
-        {"osm_id": range(len(polygons_4326))}, geometry=polygons_4326, crs="EPSG:4326"
+        building_rows,
+        columns=building_columns,
+        geometry=polygons_4326,
+        crs="EPSG:4326",
     )
     _set_overpass_source_endpoint(gdf_4326, source_endpoint)
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
@@ -361,15 +422,15 @@ def download_overpass_roads(bbox_3006):
     2) Query Overpass for roads (highways) in that bounding box.
     3) Return a GeoDataFrame in EPSG:3006.
     """
-    transformer = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
-    xmin, ymin, xmax, maxy = bbox_3006
-    min_lon, min_lat = transformer.transform(xmin, ymin)
-    max_lon, max_lat = transformer.transform(xmax, maxy)
+    min_lon, min_lat, max_lon, max_lat = bounds_to_wgs84(bbox_3006, "EPSG:3006")
 
+    node_highways = "|".join(ROAD_NODE_HIGHWAYS)
     query = f"""
     [out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECONDS}];
-    way["highway"]({min_lat},{min_lon},{max_lat},{max_lon});
-    out geom;
+    way["highway"]({min_lat},{min_lon},{max_lat},{max_lon})->.roads;
+    .roads out geom;
+    node(w.roads)["highway"~"^({node_highways})$"];
+    out;
     """
     info(f"Querying Overpass for roads in bbox={bbox_3006}")
     data = query_overpass_with_failover(query)
@@ -383,6 +444,12 @@ def download_overpass_roads(bbox_3006):
             lat = elem["lat"]
             lon = elem["lon"]
             nodes[nid] = (lat, lon)
+
+    node_tags = {
+        elem["id"]: elem["tags"]
+        for elem in data.get("elements", [])
+        if elem["type"] == "node" and elem.get("tags")
+    }
 
     road_rows = []
     road_geometries = []
@@ -426,6 +493,12 @@ def download_overpass_roads(bbox_3006):
                     "bridge": tags.get("bridge"),
                     "tunnel": tags.get("tunnel"),
                     "junction": tags.get("junction"),
+                    **{
+                        column: tags.get(tag)
+                        for tag, column in ROAD_EXTRA_TAG_COLUMNS.items()
+                    },
+                    **_road_node_columns("start", node_tags.get(start_node)),
+                    **_road_node_columns("end", node_tags.get(end_node)),
                 }
             )
 
@@ -444,6 +517,11 @@ def download_overpass_roads(bbox_3006):
         "bridge",
         "tunnel",
         "junction",
+        *ROAD_EXTRA_TAG_COLUMNS.values(),
+        "start_node_highway",
+        "start_node_crossing",
+        "end_node_highway",
+        "end_node_crossing",
     ]
     gdf_4326 = gpd.GeoDataFrame(
         road_rows, columns=road_columns, geometry=road_geometries, crs="EPSG:4326"
@@ -452,6 +530,16 @@ def download_overpass_roads(bbox_3006):
     gdf_3006 = gdf_4326.to_crs("EPSG:3006")
     _set_overpass_source_endpoint(gdf_3006, source_endpoint)
     return gdf_3006
+
+
+def _road_node_columns(end, tags):
+    """Crossing and traffic-signal tags of a segment's start or end node."""
+    tags = tags or {}
+    highway = tags.get("highway")
+    return {
+        f"{end}_node_highway": highway if highway in ROAD_NODE_HIGHWAYS else None,
+        f"{end}_node_crossing": tags.get("crossing"),
+    }
 
 
 def _way_coordinates_latlon(elem, nodes):
@@ -464,6 +552,126 @@ def _way_coordinates_latlon(elem, nodes):
         if ref in nodes:
             coords.append(nodes[ref])  # (lat, lon)
     return coords
+
+
+def _building_relations(elements):
+    """Assemble the building relations in an Overpass response.
+
+    Returns ``{relation id: (polygon, tags)}`` for the relations that form a
+    closed shape, and the ids of the building ways that outline them. Those
+    ways are described by their relation, so they are not added a second
+    time; their tags fill in what the relation leaves out.
+    """
+    way_tags = {
+        elem["id"]: elem.get("tags", {}) for elem in elements if elem["type"] == "way"
+    }
+    relations = {}
+    outlines = set()
+    for elem in elements:
+        if elem["type"] != "relation":
+            continue
+        polygon = _relation_polygon_lonlat(elem)
+        if polygon is None:
+            continue
+        refs = [
+            member["ref"]
+            for member in elem.get("members", [])
+            if member.get("type") == "way"
+            and member.get("role") != "inner"
+            and member.get("ref") in way_tags
+        ]
+        outlines.update(refs)
+        tags = _relation_building_tags(
+            elem.get("tags", {}), [way_tags[ref] for ref in refs]
+        )
+        relations[elem["id"]] = (polygon, tags)
+    return relations, outlines
+
+
+def _relation_building_tags(relation_tags, outline_tags):
+    """Return a building relation's tags, filled in from its outline ways.
+
+    The relation's own value wins, except ``building=yes``, which a more
+    specific building type on the outlines replaces. A tag the relation
+    lacks is taken from the outline ways only when every one of them has
+    it with the same value.
+    """
+    tags = dict(relation_tags)
+    for tag in BUILDING_TAG_COLUMNS:
+        current = tags.get(tag)
+        if current is not None and not (tag == "building" and current == "yes"):
+            continue
+        values = {way.get(tag) for way in outline_tags}
+        if len(values) == 1 and None not in values:
+            tags[tag] = values.pop()
+    return tags
+
+
+def _member_rings(lines):
+    """Polygons for the rings formed by relation member lines.
+
+    A member that is closed on its own is used as drawn, so touching rings
+    do not also enclose the space between them. Members that are pieces of
+    a ring are joined with ``polygonize``; it turns nested rings into faces
+    with holes, so each face's exterior is kept to recover the rings.
+    """
+    closed = [Polygon(line.coords) for line in lines if line.is_ring]
+    pieces = [line for line in lines if not line.is_ring]
+    joined = (
+        [Polygon(face.exterior) for face in polygonize(unary_union(pieces))]
+        if pieces
+        else []
+    )
+    return closed + joined
+
+
+def _relation_polygon_lonlat(elem):
+    """Build a (Multi)Polygon in lon/lat from a multipolygon relation.
+
+    Outer and inner rings may each be split over several member ways, which
+    are joined first; a member that is closed on its own is used as drawn.
+    Each inner ring is cut from every outer ring that contains it. An outer
+    ring inside a courtyard does not contain the courtyard ring, so it stays
+    part of the building. An inner ring that no outer ring contains is cut
+    from every outer ring it overlaps. Members without the ``inner`` role
+    count as outer rings. Returns ``None`` when no closed outer ring can be
+    formed.
+    """
+    outer_lines = []
+    inner_lines = []
+    for member in elem.get("members", []):
+        if member.get("type") != "way":
+            continue
+        points = [(p["lon"], p["lat"]) for p in member.get("geometry") or [] if p]
+        if len(points) < 2:
+            continue
+        lines = inner_lines if member.get("role") == "inner" else outer_lines
+        lines.append(LineString(points))
+
+    outer = _member_rings(outer_lines)
+    if not outer:
+        return None
+    inner = _member_rings(inner_lines)
+
+    holes = [[] for _ in outer]
+    for ring in inner:
+        containing = [i for i, polygon in enumerate(outer) if polygon.covers(ring)]
+        if containing:
+            for i in containing:
+                holes[i].append(ring)
+        else:
+            for i, polygon in enumerate(outer):
+                if polygon.intersects(ring):
+                    holes[i].append(ring)
+
+    parts = [
+        polygon.difference(unary_union(rings)) if rings else polygon
+        for polygon, rings in zip(outer, holes)
+    ]
+    shape = unary_union(parts)
+    if shape.is_empty:
+        return None
+    return shape
 
 
 def _way_node_ids_and_coordinates_latlon(elem, nodes):
@@ -490,9 +698,12 @@ def get_buildings_for_bbox(bbox_3006):
     4) return GDF in EPSG:3006
     """
     records = load_cache_metadata()
-    sup_rec = find_superset_record(
-        bbox_3006, [r for r in records if r["type"] == "buildings"]
-    )
+    building_records = [
+        r
+        for r in records
+        if r["type"] == "buildings" and r.get("version") == BUILDING_CACHE_VERSION
+    ]
+    sup_rec = find_superset_record(bbox_3006, building_records)
     if sup_rec:
         debug("Found superset bounding box for buildings:", sup_rec["bbox"])
         gdf_all = gpd.read_file(
@@ -519,6 +730,7 @@ def get_buildings_for_bbox(bbox_3006):
         # update metadata
         record = {
             "type": "buildings",
+            "version": BUILDING_CACHE_VERSION,
             "bbox": list(bbox_3006),
             "filepath": to_relative_path(out_filename),
             "layer": "buildings",
