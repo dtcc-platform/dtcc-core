@@ -22,7 +22,7 @@ except ImportError:
     HAS_GEOPANDAS = False
 
 
-PLACES_CACHE_VERSION = 2
+PLACES_CACHE_VERSION = 3
 # Place queries cover several keys and take longer than road or building
 # queries, so they get a longer server timeout and read timeout.
 PLACES_OVERPASS_TIMEOUT_SECONDS = int(
@@ -252,8 +252,9 @@ def place_category(tags: dict):
         value = tags.get(key)
         if value is None:
             continue
+        # An excluded value rules out only this key; later keys can still match.
         if value in EXCLUDED_VALUES.get(key, ()):
-            return None
+            continue
         category = PLACE_CATEGORIES.get((key, value)) or PLACE_CATEGORIES.get(
             (key, None)
         )

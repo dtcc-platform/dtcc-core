@@ -96,6 +96,12 @@ def fake_overpass(monkeypatch, tmp_path):
         ({"amenity": "pharmacy", "shop": "chemist"}, ("health", "amenity", "pharmacy")),
         ({"amenity": "marketplace"}, ("other", "amenity", "marketplace")),
         ({"amenity": "bench"}, None),
+        # An excluded value only rules out its own key; later keys still count.
+        (
+            {"amenity": "shelter", "tourism": "hotel"},
+            ("accommodation", "tourism", "hotel"),
+        ),
+        ({"amenity": "bench", "tourism": "information"}, None),
         ({"tourism": "information"}, None),
         ({"highway": "bus_stop"}, None),
     ],
