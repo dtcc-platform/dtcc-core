@@ -30,9 +30,24 @@ PLACE_CATEGORY_COLORS = {
     "finance": "#E377C2",
     "office": "#7C8CA3",
     "craft": "#A8A832",
-    "other": "#C9C9D1",
+    "other": "#9696A0",
 }
 UNKNOWN_CATEGORY_COLOR = "#54545A"
+
+
+def _marker_outline(theme_values) -> str:
+    """Outline colour that stands out from the plot background.
+
+    Light backgrounds get the text colour, so pale markers keep an edge;
+    dark backgrounds get the subtle grid colour.
+    """
+    from matplotlib.colors import to_rgb
+
+    red, green, blue = to_rgb(theme_values["axes"])
+    light = 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5
+    return theme_values["text"] if light else theme_values["grid"]
+
+
 DEFAULT_PLACE_ATTRIBUTION = "© OpenStreetMap contributors"
 
 
@@ -222,7 +237,7 @@ class PlaceCollection(Object):
                 xy[:, 1],
                 s=size,
                 c=colors,
-                edgecolors=theme_values["axes"],
+                edgecolors=_marker_outline(theme_values),
                 linewidths=0.6,
                 zorder=3,
             )

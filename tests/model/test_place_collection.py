@@ -81,6 +81,28 @@ def test_plot_uses_stable_category_colors_and_counted_legend(plt):
     assert ax.get_aspect() == 1.0
 
 
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_marker_outlines_differ_from_the_background(plt, theme):
+    from matplotlib.colors import to_hex
+
+    from dtcc_core.plotting.style import get_theme
+
+    ax = _collection().plot(show=False, theme=theme)
+
+    background = get_theme(theme)["axes"].lower()
+    outlines = {to_hex(c) for c in ax.collections[-1].get_edgecolors()}
+    assert background not in outlines
+
+
+def test_other_category_differs_from_the_bounds_frame():
+    from dtcc_core.plotting.style import get_theme
+
+    for theme in ("dark", "light"):
+        assert (
+            PLACE_CATEGORY_COLORS["other"].lower() != get_theme(theme)["muted"].lower()
+        )
+
+
 def test_every_dataset_category_has_a_distinct_color():
     from dtcc_core.io.data.osm_places import PLACE_CATEGORY_NAMES
 
