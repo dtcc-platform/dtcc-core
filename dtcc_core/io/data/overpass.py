@@ -607,11 +607,29 @@ def _relation_building_tags(relation_tags, outline_tags):
     return tags
 
 
+def _member_rings(lines):
+    """Polygons for the rings formed by relation member lines.
+
+    A member that is closed on its own is used as drawn, so touching rings
+    do not also enclose the space between them. Members that are pieces of
+    a ring are joined with ``polygonize``; it turns nested rings into faces
+    with holes, so each face's exterior is kept to recover the rings.
+    """
+    closed = [Polygon(line.coords) for line in lines if line.is_ring]
+    pieces = [line for line in lines if not line.is_ring]
+    joined = (
+        [Polygon(face.exterior) for face in polygonize(unary_union(pieces))]
+        if pieces
+        else []
+    )
+    return closed + joined
+
+
 def _relation_polygon_lonlat(elem):
     """Build a (Multi)Polygon in lon/lat from a multipolygon relation.
 
-    Outer and inner rings may each be split over several member ways, so
-    the member lines are joined with ``polygonize`` first. Each inner ring
+    Outer and inner rings may each be split over several member ways, which
+    are joined first; a member that is closed on its own is used as drawn. Each inner ring
     is cut from the smallest outer ring that contains it, so an outer ring
     inside a courtyard stays part of the building. An inner ring that no
     outer ring contains is cut from every outer ring it overlaps. Members
@@ -629,16 +647,10 @@ def _relation_polygon_lonlat(elem):
         lines = inner_lines if member.get("role") == "inner" else outer_lines
         lines.append(LineString(points))
 
-    # ``polygonize`` turns nested rings into separate faces with holes, so
-    # keep each face's exterior to recover the rings as drawn.
-    outer = (
-        [Polygon(face.exterior) for face in polygonize(unary_union(outer_lines))]
-        if outer_lines
-        else []
-    )
+    outer = _member_rings(outer_lines)
     if not outer:
         return None
-    inner = list(polygonize(unary_union(inner_lines))) if inner_lines else []
+    inner = _member_rings(inner_lines)
 
     holes = [[] for _ in outer]
     for ring in inner:

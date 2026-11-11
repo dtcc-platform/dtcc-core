@@ -2,6 +2,7 @@ import re
 
 import pyproj
 import pytest
+from shapely.geometry import Point
 
 from dtcc_core.io.data import overpass
 
@@ -220,6 +221,45 @@ def test_relation_keeps_outer_ring_inside_courtyard():
 def _rectangle(xmin, ymin, xmax, ymax):
     corners = [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax), (xmin, ymin)]
     return [{"lon": x, "lat": y} for x, y in corners]
+
+
+def test_relation_keeps_yard_between_touching_outer_rings_open():
+    # Outer rings that share edges are invalid OSM, but the yard they enclose
+    # must not become part of the building.
+    members = [
+        {"type": "way", "role": "outer", "geometry": _rectangle(*box)}
+        for box in [(0, 0, 10, 2), (0, 8, 10, 10), (0, 2, 2, 8), (8, 2, 10, 8)]
+    ]
+
+    shape = overpass._relation_polygon_lonlat({"type": "relation", "members": members})
+
+    assert shape.area == pytest.approx(100 - 36)
+    assert not shape.contains(Point(5, 5))
+
+
+def test_relation_keeps_building_between_touching_inner_rings():
+    members = [{"type": "way", "role": "outer", "geometry": _rectangle(0, 0, 20, 20)}]
+    members += [
+        {"type": "way", "role": "inner", "geometry": _rectangle(*box)}
+        for box in [(2, 2, 18, 4), (2, 16, 18, 18), (2, 4, 4, 16), (16, 4, 18, 16)]
+    ]
+
+    shape = overpass._relation_polygon_lonlat({"type": "relation", "members": members})
+
+    assert shape.area == pytest.approx(400 - (2 * 16 * 2 + 2 * 12 * 2))
+    assert shape.contains(Point(10, 10))
+
+
+def test_relation_joins_an_outer_ring_drawn_in_pieces():
+    corners = _rectangle(0, 0, 10, 10)
+    members = [
+        {"type": "way", "role": "outer", "geometry": corners[:3]},
+        {"type": "way", "role": "outer", "geometry": corners[2:]},
+    ]
+
+    shape = overpass._relation_polygon_lonlat({"type": "relation", "members": members})
+
+    assert shape.area == pytest.approx(100)
 
 
 @pytest.mark.parametrize(
