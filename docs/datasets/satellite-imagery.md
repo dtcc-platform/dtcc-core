@@ -62,8 +62,10 @@ Choosing a date
 - Cloud cover is judged per acquisition date, using the cloudiest satellite
   tile that touches your area. A date only counts as clear if the whole area
   is clear. Thin or local cloud can still appear.
-- The catalogue sometimes lists dates the map server has no pixels for, so
-  up to 12 candidate dates are checked with a small test request.
+- The catalogue sometimes lists dates the map server has no pixels for, or
+  does not serve yet because its date range lags behind the catalogue, so
+  up to 12 candidate dates are checked with a small test request and such
+  dates are skipped.
 - Every call contacts the server to pick the date, even if the image itself
   is already cached. This takes about 5–15 seconds.
 - The chosen date is written to the log ("Using acquisition from ...").
@@ -74,7 +76,7 @@ cache, so it also works offline.
 
 - If the area has no imagery on that date, the call raises `RuntimeError`.
 - If the date is outside the archive, for example in the future, it raises
-  `ValueError`.
+  `DateNotServedError`, a `ValueError`.
 - An impossible date such as `2026-02-30` is rejected before any request.
 
 **Finding dates.** `list_available_dates` lists acquisitions with their cloud
@@ -149,8 +151,9 @@ Caching
 - Downloaded images are stored as GeoTIFFs in the `downloaded_des` folder of
   the dtcc-data cache: `~/Library/Caches/dtcc-data` on macOS,
   `~/.cache/dtcc-data` on Linux.
-- Only complete images are cached. An image with missing parts is returned
-  with a warning and downloaded again next time.
+- Only complete images are cached. An image with missing parts, including a
+  part the server returned as an empty "no data" tile, is returned with a
+  warning and downloaded again next time.
 - Images found by automatic date are cached too, under the date that was
   chosen, but picking the date still contacts the server.
 - `io.empty_cache()` clears the cache. It clears every dtcc-data download,

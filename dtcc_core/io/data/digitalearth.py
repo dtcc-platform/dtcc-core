@@ -321,11 +321,13 @@ def _pick_clear_date(bbox, max_cloud, search_days, session, max_candidates):
     # an older date covering all of it is preferred.
     probed = candidates[:max_candidates]
     best = None
+    not_served = []
     for date, cloud in probed:
         try:
             coverage = _imagery_coverage(session, bbox, date)
         except DateNotServedError:
             debug(f"{date} is listed in the catalogue but not served yet")
+            not_served.append(date)
             continue
         if coverage >= COVERAGE_WARNING_THRESHOLD:
             info(f"Using acquisition from {date} ({cloud:.1f}% cloud cover)")
@@ -342,10 +344,23 @@ def _pick_clear_date(bbox, max_cloud, search_days, session, max_candidates):
         )
         return date, coverage
 
+    if len(not_served) == len(probed):
+        raise RuntimeError(
+            f"The {len(probed)} most recent acquisition(s) the catalogue lists for "
+            f"this area ({', '.join(not_served)}) are not served by the imagery "
+            f"server yet; its date range lags behind the catalogue. Try again "
+            f"later, or pass an older date from list_available_dates()."
+        )
+    skipped = (
+        f" ({len(not_served)} of them not served by the imagery server yet)"
+        if not_served
+        else ""
+    )
     raise RuntimeError(
         f"The catalogue lists {len(candidates)} acquisition(s) below {max_cloud}% "
         f"cloud cover for this area, but none of the {len(probed)} most recent "
-        f"had imagery on the server. Pass an explicit date or widen search_days."
+        f"had imagery on the server{skipped}. Pass an explicit date or widen "
+        f"search_days."
     )
 
 
@@ -688,11 +703,12 @@ def download_imagery(
     )
 
     # For opaque styles the full mosaic also reveals a single tile that came
-    # back blank; index styles rely on the rgb probe and the missing tiles.
+    # back blank. Index styles rely on the rgb probe and the missing tiles;
+    # tiles outside the pass are in both, so the smaller share is used.
     if style in OPAQUE_STYLES:
         covered = float((mosaic[3] > 0).mean())
     else:
-        covered = probe_coverage * (1.0 - missing_fraction)
+        covered = min(probe_coverage, 1.0 - missing_fraction)
     if covered == 0.0:
         raise RuntimeError(
             f"The imagery returned for {date} is empty. The area may lie outside "

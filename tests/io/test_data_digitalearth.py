@@ -294,6 +294,25 @@ def test_latest_clear_date_skips_dates_the_imagery_server_does_not_serve(monkeyp
     assert probed == ["2026-08-24", "2026-07-15"]
 
 
+def test_latest_clear_date_explains_when_no_listed_date_is_served(monkeypatch):
+    monkeypatch.setattr(
+        digitalearth,
+        "list_available_dates",
+        lambda *a, **k: [("2026-08-24", 7.0), ("2026-08-20", 3.0)],
+    )
+
+    def not_served(session, bbox, date):
+        raise digitalearth.DateNotServedError(f"{date} is not served")
+
+    monkeypatch.setattr(digitalearth, "_imagery_coverage", not_served)
+
+    with pytest.raises(RuntimeError) as info:
+        digitalearth.latest_clear_date(BBOX, session=object())
+    message = str(info.value)
+    assert "not served by the imagery server yet" in message
+    assert "2026-08-24" in message and "2026-08-20" in message
+
+
 def test_latest_clear_date_does_not_hide_other_errors(monkeypatch):
     monkeypatch.setattr(
         digitalearth, "list_available_dates", lambda *a, **k: [("2026-08-24", 7.0)]
@@ -744,6 +763,30 @@ def test_download_imagery_does_not_cache_a_blank_tile(monkeypatch, tmp_path, sty
     assert raster.data.shape == (600, 600, 4)
     assert len(warnings) == 1 and "not cached" in warnings[0]
     assert _cached_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("style", ["ndvi", "rgb"])
+def test_partial_coverage_is_reported_once(monkeypatch, tmp_path, style):
+    # Outside the satellite pass the server sends "no data" tiles, which the
+    # rgb probe has already counted, so the warning must not count them again.
+    # 6000 m at 10 m is 600 x 600 pixels; the left tile column is 512 wide.
+    left_column = 512 / 600
+    warnings, _ = _stub_download(
+        monkeypatch, tmp_path, alpha_fraction=1.0, probe_coverage=1 - left_column
+    )
+    tiles = []
+
+    def outside_on_the_left(png_bytes, width, height):
+        tiles.append(None)
+        if len(tiles) in (1, 3):
+            return None
+        return np.full((4, height, width), 255, dtype=np.uint8)
+
+    monkeypatch.setattr(digitalearth, "_tile_to_array", outside_on_the_left)
+
+    digitalearth.download_imagery((0, 0, 6000, 6000), date="2026-05-05", style=style)
+
+    assert len(warnings) == 1 and "Only 15%" in warnings[0]
 
 
 def test_download_imagery_raises_when_every_tile_fails(monkeypatch, tmp_path):
