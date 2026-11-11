@@ -276,3 +276,37 @@ def test_download_data_rejects_imagery_in_other_epsg():
         with pytest.raises(ValueError, match="only available in EPSG:3006"):
             wrapper.download_data("imagery", "DES", Bounds(0, 0, 10, 10), epsg="4326")
     download_imagery.assert_not_called()
+
+
+def test_download_data_accepts_imagery_epsg_as_a_number():
+    with patch.object(
+        wrapper, "_download_imagery", return_value="raster"
+    ) as download_imagery:
+        result = wrapper.download_data(
+            "imagery", "DES", Bounds(0, 0, 10, 10), epsg=3006, style="ndvi"
+        )
+    assert result == "raster"
+    download_imagery.assert_called_once()
+    assert download_imagery.call_args.kwargs["style"] == "ndvi"
+
+
+@pytest.mark.parametrize(
+    "data_type, provider", [("lidar", "dtcc"), ("footprints", "OSM"), ("roads", "OSM")]
+)
+def test_download_data_rejects_options_only_imagery_takes(
+    monkeypatch, data_type, provider
+):
+    # Any download would mean the option was ignored; none may reach the network.
+    def no_network(*args, **kwargs):
+        raise AssertionError("download started")
+
+    for name in (
+        "download_lidar",
+        "download_tiles",
+        "get_buildings_for_bbox",
+        "get_roads_for_bbox",
+    ):
+        monkeypatch.setattr(wrapper, name, no_network)
+
+    with pytest.raises(TypeError, match="max_clod"):
+        wrapper.download_data(data_type, provider, Bounds(0, 0, 10, 10), max_clod=10)

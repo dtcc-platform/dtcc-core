@@ -165,6 +165,24 @@ def _load_cached_footprints(bounds: Bounds):
     return None
 
 
+def _checked_options(data_type, epsg, options):
+    """Return ``epsg`` for ``download_data``, rejecting what it cannot use.
+
+    Extra options are passed on only for imagery. Imagery needs EPSG:3006 and,
+    as ``download_imagery`` does, also accepts the code as a number.
+    """
+    if options and data_type != "imagery":
+        raise TypeError(
+            f"Options {sorted(options)} are only accepted for imagery, "
+            f"not {data_type!r}."
+        )
+    if data_type != "imagery":
+        return epsg
+    if str(epsg) != "3006":
+        raise ValueError("Digital Earth Sweden imagery is only available in EPSG:3006.")
+    return "3006"
+
+
 def download_data(
     data_type: str, provider: str, bounds: Bounds, epsg="3006", url=None, **kwargs
 ):
@@ -203,7 +221,9 @@ def download_data(
     ------
     ValueError
         If ``data_type`` or ``provider`` is not supported, or ``epsg`` is not
-        "3006" for imagery.
+        3006 for imagery.
+    TypeError
+        If extra options are given for a data type other than imagery.
     """
     # Resolve per-service URLs: explicit `url` overrides env; otherwise use env-backed defaults.
     if url is not None:
@@ -217,11 +237,8 @@ def download_data(
         raise TypeError("user_bbox parameter must be of dtcc.Bounds type.")
 
     # user_bbox = user_bbox.tuple
+    epsg = _checked_options(data_type, epsg, kwargs)
     if not epsg == "3006":
-        if data_type == "imagery":
-            raise ValueError(
-                "Digital Earth Sweden imagery is only available in EPSG:3006."
-            )
         warning("Please enter the coordinates in EPSG:3006")
         return
     # Validate
