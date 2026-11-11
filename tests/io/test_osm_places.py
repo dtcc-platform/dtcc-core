@@ -173,6 +173,19 @@ def test_uses_cache_on_second_call(fake_overpass):
     assert cached.places()[0].attributes["osm_id"] == 2
 
 
+def test_changed_category_tables_do_not_reuse_the_cache(fake_overpass, monkeypatch):
+    osm_places.download_places_geodataframe(BOUNDS)
+    old_path = osm_places._cache_path(BOUNDS)
+
+    categories = dict(osm_places.PLACE_CATEGORIES)
+    categories[("shop", "hairdresser")] = "services"
+    monkeypatch.setattr(osm_places, "PLACE_CATEGORIES", categories)
+    osm_places.download_places_geodataframe(BOUNDS)
+
+    assert osm_places._cache_path(BOUNDS) != old_path
+    assert len(fake_overpass.queries) == 2
+
+
 def test_nearby_bounds_do_not_share_a_cache_entry(fake_overpass):
     # These bounds round to the same whole metres but select different places.
     near = Bounds(319000.0, 6397000.0, 319599.6, 6398000.0)

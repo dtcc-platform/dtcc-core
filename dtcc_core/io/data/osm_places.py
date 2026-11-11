@@ -378,9 +378,22 @@ def _ensure_bounds(bounds) -> Bounds:
     return Bounds(*bounds)
 
 
+def _tables_fingerprint() -> str:
+    """Text that changes whenever the tables deciding a cached place change."""
+    tables = (
+        PLACE_KEYS,
+        sorted(PLACE_CATEGORIES.items(), key=repr),
+        sorted((key, sorted(values)) for key, values in EXCLUDED_VALUES.items()),
+        sorted(PLACE_TAG_ATTRIBUTES.items()),
+    )
+    return repr(tables)
+
+
 def _cache_path(bounds: Bounds) -> Path:
+    """Cache file for the exact bounds and the current classification tables."""
     exact = ",".join(repr(float(value)) for value in bounds.tuple)
-    digest = hashlib.sha256(exact.encode("ascii")).hexdigest()[:16]
+    key = exact + "|" + _tables_fingerprint()
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return (
         Path(cache_dir)
         / "downloaded_osm_places"
