@@ -94,6 +94,22 @@ def test_overpass_raises_when_every_payload_is_incomplete(monkeypatch):
         overpass.query_overpass_with_failover("[out:json];")
 
 
+def test_overpass_raises_overpass_error_when_every_endpoint_fails(monkeypatch):
+    import requests
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1", "endpoint-2"])
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    with pytest.raises(overpass.OverpassError, match="connection refused") as info:
+        overpass.query_overpass_with_failover("[out:json];")
+    # Callers that catch RuntimeError keep working.
+    assert isinstance(info.value, RuntimeError)
+
+
 def test_overpass_accepts_informational_remark():
     payload = {
         "elements": [],

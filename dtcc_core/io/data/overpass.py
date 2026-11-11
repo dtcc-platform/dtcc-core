@@ -92,6 +92,10 @@ def create_retry_session(
     return session
 
 
+class OverpassError(RuntimeError):
+    """Every Overpass endpoint failed or returned an unusable response."""
+
+
 def query_overpass_with_failover(
     query,
     timeout=None,
@@ -121,8 +125,8 @@ def query_overpass_with_failover(
 
     Raises
     ------
-    RuntimeError
-        If all endpoints fail
+    OverpassError
+        If all endpoints fail. It is a ``RuntimeError``.
     """
     if timeout is not None:
         read_timeout = timeout
@@ -159,8 +163,7 @@ def query_overpass_with_failover(
             debug(f"Endpoint {endpoint} failed: {e}")
             last_error = str(e)
 
-    error(f"All Overpass endpoints failed. Last error: {last_error}")
-    raise RuntimeError(f"All Overpass endpoints failed: {last_error}")
+    raise OverpassError(f"All Overpass endpoints failed. Last error: {last_error}")
 
 
 def overpass_payload_problem(payload):

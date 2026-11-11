@@ -2,13 +2,13 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-import requests
 from pydantic import Field
 
 import dtcc_core
 from dtcc_core.model import PlaceCollection
 
 from ..common import warning
+from ..io.data.overpass import OverpassError
 from .dataset import DatasetBaseArgs, DatasetDescriptor
 from .providers import provider_entry
 
@@ -189,8 +189,8 @@ class PlacesDataset(DatasetDescriptor):
                 places.context_roads = dtcc_core.io.data.download_roadnetwork(
                     bounds=bounds, provider="OSM", epsg="3006"
                 )
-            # Only network and service failures are skipped; bugs still raise.
-            except (RuntimeError, requests.RequestException) as e:
+            # Only an unreachable or failing Overpass service is skipped.
+            except OverpassError as e:
                 warning(
                     f"Could not download context roads for places; plotting without them: {e}"
                 )
