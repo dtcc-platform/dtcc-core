@@ -629,12 +629,13 @@ def _relation_polygon_lonlat(elem):
     """Build a (Multi)Polygon in lon/lat from a multipolygon relation.
 
     Outer and inner rings may each be split over several member ways, which
-    are joined first; a member that is closed on its own is used as drawn. Each inner ring
-    is cut from the smallest outer ring that contains it, so an outer ring
-    inside a courtyard stays part of the building. An inner ring that no
-    outer ring contains is cut from every outer ring it overlaps. Members
-    without the ``inner`` role count as outer rings. Returns ``None`` when no
-    closed outer ring can be formed.
+    are joined first; a member that is closed on its own is used as drawn.
+    Each inner ring is cut from every outer ring that contains it. An outer
+    ring inside a courtyard does not contain the courtyard ring, so it stays
+    part of the building. An inner ring that no outer ring contains is cut
+    from every outer ring it overlaps. Members without the ``inner`` role
+    count as outer rings. Returns ``None`` when no closed outer ring can be
+    formed.
     """
     outer_lines = []
     inner_lines = []
@@ -656,7 +657,8 @@ def _relation_polygon_lonlat(elem):
     for ring in inner:
         containing = [i for i, polygon in enumerate(outer) if polygon.covers(ring)]
         if containing:
-            holes[min(containing, key=lambda i: outer[i].area)].append(ring)
+            for i in containing:
+                holes[i].append(ring)
         else:
             for i, polygon in enumerate(outer):
                 if polygon.intersects(ring):

@@ -250,6 +250,41 @@ def test_relation_keeps_building_between_touching_inner_rings():
     assert shape.contains(Point(10, 10))
 
 
+@pytest.mark.parametrize(
+    "outers, courtyard, area",
+    [
+        ([(0, 0, 10, 10), (0, 0, 10, 10)], (2, 2, 4, 4), 100 - 4),
+        ([(0, 0, 10, 10), (5, 0, 15, 10)], (6, 4, 9, 6), 150 - 6),
+    ],
+    ids=["duplicated-outer", "overlapping-outers"],
+)
+def test_relation_cuts_courtyard_from_every_outer_ring_covering_it(
+    outers, courtyard, area
+):
+    members = [
+        {"type": "way", "role": "outer", "geometry": _rectangle(*box)} for box in outers
+    ]
+    members.append({"type": "way", "role": "inner", "geometry": _rectangle(*courtyard)})
+
+    shape = overpass._relation_polygon_lonlat({"type": "relation", "members": members})
+
+    assert shape.area == pytest.approx(area)
+
+
+def test_relation_keeps_island_with_its_own_courtyard():
+    # A building on an island inside a courtyard, with a courtyard of its own.
+    members = [
+        {"type": "way", "role": "outer", "geometry": _rectangle(0, 0, 20, 20)},
+        {"type": "way", "role": "inner", "geometry": _rectangle(2, 2, 18, 18)},
+        {"type": "way", "role": "outer", "geometry": _rectangle(6, 6, 14, 14)},
+        {"type": "way", "role": "inner", "geometry": _rectangle(9, 9, 11, 11)},
+    ]
+
+    shape = overpass._relation_polygon_lonlat({"type": "relation", "members": members})
+
+    assert shape.area == pytest.approx((400 - 256) + (64 - 4))
+
+
 def test_relation_joins_an_outer_ring_drawn_in_pieces():
     corners = _rectangle(0, 0, 10, 10)
     members = [
