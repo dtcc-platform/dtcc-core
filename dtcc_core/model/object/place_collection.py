@@ -30,7 +30,7 @@ PLACE_CATEGORY_COLORS = {
     "finance": "#E377C2",
     "office": "#7C8CA3",
     "craft": "#A8A832",
-    "other": "#9696A0",
+    "other": "#98A080",
 }
 UNKNOWN_CATEGORY_COLOR = "#54545A"
 

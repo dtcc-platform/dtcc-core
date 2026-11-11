@@ -103,6 +103,30 @@ def test_other_category_differs_from_the_bounds_frame():
         )
 
 
+def _lab(hex_color):
+    """CIELAB coordinates of an sRGB hex colour (D65)."""
+    rgb = [int(hex_color.lstrip("#")[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    r, g, b = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t):
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+    return 116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))
+
+
+def test_category_colors_are_easy_to_tell_apart():
+    from itertools import combinations
+
+    def distance(a, b):
+        return sum((p - q) ** 2 for p, q in zip(_lab(a), _lab(b), strict=True)) ** 0.5
+
+    for (name_a, a), (name_b, b) in combinations(PLACE_CATEGORY_COLORS.items(), 2):
+        assert distance(a, b) > 20, (name_a, name_b)
+
+
 def test_every_dataset_category_has_a_distinct_color():
     from dtcc_core.io.data.osm_places import PLACE_CATEGORY_NAMES
 
