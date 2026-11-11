@@ -98,6 +98,37 @@ def test_places_dataset_keeps_places_when_roads_fail(fake_downloads, monkeypatch
     assert "HTTP 504" in warnings[0]
 
 
+def test_places_dataset_keeps_places_when_roads_request_fails(
+    fake_downloads, monkeypatch
+):
+    import requests
+
+    warnings = []
+
+    def failing_roads(bounds, provider, epsg):
+        raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr("dtcc_core.io.data.download_roadnetwork", failing_roads)
+    monkeypatch.setattr(places_dataset, "warning", warnings.append)
+
+    places = datasets.places(bounds=(0.0, 0.0, 100.0, 100.0))
+
+    assert places.context_roads is None
+    assert "connection refused" in warnings[0]
+
+
+def test_places_dataset_does_not_hide_bugs_in_the_roads_download(
+    fake_downloads, monkeypatch
+):
+    def broken_roads(bounds, provider, epsg):
+        raise TypeError("parser bug")
+
+    monkeypatch.setattr("dtcc_core.io.data.download_roadnetwork", broken_roads)
+
+    with pytest.raises(TypeError, match="parser bug"):
+        datasets.places(bounds=(0.0, 0.0, 100.0, 100.0))
+
+
 def test_places_dataset_exports_geojson(fake_downloads, monkeypatch, tmp_path):
     monkeypatch.setattr(
         osm_places, "download_places_geodataframe", lambda bounds, categories: _gdf()

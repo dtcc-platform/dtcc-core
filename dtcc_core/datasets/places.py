@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
+import requests
 from pydantic import Field
 
 import dtcc_core
@@ -86,7 +87,10 @@ class PlacesDataset(DatasetDescriptor):
         "(ODbL) 1.0. Redistributed derived databases must be offered under ODbL "
         "with attribution. Requires review before redistribution."
     )
-    collection_period = "Current OpenStreetMap data at query time"
+    collection_period = (
+        "OpenStreetMap data as of the first download for the bounds; later calls "
+        "reuse that download until the cache is cleared"
+    )
     data_types = ["vector", "points", "places"]
     geographic_coverage = "Global, constrained by requested bounds"
     update_frequency = "Continuous (live OpenStreetMap edits)"
@@ -163,6 +167,10 @@ class PlacesDataset(DatasetDescriptor):
     presentation_limitations = [
         "Completeness varies with local mapping activity.",
         "Unnamed places and street furniture are excluded.",
+        (
+            "Results are cached per bounds and never refreshed; call "
+            "dtcc_core.io.data.empty_cache() to download current data."
+        ),
     ]
 
     def build(self, args: PlacesArgs):
@@ -181,7 +189,8 @@ class PlacesDataset(DatasetDescriptor):
                 places.context_roads = dtcc_core.io.data.download_roadnetwork(
                     bounds=bounds, provider="OSM", epsg="3006"
                 )
-            except Exception as e:
+            # Only network and service failures are skipped; bugs still raise.
+            except (RuntimeError, requests.RequestException) as e:
                 warning(
                     f"Could not download context roads for places; plotting without them: {e}"
                 )
