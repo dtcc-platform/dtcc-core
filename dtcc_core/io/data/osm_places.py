@@ -201,8 +201,8 @@ def download_places_geodataframe(
 
     The result is in EPSG:3006 with one point row per place and the columns
     listed in :data:`PLACE_COLUMNS`. Only complete Overpass responses are
-    cached, keyed by the exact bounds and the classification tables. The cache
-    is never refreshed; ``empty_cache()`` clears it.
+    cached, keyed by the exact bounds and the classification tables. A cached
+    result is reused until ``use_cache=False`` downloads and stores a new one.
     """
     if not HAS_GEOPANDAS:
         raise ImportError("GeoPandas is required to download places.")

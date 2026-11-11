@@ -168,8 +168,9 @@ class PlacesDataset(DatasetDescriptor):
         "Completeness varies with local mapping activity.",
         "Unnamed places and street furniture are excluded.",
         (
-            "Results are cached per bounds and never refreshed; call "
-            "dtcc_core.io.data.empty_cache() to download current data."
+            "Results are cached per bounds and never refreshed. "
+            "dtcc_core.io.data.empty_cache() forces a new download, but it clears "
+            "every cached download, not only places."
         ),
     ]
 

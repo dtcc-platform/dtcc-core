@@ -13,7 +13,7 @@ from shapely.geometry import LineString, Polygon, box
 from urllib3.util.retry import Retry
 
 # ``warning`` is re-exported for tests that assert nothing warns here.
-from .logging import debug, error, info, warning  # noqa: F401
+from .logging import debug, info, warning  # noqa: F401
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
