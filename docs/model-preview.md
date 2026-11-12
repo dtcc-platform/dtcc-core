@@ -103,3 +103,47 @@ ax.figure.savefig('flagship-preview.png', dpi=150)
 This convenience supports quick inspection from Python. Full scene visualization,
 interactive editing, time-dependent simulation views and model exploration remain
 DTCC Twin responsibilities.
+
+## Filled XY face maps
+
+A standalone triangular Mesh can fill scalar face values directly:
+
+```python
+ax = mesh.plot(
+    projection="xy", field="temperature", show=False,
+    context_mask=context_faces, vmin=270., vmax=310.,
+    title="Surface temperature", coordinate_unit="m", scale_bar=True,
+)
+ax.figure.savefig("temperature.png", dpi=150)
+```
+
+`context_mask` is a boolean array in face order. Context faces are neutral and
+excluded from the colour range. Their XY triangle union is outlined
+without shared internal edges, including holes and nonconforming joins. Core assigns no meaning to mesh markers or field names. `face_mask`
+can select a subset of field faces; by default all non-context faces are used.
+Explicit masks must be disjoint, correctly sized, and select at least one field
+face. Omitted faces are not displayed. Empty marker arrays require no special
+handling because markers are not used by this renderer.
+
+Each triangle receives its own scalar value without interpolation. Vector
+fields, non-face associations, inconsistent counts, nonfinite values and
+triangles degenerate in XY fail clearly. `vmin` and `vmax` must be finite and
+strictly increasing when both are supplied; automatic constant-field ranges
+are expanded, and all-zero fields are labelled. The colourbar includes the
+field name and unit. `cmap` accepts a Matplotlib colormap; the default uses Core
+colours. `ax` accepts a Matplotlib 2D axes; `show=False` suppresses display.
+
+Maps preserve XY coordinates after the mesh's geometry-local affine. Projective
+matrices are unsupported. No reprojection or unit conversion is performed.
+Axis labels default to X and Y; `coordinate_unit` explicitly declares their
+unit, and `xlabel`/`ylabel` override their text. Use metre labels only for
+known metric coordinates. `scale_bar=True` requires `coordinate_unit` and
+measures distance in those same display coordinates. The declared CRS is shown
+without inferring units from it. `title` overrides the default field-name title.
+
+The global `max_elements` budget includes field triangles, neutral triangles
+and perimeter segments. Large maps sample triangles deterministically, then
+use any remaining budget for full-union perimeter segments. A note identifies
+sampling and potentially incomplete outlines. Colour limits use all selected
+field values, including faces omitted from the bounded display. Default 3D
+previews, raster previews and specialized model plots retain their behavior.
