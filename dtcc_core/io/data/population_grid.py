@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -55,7 +56,7 @@ POPULATION_GRID_VARIABLES = {
 
 
 def download_population_grid(
-    bounds: Bounds,
+    bounds: Bounds | Sequence[float],
     year: int = POPULATION_GRID_DEFAULT_YEAR,
     variable: str = "total",
     use_cache: bool = True,
@@ -101,7 +102,9 @@ def download_population_grid(
 
 
 def download_population_grid_geodataframe(
-    bounds: Bounds, year: int = POPULATION_GRID_DEFAULT_YEAR, use_cache: bool = True
+    bounds: Bounds | Sequence[float],
+    year: int = POPULATION_GRID_DEFAULT_YEAR,
+    use_cache: bool = True,
 ):
     """Download the SCB 1 km population cells covering ``bounds`` as a GeoDataFrame.
 
@@ -119,7 +122,8 @@ def download_population_grid_geodataframe(
             f"Unsupported population grid year {year}. "
             f"Supported years: {POPULATION_GRID_YEARS}."
         )
-    cells = grid_bounds(_ensure_bounds(bounds))
+    bounds = _ensure_bounds(bounds)
+    cells = grid_bounds(bounds)
 
     cache_path = _cache_path(cells, year)
     if use_cache and cache_path.exists():
@@ -387,17 +391,39 @@ def _ensure_bounds(bounds) -> Bounds:
     """Bounds from a ``Bounds`` or a 4- or 6-value sequence in dataset order.
 
     Six values are ``(xmin, ymin, zmin, xmax, ymax, zmax)``, as the datasets
-    take them.
+    take them. Values that are not finite, or a minimum above its maximum,
+    raise ``ValueError``.
     """
-    if isinstance(bounds, Bounds):
-        return bounds
-    values = [float(v) for v in bounds]
-    if len(values) == 4:
-        return Bounds(*values)
-    if len(values) == 6:
-        xmin, ymin, zmin, xmax, ymax, zmax = values
-        return Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
-    raise ValueError(f"Bounds must have 4 or 6 values, got {len(values)}.")
+    if not isinstance(bounds, Bounds):
+        values = [float(v) for v in bounds]
+        if len(values) == 4:
+            bounds = Bounds(*values)
+        elif len(values) == 6:
+            xmin, ymin, zmin, xmax, ymax, zmax = values
+            bounds = Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
+        else:
+            raise ValueError(f"Bounds must have 4 or 6 values, got {len(values)}.")
+    # A box in another order shows up as a minimum above its maximum.
+    corners = (
+        bounds.xmin,
+        bounds.ymin,
+        bounds.zmin,
+        bounds.xmax,
+        bounds.ymax,
+        bounds.zmax,
+    )
+    if not all(math.isfinite(value) for value in corners):
+        raise ValueError(f"Bounds {corners} must be finite numbers.")
+    if (
+        bounds.xmin > bounds.xmax
+        or bounds.ymin > bounds.ymax
+        or bounds.zmin > bounds.zmax
+    ):
+        raise ValueError(
+            f"Bounds {bounds.tuple} must have each minimum at or below its maximum; "
+            "six values go in the order (xmin, ymin, zmin, xmax, ymax, zmax)."
+        )
+    return bounds
 
 
 def _cache_path(cells: Bounds, year: int) -> Path:

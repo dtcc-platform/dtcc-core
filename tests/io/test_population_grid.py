@@ -497,3 +497,31 @@ def test_bounds_tuples_are_read_like_the_datasets(fake_wfs, bounds):
 def test_bounds_with_other_lengths_are_rejected(fake_wfs, bounds):
     with pytest.raises(ValueError, match="4 or 6"):
         population_grid.download_population_grid(bounds)
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        # Six values in Bounds order instead of the dataset order.
+        (BOUNDS.xmin, BOUNDS.ymin, BOUNDS.xmax, BOUNDS.ymax, 0.0, 50.0),
+        (BOUNDS.xmax, BOUNDS.ymin, BOUNDS.xmin, BOUNDS.ymax),
+        (BOUNDS.xmin, float("nan"), BOUNDS.xmax, BOUNDS.ymax),
+        (BOUNDS.xmin, BOUNDS.ymin, BOUNDS.xmax, float("inf")),
+    ],
+    ids=["six-values-in-bounds-order", "min-above-max", "nan", "infinite"],
+)
+def test_invalid_bounds_raise_before_any_request(fake_wfs, bounds):
+    with pytest.raises(ValueError):
+        population_grid.download_population_grid(bounds)
+    assert fake_wfs.calls == []
+
+
+def test_empty_area_warns_for_a_bounds_tuple(fake_wfs, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(population_grid, "warning", warnings.append)
+    fake_wfs.state["cells"] = []
+
+    gdf = population_grid.download_population_grid_geodataframe(BOUNDS.tuple[:4])
+
+    assert len(gdf) == 0
+    assert "No SCB population grid 2025 cells" in warnings[0]
