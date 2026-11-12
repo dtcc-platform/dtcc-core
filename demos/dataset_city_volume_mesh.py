@@ -2,13 +2,13 @@
 
 import dtcc_core as dtcc
 
-bounds = dtcc.Bounds(319950, 6397850, 320150, 6398050)
+bounds = dtcc.Bounds(319845, 6397785, 320095, 6398035)
 
 volume_mesh = dtcc.datasets.city_volume_mesh(
     bounds=bounds,
     lod="lod2",
     min_building_detail=0.5,
-    max_mesh_size=15.0,
+    max_mesh_size=12.5,
     domain_height=80.0,
 )
 volume_mesh.info()
