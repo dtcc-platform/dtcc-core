@@ -123,7 +123,7 @@ _SECRET_QUERY_PARAM = re.compile(
     r"([?&](?:[a-z0-9]+[_-])*"
     r"(?:api|access|client|private|refresh|secret|session|subscription)?"
     r"(?:key|token|secret|password|passwd|signature|credential|auth|authorization"
-    r"|sig)=)[^&#\s'\"]+",
+    r"|sig)=)[^&#\s'\")]+",
     re.IGNORECASE,
 )
 

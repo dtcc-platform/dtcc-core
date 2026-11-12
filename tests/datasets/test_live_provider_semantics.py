@@ -84,6 +84,13 @@ def _http_error(
             "All Overpass endpoints failed. Last error: HTTPSConnectionPool"
             "(host='overpass.example', port=443): Read timed out."
         ),
+        RuntimeError(
+            "All Overpass endpoints failed. Last error: c timed out\n"
+            "Errors by endpoint:\n"
+            "- https://a.example: Read timed out.\n"
+            "- https://b.example: HTTP 504\n"
+            "- https://c.example: Read timed out."
+        ),
         RuntimeError("Request failed with status 503:\nService Unavailable"),
         _wrapped(
             RuntimeError("Failed to download DeSO 2025 polygons"), _http_error(502)
@@ -109,6 +116,7 @@ def _http_error(
         "http_429",
         "overpass_all_http_504",
         "overpass_all_timed_out",
+        "overpass_every_endpoint_transient",
         "lidar_lookup_503",
         "wrapped_http_502",
         "wrapped_timeout",
@@ -131,6 +139,14 @@ def test_transient_untyped_failures_skip(exc: BaseException) -> None:
         RuntimeError(
             "All Overpass endpoints failed: invalid JSON from https://o.example: x"
         ),
+        # One mirror rejected the query; the others were busy or timed out.
+        RuntimeError(
+            "All Overpass endpoints failed. Last error: c timed out\n"
+            "Errors by endpoint:\n"
+            "- https://a.example: HTTP 504\n"
+            "- https://b.example: HTTP 400\n"
+            "- https://c.example: Read timed out."
+        ),
         RuntimeError("Request failed with status 404:\nNot Found"),
         _wrapped(
             RuntimeError("Failed to download DeSO 2025 polygons"), _http_error(400)
@@ -150,6 +166,7 @@ def test_transient_untyped_failures_skip(exc: BaseException) -> None:
         "value_error",
         "overpass_all_http_400",
         "overpass_all_invalid_json",
+        "overpass_400_then_timeout",
         "lidar_lookup_404",
         "wrapped_http_400",
         "ssl_error",
@@ -204,3 +221,41 @@ def test_upstream_error_message_keeps_ordinary_query_params() -> None:
 
     assert query in str(error)
     assert "REDACTED" not in str(error)
+
+
+@pytest.mark.parametrize(
+    "first_status, skipped", [(400, False), (504, True)], ids=["rejected", "busy"]
+)
+def test_overpass_client_message_is_classified_by_every_endpoint(
+    monkeypatch, first_status, skipped
+):
+    from dtcc_core.io.data import overpass
+
+    class Response:
+        status_code = first_status
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            if endpoint == "https://b.example":
+                raise requests.Timeout("Read timed out.")
+            return Response()
+
+    monkeypatch.setattr(
+        overpass, "OVERPASS_ENDPOINTS", ["https://a.example", "https://b.example"]
+    )
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    with pytest.raises(RuntimeError) as info:
+        overpass.query_overpass_with_failover("[out:json];")
+
+    assert is_transient_live_failure(info.value) is skipped
+
+
+def test_redaction_keeps_the_text_after_a_secret() -> None:
+    from dtcc_core.datasets.dataset import _redact_url_secrets
+
+    message = "Max retries exceeded with url: /x?key=s3cr3t) (Caused by Timeout)"
+
+    assert _redact_url_secrets(message) == (
+        "Max retries exceeded with url: /x?key=REDACTED) (Caused by Timeout)"
+    )

@@ -129,6 +129,8 @@ def query_overpass_with_failover(
 
     request_timeout = (connect_timeout, read_timeout)
     last_error = None
+    # Each endpoint's error, so callers can tell a broken query from busy mirrors.
+    errors = []
     for endpoint in OVERPASS_ENDPOINTS:
         try:
             info(
@@ -145,14 +147,21 @@ def query_overpass_with_failover(
             else:
                 debug(f"Endpoint {endpoint} returned status {resp.status_code}")
                 last_error = f"HTTP {resp.status_code}"
+                errors.append((endpoint, last_error))
         except ValueError as e:
             debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
             last_error = f"invalid JSON from {endpoint}: {e}"
+            errors.append((endpoint, last_error))
         except requests.exceptions.RequestException as e:
             debug(f"Endpoint {endpoint} failed: {e}")
             last_error = str(e)
+            errors.append((endpoint, last_error))
 
-    error(f"All Overpass endpoints failed. Last error: {last_error}")
+    by_endpoint = "\n".join(f"- {endpoint}: {problem}" for endpoint, problem in errors)
+    error(
+        f"All Overpass endpoints failed. Last error: {last_error}\n"
+        f"Errors by endpoint:\n{by_endpoint}"
+    )
     raise RuntimeError(f"All Overpass endpoints failed: {last_error}")
 
 

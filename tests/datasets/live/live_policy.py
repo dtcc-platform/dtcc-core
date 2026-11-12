@@ -18,6 +18,7 @@ import requests
 from dtcc_core.datasets.dataset import DatasetUpstreamError, _redact_url_secrets
 
 OVERPASS_ALL_FAILED = "All Overpass endpoints failed"
+_OVERPASS_ERRORS_HEADER = "Errors by endpoint:\n"
 
 # Status codes reported in plain RuntimeError messages, e.g. the LiDAR tile
 # lookup ("Request failed with status 503") and Overpass ("HTTP 504").
@@ -37,8 +38,27 @@ def _is_transient_status(status: int | None) -> bool:
     return status is not None and (status == 429 or 500 <= status <= 599)
 
 
-def _overpass_last_error_is_transient(message: str) -> bool:
-    """Classify the last mirror error in an "All Overpass endpoints failed" message."""
+def _overpass_failure_is_transient(message: str) -> bool:
+    """Classify an "All Overpass endpoints failed" message.
+
+    When the message lists each endpoint's error, the failure is transient only
+    if every endpoint failed transiently, so one mirror rejecting the query is
+    not hidden by another timing out. Otherwise only the last error is known.
+    """
+    _, listed, by_endpoint = message.partition(_OVERPASS_ERRORS_HEADER)
+    if listed:
+        problems = [
+            line.split(": ", 1)[-1]
+            for line in by_endpoint.splitlines()
+            if line.startswith("- ")
+        ]
+        if problems:
+            return all(_overpass_error_is_transient(p) for p in problems)
+    return _overpass_error_is_transient(message)
+
+
+def _overpass_error_is_transient(message: str) -> bool:
+    """Classify one Overpass endpoint error."""
     if "invalid JSON" in message:
         return False
     match = _STATUS_IN_MESSAGE.search(message)
@@ -74,7 +94,7 @@ def _is_transient_single(exc: BaseException) -> bool | None:
     if isinstance(exc, RuntimeError):
         message = str(exc)
         if message.startswith(OVERPASS_ALL_FAILED):
-            return _overpass_last_error_is_transient(message)
+            return _overpass_failure_is_transient(message)
         match = _STATUS_IN_MESSAGE.search(message)
         if match:
             return _is_transient_status(int(match.group(1)))
