@@ -13,6 +13,7 @@ DATASET_DEMOS = (
     "dataset_hydrology.py",
     "dataset_ocean.py",
     "dataset_roads.py",
+    "dataset_satellite_imagery.py",
     "dataset_smoke.py",
     "dataset_space_syntax.py",
     "dataset_terrain_surface_mesh.py",

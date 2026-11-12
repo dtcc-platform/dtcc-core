@@ -22,6 +22,7 @@ from .data import (
     download_pointcloud,
     download_footprints,
     download_roadnetwork,
+    download_imagery,
     empty_cache,
 )
 
@@ -90,5 +91,6 @@ __all__ = [
     "download_pointcloud",
     "download_footprints",
     "download_roadnetwork",
+    "download_imagery",
     "empty_cache",
 ]
