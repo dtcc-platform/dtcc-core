@@ -56,6 +56,16 @@ class BuildingDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "building_collection"
     python_return_type = "dtcc_core.model.BuildingCollection"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
         provider_entry("openstreetmap", role="source_provider"),

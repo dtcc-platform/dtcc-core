@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.city import CityArgs, CityDataset
-from dtcc_core.model import Building, GeometryType, Surface
+from dtcc_core.model import Building, BuildingPart, City, GeometryType, Surface
 
 
 def test_city_registered_name():
@@ -214,3 +215,55 @@ def _building_with_footprint(
     building.id = building_id
     building.add_geometry(surface, GeometryType.LOD0)
     return building
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.city.City")
+def test_city_canonical_geojson_round_trip(mock_city_cls, tmp_path):
+    """Canonical GeoJSON is WGS84, reloads from the package and re-exports equal."""
+    city = City()
+    whole = _building_with_footprint("whole", 319900.0, 6397900.0, 319960.0, 6397940.0)
+    whole.attributes["storeys"] = 4
+    split = Building(id="split")
+    donor = _building_with_footprint("x", 319800.0, 6397800.0, 319830.0, 6397830.0)
+    part = BuildingPart()
+    part.add_geometry(donor.get_geometry(GeometryType.LOD0), GeometryType.LOD0)
+    split.add_child(part)
+    city.add_buildings([whole, split, Building(id="empty")])
+    calls = []
+    city.download_pointcloud = lambda **kwargs: calls.append("pointcloud")
+    city.download_footprints = lambda **kwargs: calls.append("footprints")
+    city.build_terrain = lambda **kwargs: calls.append("terrain")
+    city.build_lod1_buildings = lambda **kwargs: calls.append("lod1")
+    mock_city_cls.return_value = city
+
+    result = datasets.city(
+        bounds=(319720.0, 6397660.0, 320220.0, 6398160.0),
+        smallest_building_size=0.0,
+    )
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert len(calls) == 4
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    assert payload["metadata"] == {"skipped": 1}
+    first, second = payload["features"]
+    assert (first["id"], second["id"]) == ("whole", "split")
+    assert first["properties"]["storeys"] == 4
+    for feature in (first, second):
+        [ring] = feature["geometry"]["coordinates"]
+        assert all(-180 <= lon <= 180 and -90 <= lat <= 90 for lon, lat in ring)
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the footprint corner
+    # (319900, 6397900); rings are counter-clockwise.
+    assert [11.97879311854237, 57.68719536715784] in [
+        pytest.approx(position, abs=1e-9)
+        for position in first["geometry"]["coordinates"][0]
+    ]

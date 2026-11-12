@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from ..values import Field
+from ..values.field import _float64_exact
 from .bounds import Bounds
 from .pointcloud import PointCloud
 
@@ -31,6 +32,7 @@ class FieldSlice(PointCloud):
     domain_bounds: Bounds | None = None
     metadata_payload: dict[str, Any] = dataclass_field(default_factory=dict)
     default_artifact_format: str = "png"
+    web_geojson = True
 
     def _summary_items(self):
         return super()._summary_items() + [
@@ -56,62 +58,228 @@ class FieldSlice(PointCloud):
         include_z: bool | None = None,
         crs: str | None = None,
     ) -> dict[str, Any]:
-        """Return a GeoJSON adapter representation for debug/vector workflows."""
+        """Return the slice as a GeoJSON FeatureCollection of Points.
+
+        Positions are the stored points with the slice's own transform applied,
+        so every ``slice_axis`` exports real x, y (and z when ``include_z``).
+        Each feature carries ``sample_index`` and every Field with one row per
+        point as ``<name>`` (a number, or a component list for a vector Field)
+        with ``<name>_unit`` and, for vectors, ``<name>_components``. A Field
+        associated with the geometry holds one value for the whole slice and
+        goes into ``metadata`` under the same keys. These keys must not
+        already exist among the feature properties or metadata keys. Vector
+        Fields of two or three components are mapped by the linear part of the
+        slice's transform, so their components follow the exported axes; this
+        needs an orthogonal linear part (rotation or reflection), and scale or
+        shear raises while such a Field is present. Two-component Fields need a
+        transform that keeps the x/y plane separate from z. Fields of more than
+        three components are labelled ``c0``, ``c1``, ... and are never
+        transformed. Reprojection leaves components in the axis frame of the
+        source CRS. ``time``, ``period`` and the product parameters are
+        collection-level ``metadata``, which describes the payload's own
+        frame: ``metadata.crs`` names the CRS of the positions and
+        ``metadata.bounds`` is the envelope of the eight corners of the domain
+        bounds, or the sample bounds when none are stored, after the slice's
+        transform and, when reprojected, after reprojecting their x and y.
+
+        Parameters
+        ----------
+        include_z : bool, optional
+            Whether positions carry z; None uses ``self.include_z``.
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+
+        Raises
+        ------
+        ValueError
+            If the source CRS cannot be resolved, a Field does not have one
+            row per point (one row for a geometry Field), a Field would
+            overwrite a property or metadata key, or the transform cannot map
+            a vector Field.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            positions,
+            resolve_source_crs,
+        )
+
         include_z = self.include_z if include_z is None else include_z
-        crs = self.crs if crs is None else crs
-        velocity = self.field("velocity")
-        speed = self.field("speed")
-        pressure = self.field("pressure")
-        velocity_values = _field_values(velocity)
-        speed_values = _field_values(speed)
-        pressure_values = _field_values(pressure)
+        model = exported_coordinates(self)
+        source_crs = resolve_source_crs(model, [])
+        count = len(model.points)
+        linear = self.transform.affine[:3, :3]
+        linear = None if np.array_equal(linear, np.eye(3)) else linear
+        rows = []
+        metadata = self._metadata(
+            count, include_z=include_z, source_crs=source_crs, crs=crs
+        )
+        for item in model.fields:
+            values = _field_rows(item, count, "point", linear)
+            if item.association == "geometry":
+                _add_field(metadata, item, _field_value(values[0], item.dim))
+            else:
+                rows.append((item, values))
+        points = np.asarray(model.points, dtype=float)
+        if points.size == 0:
+            points = points.reshape(-1, 3)
+        coordinates = positions(points[:, : 3 if include_z else 2], source_crs, crs)
 
         features: list[dict[str, Any]] = []
-        for index, point in enumerate(np.asarray(self.points, dtype=float)):
+        for index, position in enumerate(coordinates):
             properties: dict[str, Any] = {"sample_index": index}
-            if velocity_values is not None and index < len(velocity_values):
-                vector = np.asarray(velocity_values[index], dtype=float).reshape(-1)
-                if len(vector) >= 3:
-                    properties.update(
-                        {
-                            "u": float(vector[0]),
-                            "v": float(vector[1]),
-                            "w": float(vector[2]),
-                        }
-                    )
-            if speed_values is not None and index < len(speed_values):
-                properties["speed"] = float(
-                    np.asarray(speed_values[index], dtype=float).reshape(-1)[0]
-                )
-            if pressure_values is not None and index < len(pressure_values):
-                properties["pressure"] = float(
-                    np.asarray(pressure_values[index], dtype=float).reshape(-1)[0]
-                )
-
+            for item, values in rows:
+                _add_field(properties, item, _field_value(values[index], item.dim))
             features.append(
                 {
                     "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": _coordinates(point, include_z),
-                    },
+                    "geometry": {"type": "Point", "coordinates": position},
                     "properties": properties,
                 }
             )
 
-        payload: dict[str, Any] = {
-            "type": "FeatureCollection",
-            "name": self.name,
-            "features": features,
-            "metadata": self._metadata(len(features), include_z=include_z),
-        }
-        if crs is not None:
-            payload["crs"] = {
-                "type": "name",
-                "properties": {"name": crs},
-            }
-            payload["metadata"]["crs"] = crs
+        payload = feature_collection(
+            features, source_crs=source_crs, crs=crs, metadata=metadata
+        )
+        payload["name"] = self.name
         return payload
+
+    def to_raster(self, field: str | None = None):
+        """Return a horizontal slice as a north-up Raster and its rendering.
+
+        The samples and ``domain_bounds`` share the stored local grid. The
+        extent is ``domain_bounds`` and the grid has ``resolution`` samples per
+        axis, endpoint-inclusive, so the spacing is the extent divided by
+        ``resolution - 1``. Each pixel is centred on a grid point, which puts
+        the georeference origin half a cell outside the extent; row 0 is the
+        maximum y. A sample is placed in the cell whose centre lies within
+        1e-6 of its coordinates, and cells without a sample are NaN. Only the
+        stored samples are used.
+
+        The slice's root transform is composed into the georeference when it is
+        a pure translation (z is ignored). The samples themselves are never
+        transformed. The raster CRS is the slice's CRS resolved as ``to_geojson``
+        resolves it.
+
+        Parameters
+        ----------
+        field : str, optional
+            Name of a Field with one row per sample, ``"speed"`` by default.
+            ``"name:component"`` selects a component of a vector Field, for
+            example ``"velocity:u"``.
+
+        Returns
+        -------
+        tuple
+            The Raster and a rendering dict with ``field`` and the Field's
+            ``unit``.
+
+        Raises
+        ------
+        ValueError
+            If ``field`` is not a string, ``slice_axis`` is not ``"z"``, the
+            root transform is not a translation, the CRS declarations conflict
+            or are absent, ``resolution`` is below 2, ``domain_bounds`` is
+            missing or flat, there are no samples, a sample is off the grid or
+            repeated, or the Field or component is missing.
+        """
+        from affine import Affine
+
+        from ...io.geojson import resolve_source_crs
+        from ..values import Raster
+
+        field = "speed" if field is None else field
+        if not isinstance(field, str):
+            raise ValueError(
+                f"FieldSlice.to_raster: field must be a string, got "
+                f"{type(field).__name__}."
+            )
+        if self.slice_axis != "z":
+            raise ValueError(
+                f"FieldSlice.to_raster supports only slice_axis='z', not "
+                f"{self.slice_axis!r}; export the slice as GeoJSON through to_geojson."
+            )
+        affine = self.transform.affine
+        if not np.array_equal(affine[:3, :3], np.eye(3)):
+            raise ValueError(
+                "FieldSlice.to_raster supports only a translation as root "
+                "transform; export a rotated, scaled or sheared slice as GeoJSON "
+                "through to_geojson."
+            )
+        crs = resolve_source_crs(self, [])
+        resolution = self.resolution
+        if resolution < 2:
+            raise ValueError(
+                f"FieldSlice.to_raster: resolution must be at least 2, got "
+                f"{resolution}."
+            )
+        domain = self.domain_bounds
+        if domain is None:
+            raise ValueError("FieldSlice.to_raster requires domain_bounds.")
+        origin = np.array([domain.xmin, domain.ymin], dtype=float)
+        extent = np.array([domain.width, domain.height], dtype=float)
+        if not (extent > 0).all():
+            raise ValueError("FieldSlice.to_raster: domain_bounds has no x/y extent.")
+        points = np.asarray(self.points, dtype=float).reshape(-1, 3)
+        if len(points) == 0:
+            raise ValueError("FieldSlice.to_raster: the slice has no samples.")
+        item, values = self._component_values(field, len(points))
+
+        spacing = extent / (resolution - 1)
+        index = np.rint((points[:, :2] - origin) / spacing)
+        on_grid = np.abs(points[:, :2] - (origin + index * spacing)) <= 1e-6
+        if not (on_grid.all() and ((index >= 0) & (index < resolution)).all()):
+            raise ValueError(
+                "FieldSlice.to_raster: a sample is not on the grid of "
+                "domain_bounds and resolution."
+            )
+        col, row = index[:, 0].astype(int), resolution - 1 - index[:, 1].astype(int)
+        if len(np.unique(row * resolution + col)) != len(points):
+            raise ValueError("FieldSlice.to_raster: duplicate samples in one cell.")
+
+        data = np.full((resolution, resolution), np.nan)
+        data[row, col] = values
+        georef = Affine.translation(affine[0, 3], affine[1, 3]) * Affine(
+            spacing[0],
+            0.0,
+            domain.xmin - spacing[0] / 2,
+            0.0,
+            -spacing[1],
+            domain.ymax + spacing[1] / 2,
+        )
+        return Raster(data=data, georef=georef, crs=crs), {
+            "field": field,
+            "unit": item.unit,
+        }
+
+    def _component_values(self, name: str, count: int) -> tuple[Field, np.ndarray]:
+        name, separator, component = name.partition(":")
+        item = self.field(name)
+        if item is None:
+            raise ValueError(f"FieldSlice has no field named {name!r}.")
+        if item.association == "geometry":
+            raise ValueError(
+                f"Field '{name}' holds one value for the slice, not one value per "
+                "sample."
+            )
+        rows = _field_rows(item, count, "point")
+        labels = _field_labels(item).get(f"{name}_components", [])
+        if not separator:
+            if item.dim > 1:
+                raise ValueError(
+                    f"Field '{name}' is a vector Field and needs a component, "
+                    f"for example '{name}:{labels[0]}'."
+                )
+            return item, rows[:, 0]
+        if component not in labels:
+            raise ValueError(f"Field '{name}' has no component {component!r}.")
+        return item, rows[:, labels.index(component)]
 
     def to_python(self) -> dict[str, Any]:
         """Return a transition-friendly Python representation."""
@@ -233,13 +401,19 @@ class FieldSlice(PointCloud):
             f"FieldSlice object-first export does not support format {fmt!r}."
         )
 
-    def _metadata(self, sample_count: int, *, include_z: bool) -> dict[str, Any]:
+    def _metadata(
+        self,
+        sample_count: int,
+        *,
+        include_z: bool,
+        source_crs: str,
+        crs: str | None,
+    ) -> dict[str, Any]:
         metadata = {
             "dataset": "smoke",
             "product": "slice",
             "geometry": "Point",
             "sample_count": sample_count,
-            "bounds": _bounds_values(self.domain_bounds or self.bounds),
             "fields": self.field_names,
             "include_z": include_z,
             "slice_axis": self.slice_axis,
@@ -249,21 +423,62 @@ class FieldSlice(PointCloud):
             "time": self.time,
             "time_period": self.period,
             **dict(self.metadata_payload),
+            "bounds": _payload_bounds(
+                self.domain_bounds or self.bounds, source_crs, crs, self.transform
+            ),
+            "crs": source_crs if crs is None else crs,
         }
         return metadata
 
 
-def _field_values(field: Field | None) -> np.ndarray | None:
-    if field is None:
-        return None
-    return np.asarray(field.values, dtype=float)
+def _field_rows(
+    field: Field, count: int, unit: str, linear: np.ndarray | None = None
+) -> np.ndarray:
+    if field.association == "geometry":
+        count, unit = 1, "geometry"
+    values = _float64_exact(field.values, f"Field '{field.name}'")
+    if len(values) != count:
+        raise ValueError(
+            f"Field '{field.name}' has {len(values)} rows, "
+            f"expected {count} (one per {unit})."
+        )
+    rows = values.reshape(count, field.dim)
+    if linear is not None and field.dim in (2, 3):
+        if not np.allclose(linear @ linear.T, np.eye(3), atol=1e-9):
+            raise ValueError(
+                f"Vector Field '{field.name}' requires an orthogonal root "
+                "transform (rotation or reflection); scale or shear is not supported."
+            )
+        if field.dim == 2 and (linear[:2, 2].any() or linear[2, :2].any()):
+            raise ValueError(
+                f"Two-component Field '{field.name}' requires a root transform "
+                "that keeps the x/y plane separate from z."
+            )
+        rows = rows @ linear[: field.dim, : field.dim].T
+    return rows
 
 
-def _coordinates(point: np.ndarray, include_z: bool) -> list[float]:
-    values = np.asarray(point, dtype=float).reshape(-1)
-    if not include_z:
-        values = values[:2]
-    return values.tolist()
+def _field_value(row: np.ndarray, dim: int) -> float | list[float]:
+    return float(row[0]) if dim == 1 else row.tolist()
+
+
+def _field_labels(field: Field) -> dict[str, Any]:
+    labels: dict[str, Any] = {f"{field.name}_unit": field.unit}
+    if field.dim > 1:
+        labels[f"{field.name}_components"] = (
+            ["u", "v", "w"][: field.dim]
+            if field.dim <= 3
+            else [f"c{i}" for i in range(field.dim)]
+        )
+    return labels
+
+
+def _add_field(target: dict[str, Any], field: Field, value: Any) -> None:
+    entries = {field.name: value, **_field_labels(field)}
+    clash = sorted(set(entries) & set(target))
+    if clash:
+        raise ValueError(f"Field '{field.name}' would overwrite existing keys {clash}.")
+    target.update(entries)
 
 
 def _bounds_values(bounds: Bounds) -> list[float]:
@@ -275,6 +490,22 @@ def _bounds_values(bounds: Bounds) -> list[float]:
         float(bounds.ymax),
         float(bounds.zmax),
     ]
+
+
+def _payload_bounds(
+    bounds: Bounds, source_crs: str, crs: str | None, transform=None
+) -> list[float]:
+    xmin, ymin, zmin, xmax, ymax, zmax = _bounds_values(bounds)
+    corners = np.array(
+        [[x, y, z] for x in (xmin, xmax) for y in (ymin, ymax) for z in (zmin, zmax)]
+    )
+    if transform is not None:
+        corners = transform(corners)
+    if crs is not None:
+        from ...io.geojson import positions
+
+        corners = np.array(positions(corners, source_crs, crs))
+    return [*map(float, corners.min(axis=0)), *map(float, corners.max(axis=0))]
 
 
 def _axis_names(axes: tuple[int, int]) -> tuple[str, str]:
