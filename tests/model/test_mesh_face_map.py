@@ -171,6 +171,16 @@ def test_selection_budget_and_affine_rotation(mesh):
     assert selected.collections[0].get_array().tolist() == [0.0]
 
 
+def test_sampling_preserves_selected_field_face(mesh):
+    selected = np.array([False, True, False, False])
+    ax = plot(mesh, face_mask=selected, context_mask=~selected, max_elements=2)
+    layers = {c.get_gid(): c for c in ax.collections}
+
+    assert sum(len(c.get_paths()) for c in ax.collections) <= 2
+    assert len(layers["face_field"].get_paths()) == 1
+    np.testing.assert_array_equal(layers["face_field"].get_array(), [0.2])
+
+
 def test_context_union_handles_nonconforming_edges(mesh):
     from dtcc_core.plotting.face_map import _perimeter
 
