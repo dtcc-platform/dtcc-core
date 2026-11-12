@@ -93,6 +93,21 @@ class PointCloudDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "point_cloud"
     python_return_type = "dtcc_core.model.PointCloud"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": [],
+            "constraints": {},
+            "options": {},
+            "exclusions": [
+                {
+                    "formats": ["geojson", "png", "tif"],
+                    "reason": "3D-only product: no map-placed or RFC 7946 web form",
+                }
+            ],
+        },
+    ]
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
         provider_entry("dtcc-platform", role="processor"),
