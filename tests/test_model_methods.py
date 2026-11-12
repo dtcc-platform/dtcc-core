@@ -20,6 +20,7 @@ import pytest
 # Add to these lists when registering new model methods; do not trim a list to
 # make a failure go away, since a missing entry is the regression itself.
 EXPECTED_MODEL_METHODS = {
+    "VolumeMesh": ["find_boundary_corners", "repair_boundary_corners"],
     "Raster": [
         "TPI",
         "TRI",

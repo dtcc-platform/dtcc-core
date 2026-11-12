@@ -426,6 +426,7 @@ class CityBuilderMixin:
         top_cap_max_mesh_size: float | None = None,
         max_volume: float | None = None,
         isolated: bool = False,
+        repair_boundary_corners: bool = False,
     ) -> VolumeMesh:
         """Build a 3D tetrahedral volume mesh for the city.
 
@@ -460,6 +461,9 @@ class CityBuilderMixin:
             Annotate boundary faces with integer markers (default True):
             `-1` ground, `-2` top, `-3` west/xmin, `-4` east/xmax,
             `-5` south/ymin, `-6` north/ymax.
+        repair_boundary_corners : bool, optional
+            Remove geometric singleton corners before final quality reporting
+            (default False).
         max_volume : float, optional
             Optional maximum tetrahedron volume passed to TetGen.
         tetgen_switches : dict, optional
@@ -506,6 +510,7 @@ class CityBuilderMixin:
             mesher=mesher,
             pipeline_mode=pipeline_mode,
             isolated=isolated,
+            repair_boundary_corners=repair_boundary_corners,
         )
         return volume_mesh
 

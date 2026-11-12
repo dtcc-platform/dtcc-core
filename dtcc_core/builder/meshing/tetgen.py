@@ -89,6 +89,8 @@ def build_volume_mesh(
     switches_params: dict[str, Any] | None = None,
     switches_overrides: dict[str, Any] | None = None,
     prebuilt_plc: tetgen_utils.TetgenPLC | None = None,
+    *,
+    repair_boundary_corners: bool = False,
 ) -> VolumeMesh | tuple[VolumeMesh, np.ndarray | None]:
     """
     Build a tetrahedral volume mesh from a surface mesh using TetGen.
@@ -103,6 +105,9 @@ def build_volume_mesh(
         Height of the top cap above ``zmin`` when ``build_top_sidewalls`` is True.
     return_boundary_faces : bool, optional
         Request TetGen to return boundary faces; stored on the resulting VolumeMesh.
+    repair_boundary_corners : bool, optional
+        Subdivide all singleton boundary corner cells after tetrahedralization.
+        Defaults to False; independent of boundary-face output.
     closure_mesh : Mesh, optional
         Closure reference when ``prebuilt_plc`` is not supplied. Its vertex
         array shape is checked; top-cap and sidewall loops come from ``mesh``.
@@ -146,6 +151,8 @@ def build_volume_mesh(
         facets, or is marked as unfit to bound a volume mesh (see
         :func:`has_volume_veto`).
     """
+    if type(repair_boundary_corners) is not bool:
+        raise TypeError("repair_boundary_corners must be a boolean")
     _require_tetgen()
     if not isinstance(mesh, Mesh):
         raise TypeError("Input must be a dtcc.Mesh instance.")
@@ -299,4 +306,8 @@ def build_volume_mesh(
         boundary_markers = np.asarray(tetgen_out.boundary_tri_markers)
         volume_mesh.boundary_markers = boundary_markers
 
+    if repair_boundary_corners:
+        from .volume_corners import repair_boundary_corners as repair_corners
+
+        volume_mesh = repair_corners(volume_mesh)
     return volume_mesh
