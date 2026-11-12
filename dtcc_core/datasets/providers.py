@@ -17,6 +17,7 @@ class ProviderInfo:
 
 _PROVIDERS: dict[str, ProviderInfo] = {
     "dtcc-platform": ProviderInfo("dtcc-platform", "DTCC Platform"),
+    "jrc": ProviderInfo("jrc", "European Commission Joint Research Centre"),
     "lantmateriet": ProviderInfo("lantmateriet", "Lantmäteriet"),
     "openstreetmap": ProviderInfo("openstreetmap", "OpenStreetMap"),
     "scb": ProviderInfo("scb", "SCB"),
@@ -28,6 +29,8 @@ _PROVIDERS: dict[str, ProviderInfo] = {
 _ALIASES: dict[str, str] = {
     "dtcc": "dtcc-platform",
     "dtcc-platform": "dtcc-platform",
+    "ghsl": "jrc",
+    "jrc": "jrc",
     "lantmateriet": "lantmateriet",
     "lantmäteriet": "lantmateriet",
     "lm": "lantmateriet",
