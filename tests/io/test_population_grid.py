@@ -477,3 +477,23 @@ def test_raster_from_empty_geodataframe_has_one_cell_minimum():
 
     assert raster.data.shape == (1, 1)
     assert np.all(raster.data == 0)
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        (BOUNDS.xmin, BOUNDS.ymin, BOUNDS.xmax, BOUNDS.ymax),
+        (BOUNDS.xmin, BOUNDS.ymin, 0.0, BOUNDS.xmax, BOUNDS.ymax, 50.0),
+    ],
+    ids=["four-values", "six-values-in-dataset-order"],
+)
+def test_bounds_tuples_are_read_like_the_datasets(fake_wfs, bounds):
+    raster = population_grid.download_population_grid(bounds)
+
+    assert raster.requested_bounds.tuple[:4] == BOUNDS.tuple[:4]
+
+
+@pytest.mark.parametrize("bounds", [(0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0, 1.0)])
+def test_bounds_with_other_lengths_are_rejected(fake_wfs, bounds):
+    with pytest.raises(ValueError, match="4 or 6"):
+        population_grid.download_population_grid(bounds)

@@ -64,8 +64,9 @@ def download_population_grid(
 
     Parameters
     ----------
-    bounds : Bounds
-        Area of interest in EPSG:3006.
+    bounds : Bounds or sequence of float
+        Area of interest in EPSG:3006: a ``Bounds``, ``(xmin, ymin, xmax, ymax)``
+        or ``(xmin, ymin, zmin, xmax, ymax, zmax)``.
     year : int, default 2025
         Reference year from 2015 to 2025 (population on 31 December).
     variable : str, default "total"
@@ -383,9 +384,20 @@ def _cells_inside(features: list, cells: Bounds, year: int):
 
 
 def _ensure_bounds(bounds) -> Bounds:
+    """Bounds from a ``Bounds`` or a 4- or 6-value sequence in dataset order.
+
+    Six values are ``(xmin, ymin, zmin, xmax, ymax, zmax)``, as the datasets
+    take them.
+    """
     if isinstance(bounds, Bounds):
         return bounds
-    return Bounds(*bounds)
+    values = [float(v) for v in bounds]
+    if len(values) == 4:
+        return Bounds(*values)
+    if len(values) == 6:
+        xmin, ymin, zmin, xmax, ymax, zmax = values
+        return Bounds(xmin, ymin, xmax, ymax, zmin, zmax)
+    raise ValueError(f"Bounds must have 4 or 6 values, got {len(values)}.")
 
 
 def _cache_path(cells: Bounds, year: int) -> Path:
