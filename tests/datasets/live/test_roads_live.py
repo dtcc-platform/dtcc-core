@@ -9,6 +9,7 @@ import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.model import RoadNetwork
+from tests.datasets.live.live_policy import skip_if_transient
 
 GOTHENBURG_CORE_BBOX_EPSG3006 = (
     318_000.0,
@@ -23,9 +24,8 @@ def test_roads_live_overpass_structural_smoke() -> None:
     """Validate a small live Overpass road-network response when available."""
     try:
         roads = datasets.roads(bounds=GOTHENBURG_CORE_BBOX_EPSG3006)
-    except RuntimeError as exc:
-        if "Overpass" in str(exc) or "endpoint" in str(exc).lower():
-            pytest.skip(f"Overpass roads live case unavailable: {exc}")
+    except Exception as exc:
+        skip_if_transient(exc, "roads (OpenStreetMap Overpass)")
         raise
 
     assert isinstance(roads, RoadNetwork)

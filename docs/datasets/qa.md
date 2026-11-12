@@ -62,6 +62,25 @@ contract regression. Non-transient `DatasetUpstreamError` failures such as
 `http_4xx`, malformed provider payloads, invalid parameters, or untyped
 exceptions fail the live run and should be investigated.
 
+The same rule applies to every live test through
+`tests/datasets/live/live_policy.py`: connection errors, timeouts and HTTP 5xx
+or 429 responses skip the case, and any other error fails it, including HTTP
+4xx, TLS and URL errors, and malformed payloads. The policy also looks at the
+original error when a download helper wraps it with `raise ... from`. Skipping hides outages, so the workflow below reports the skip count
+alongside the failures.
+
+The `live-dataset-checks` GitHub workflow runs `tests/datasets/live` every
+Monday and on manual dispatch. It writes a per-test status table to the run
+summary and posts the passed, failed and skipped counts to Slack: failed,
+cancelled and timed-out runs to the `SLACK_WEBHOOK_URL_DEVELOPMENT` channel,
+passed runs to `SLACK_WEBHOOK_URL_GITHUB`. `tests/datasets/live/test_datasets_live.py` builds
+the downloading datasets over a small Gothenburg bbox. Not covered in CI:
+
+- orthophoto, because its tile server is reachable only on the Chalmers
+  network or VPN (`DTCC_ORTHOPHOTO_URL` is unset in CI);
+- transit vehicles, because the repository has no `TRAFIKLAB_API_KEY` or
+  `VASTTRAFIK_AUTHENTICATION_KEY` secret. The tests skip until both are added.
+
 ## Table Catalog QA
 
 Concrete tangible-table dataset packages are generated in the tangible-table

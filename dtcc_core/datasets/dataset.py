@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -113,6 +114,23 @@ class DatasetBaseArgs(BaseModel):
             if v[0] >= v[3] or v[1] >= v[4] or v[2] >= v[5]:
                 raise ValueError("Invalid bounds: min < max for all dimensions")
         return v
+
+
+# Query parameters that carry credentials, such as Trafiklab's ``?key=``. The
+# secret word must start the name or follow a separator or a known prefix, so
+# ``api_key``, ``apikey`` and ``X-Amz-Signature`` match but ``monkey`` does not.
+_SECRET_QUERY_PARAM = re.compile(
+    r"([?&](?:[a-z0-9]+[_-])*"
+    r"(?:api|access|client|private|refresh|secret|session|subscription)?"
+    r"(?:key|token|secret|password|passwd|signature|credential|auth|authorization"
+    r"|sig)=)[^&#\s'\")]+",
+    re.IGNORECASE,
+)
+
+
+def _redact_url_secrets(text: str) -> str:
+    """Replace the values of credential query parameters in ``text``."""
+    return _SECRET_QUERY_PARAM.sub(r"\1REDACTED", text)
 
 
 class DatasetUpstreamError(RuntimeError):
@@ -1019,7 +1037,10 @@ class DatasetDescriptor(ABC):
             elif isinstance(exc, requests.RequestException):
                 failure_class = "request"
 
-        message = f"{dataset} {operation} failed for {target}: {exc}"
+        # requests puts the full URL, query string included, in its errors.
+        message = _redact_url_secrets(
+            f"{dataset} {operation} failed for {target}: {exc}"
+        )
         return DatasetUpstreamError(
             dataset=dataset,
             operation=operation,
