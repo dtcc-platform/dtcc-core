@@ -347,7 +347,7 @@ def test_remote_dataset_client_is_not_provided():
     ]
 
     assert [name for name in removed if hasattr(datasets, name)] == []
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ModuleNotFoundError):
         importlib.import_module("dtcc_core.datasets.remote")
 
 
