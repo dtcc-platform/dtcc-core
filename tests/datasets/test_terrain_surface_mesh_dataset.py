@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
+import numpy as np
 import pytest
+from affine import Affine
 from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.terrain_surface_mesh import (
     TerrainSurfaceMeshArgs,
     TerrainSurfaceMeshDataset,
 )
+from dtcc_core.model import Raster
 
 
 def test_terrain_surface_mesh_registered_name():
@@ -175,16 +178,16 @@ def test_terrain_surface_mesh_tif_export_uses_raster_path(
     mock_build_raster.return_value = raster
 
     dataset = TerrainSurfaceMeshDataset()
+    with pytest.warns(DeprecationWarning, match="product='raster'"):
+        tif_args = TerrainSurfaceMeshArgs(
+            bounds=(0.0, 0.0, 1.0, 1.0),
+            format="tif",
+            raster_resolution=3.5,
+        )
     with patch.object(
         dataset, "export_to_bytes", return_value=b"terrain-raster"
     ) as mock_export:
-        result = dataset.build(
-            TerrainSurfaceMeshArgs(
-                bounds=(0.0, 0.0, 1.0, 1.0),
-                format="tif",
-                raster_resolution=3.5,
-            )
-        )
+        result = dataset.build(tif_args)
 
     assert result == b"terrain-raster"
     mock_build_raster.assert_called_once_with(
@@ -275,3 +278,112 @@ def test_terrain_surface_mesh_context_documents_lineage_and_limits():
     assert manifest.presentation.limitations
     assert manifest.request.parameters["adaptive_mesh"] is True
     assert manifest.request.parameters["mesher"] == "triangle"
+
+
+def _terrain_raster():
+    return Raster(
+        data=np.array([[1.0, np.nan], [2.5, 3.0]], dtype=np.float32),
+        georef=Affine(2.0, 0, 100.0, 0, -2.0, 200.0),
+        nodata=np.nan,
+    )
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_raster_product_round_trip(
+    mock_download, mock_build_raster, tmp_path
+):
+    """product='raster' returns a Raster with units and survives a package round trip."""
+    mock_build_raster.return_value = _terrain_raster()
+
+    result = datasets.terrain_surface_mesh(
+        bounds=(0.0, 0.0, 1.0, 1.0), product="raster"
+    )
+
+    assert isinstance(result, Raster)
+    assert result.dataset_context is not None
+    assert result.crs == "EPSG:3006"
+    view_hints = result.dataset_context.presentation.view_hints
+    assert view_hints["value_units"] == "m"
+    assert view_hints["z_units"] == "meters"
+
+    package = result.export(tmp_path / "x.dtccpkg", canonical=True)
+    restored = load_model_package(package.path)
+
+    assert type(restored) is Raster
+    np.testing.assert_array_equal(restored.data, result.data)
+    assert restored.georef == result.georef
+    assert np.isnan(restored.nodata) and np.isnan(result.nodata)
+    assert restored.crs == result.crs
+    assert restored.dataset_context == result.dataset_context
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_explicit_mesh_product_rejects_tif(mock_download):
+    with pytest.raises(ValueError, match="product='raster'"):
+        datasets.terrain_surface_mesh(
+            bounds=(0.0, 0.0, 1.0, 1.0), product="mesh", format="tif"
+        )
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_tif_without_product_is_deprecated(
+    mock_download, mock_build_raster
+):
+    mock_build_raster.return_value = _terrain_raster()
+
+    with patch.object(
+        TerrainSurfaceMeshDataset, "export_to_bytes", return_value=b"terrain-raster"
+    ):
+        with pytest.warns(DeprecationWarning, match="product='raster'"):
+            result = datasets.terrain_surface_mesh(
+                bounds=(0.0, 0.0, 1.0, 1.0), format="tif"
+            )
+
+    assert isinstance(result, bytes)
+
+
+@pytest.mark.usefixtures("no_network")
+@pytest.mark.parametrize("fmt", ["obj", "stl"])
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_raster_product_rejects_mesh_format(mock_download, fmt):
+    with pytest.raises(ValueError, match="product='raster'"):
+        datasets.terrain_surface_mesh(
+            bounds=(0.0, 0.0, 1.0, 1.0), product="raster", format=fmt
+        )
+
+    mock_download.assert_not_called()
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.builder.build_terrain_raster")
+@patch("dtcc_core.datasets.terrain_surface_mesh.dtcc_core.io.data.download_pointcloud")
+def test_terrain_surface_mesh_raster_product_ignores_center_on_origin(
+    mock_download, mock_build_raster
+):
+    mock_build_raster.side_effect = lambda *args, **kwargs: _terrain_raster()
+
+    plain = datasets.terrain_surface_mesh(bounds=(0.0, 0.0, 1.0, 1.0), product="raster")
+    centered = datasets.terrain_surface_mesh(
+        bounds=(0.0, 0.0, 1.0, 1.0), product="raster", center_on_origin=True
+    )
+
+    assert isinstance(centered, Raster)
+    assert centered.georef == plain.georef
+    assert centered.crs == plain.crs
+
+
+def test_terrain_surface_mesh_describe_lists_products():
+    products = {
+        product["name"]: product
+        for product in TerrainSurfaceMeshDataset().describe()["products"]
+    }
+
+    assert products["mesh"]["python_return_type"] == "dtcc_core.model.Mesh"
+    assert products["mesh"]["formats"] == ["obj", "stl"]
+    assert products["raster"]["python_return_type"] == "dtcc_core.model.Raster"
+    assert products["raster"]["formats"] == ["tif"]

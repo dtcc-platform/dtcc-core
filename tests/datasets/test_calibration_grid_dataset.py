@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.calibration_grid import (
     CalibrationGridArgs,
     CalibrationGridDataset,
@@ -112,12 +113,21 @@ def test_grid_line_geometry_spans_the_opposite_axis():
             assert [point[0] for point in coordinates] == [319720.0, 320220.0]
 
 
-def test_geojson_format_returns_bytes_matching_dict():
-    """format='geojson' should serialize the same FeatureCollection to bytes."""
+@pytest.mark.usefixtures("no_network")
+def test_geojson_format_is_the_wgs84_model_conversion():
+    """format='geojson' serializes the model's EPSG:4326 conversion."""
     payload = datasets.calibration_grid(bounds=BOUNDS, format="geojson")
 
     assert isinstance(payload, bytes)
-    assert json.loads(payload) == datasets.calibration_grid(bounds=BOUNDS).to_geojson()
+    expected = datasets.calibration_grid(bounds=BOUNDS).to_geojson(crs="EPSG:4326")
+    data = json.loads(payload)
+    assert data == expected
+    assert "crs" not in data
+    assert data["metadata"]["crs"] == "EPSG:4326"
+    assert len(data["features"]) == 82
+    for feature in data["features"]:
+        for lon, lat in feature["geometry"]["coordinates"]:
+            assert -180 <= lon <= 180 and -90 <= lat <= 90
 
 
 def test_metadata_describes_the_grid():
@@ -158,10 +168,16 @@ def test_dataset_context_marks_calibration_grid_table_ready_synthetic_fixture():
 
 
 def test_crs_none_omits_crs_member():
-    """crs=None should omit the legacy GeoJSON crs member, mirroring smoke."""
+    """crs=None should omit the legacy GeoJSON crs member."""
     result = datasets.calibration_grid(bounds=BOUNDS, crs=None)
     assert "crs" not in result
     assert "crs" not in result["metadata"]
+
+
+def test_crs_none_is_rejected_for_geojson_format():
+    """The WGS84 conversion needs the declared CRS of the request bounds."""
+    with pytest.raises(ValidationError, match="format='geojson' requires a crs"):
+        datasets.calibration_grid(bounds=BOUNDS, crs=None, format="geojson")
 
 
 def test_export_writes_payload_and_manifest(tmp_path):
@@ -195,3 +211,65 @@ def test_args_model_defaults():
     assert args.divisions == 40
     assert args.crs == "EPSG:3006"
     assert args.format is None
+
+
+@pytest.mark.usefixtures("no_network")
+def test_calibration_grid_canonical_round_trip(canonical_round_trip):
+    """The generated grid survives a canonical package round trip."""
+    result = datasets.calibration_grid(bounds=BOUNDS)
+    restored = canonical_round_trip("calibration_grid", result)
+
+    assert len(restored.features) == len(result.features) > 0
+    assert restored.to_geojson() == result.to_geojson()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_calibration_grid_empty_canonical_round_trip(canonical_round_trip):
+    """An empty FeatureCollection built by the Dataset round-trips too."""
+    empty = {"type": "FeatureCollection", "name": "calibration_grid", "features": []}
+    with patch.object(get_dataset("calibration_grid"), "build", return_value=empty):
+        result = datasets.calibration_grid(bounds=BOUNDS)
+    restored = canonical_round_trip("calibration_grid", result)
+
+    assert len(restored.features) == len(result.features) == 0
+    assert restored.to_geojson() == result.to_geojson()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_calibration_grid_canonical_geojson_round_trip(tmp_path):
+    """Canonical GeoJSON is WGS84, reloads from the package and re-exports equal."""
+    result = datasets.calibration_grid(bounds=BOUNDS)
+
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    assert len(payload["features"]) == len(result.features) > 0
+    for feature in payload["features"]:
+        for lon, lat in feature["geometry"]["coordinates"]:
+            assert -180 <= lon <= 180 and -90 <= lat <= 90
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the table corner
+    # (319720, 6397660); the frame lines start there.
+    positions = [
+        position
+        for feature in payload["features"]
+        for position in feature["geometry"]["coordinates"]
+    ]
+    assert [11.975957858852261, 57.684970513932505] in [
+        pytest.approx(position, abs=1e-9) for position in positions
+    ]
+
+    metadata = payload["metadata"]
+    assert metadata["crs"] == "EPSG:4326"
+    xmin, ymin, xmax, ymax = metadata["bounds"]
+    assert all(xmin <= x <= xmax and ymin <= y <= ymax for x, y in positions)
+    assert restored.crs == result.crs
+    assert restored.bounds == result.bounds

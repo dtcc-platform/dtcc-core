@@ -9,10 +9,14 @@ from io import BytesIO
 
 import numpy as np
 import pytest
+import rasterio
+from affine import Affine
 from PIL import Image
+from pydantic import ValidationError
+from pyproj import Transformer
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.dataset import DatasetExportResult
 from dtcc_core.datasets.smoke import SmokeArgs, SmokeDataset
 from dtcc_core.model import FieldSlice, StreamlineCollection, VolumeMesh, proto
@@ -218,20 +222,94 @@ def test_smoke_slice_snapshots_are_time_dependent():
     assert not np.isclose(first_speed, second_speed)
 
 
-def test_smoke_geojson_can_omit_crs_and_z_coordinates():
-    payload = datasets.smoke(
-        bounds=(0.0, 0.0, 10.0, 20.0),
-        resolution=4,
-        product="slice",
-        crs=None,
-        include_z=False,
-        format="geojson",
-    )
+def _positions(data):
+    for feature in data["features"]:
+        coordinates = feature["geometry"]["coordinates"]
+        yield from (
+            [coordinates] if feature["geometry"]["type"] == "Point" else coordinates
+        )
 
-    data = json.loads(payload.decode("utf-8"))
+
+@pytest.mark.usefixtures("no_network")
+@pytest.mark.parametrize("product", ["slice", "streamlines"])
+def test_smoke_geojson_is_the_wgs84_model_conversion_and_can_omit_z(product):
+    arguments = {
+        "bounds": (319720.0, 6397660.0, 320220.0, 6398160.0),
+        "resolution": 4,
+        "product": product,
+    }
+
+    data = json.loads(datasets.smoke(**arguments, format="geojson"))
+    expected = datasets.smoke(**arguments).to_geojson(crs="EPSG:4326")
+    assert data == expected
+    assert "crs" not in data
+    assert data["metadata"]["crs"] == "EPSG:4326"
+    # Oracle: the pyproj EPSG:3006 -> EPSG:4326 images of the four bounds
+    # corners span longitude 11.97558..11.98433 and latitude 57.68497..57.68966.
+    for longitude, latitude, _ in _positions(data):
+        assert 11.9755 <= longitude <= 11.9844
+        assert 57.6849 <= latitude <= 57.6897
+    if product == "slice":
+        longitude, latitude, _ = data["features"][0]["geometry"]["coordinates"]
+        assert (longitude, latitude) == pytest.approx((11.9759, 57.6849), abs=1e-3)
+
+    flat = json.loads(datasets.smoke(**arguments, include_z=False, format="geojson"))
+    assert flat == datasets.smoke(**arguments).to_geojson(
+        crs="EPSG:4326", include_z=False
+    )
+    assert {len(position) for position in _positions(flat)} == {2}
+
+
+@pytest.mark.usefixtures("no_network")
+@pytest.mark.parametrize("product", ["slice", "streamlines"])
+def test_smoke_geojson_passes_wgs84_bounds_through(product):
+    arguments = {
+        "bounds": (11.97, 57.68, 11.98, 57.69),
+        "crs": "EPSG:4326",
+        "resolution": 4,
+        "product": product,
+        "zmin": 0.0,
+        "zmax": 100.0,
+    }
+
+    data = json.loads(datasets.smoke(**arguments, format="geojson"))
+
+    assert data == datasets.smoke(**arguments).to_geojson(crs="EPSG:4326")
+    assert data["metadata"]["crs"] == "EPSG:4326"
+    for feature in data["features"]:
+        coordinates = feature["geometry"]["coordinates"]
+        for longitude, latitude, _ in (
+            [coordinates] if product == "slice" else coordinates
+        ):
+            assert 11.97 - 1e-9 <= longitude <= 11.98 + 1e-9
+            assert 57.68 - 1e-9 <= latitude <= 57.69 + 1e-9
+
+
+@pytest.mark.parametrize("product", ["slice", "streamlines"])
+def test_smoke_geojson_requires_a_declared_crs(product):
+    with pytest.raises(ValidationError, match="format='geojson' requires a crs"):
+        datasets.smoke(
+            bounds=(0.0, 0.0, 10.0, 20.0),
+            product=product,
+            crs=None,
+            format="geojson",
+        )
+
+    model = datasets.smoke(bounds=(0.0, 0.0, 10.0, 20.0), product=product, crs=None)
+    assert model.crs is None
+
+
+def test_smoke_field_geojson_keeps_native_coordinates_and_the_declared_crs():
+    arguments = {"bounds": (0.0, 0.0, 10.0, 20.0), "resolution": 4}
+
+    data = json.loads(datasets.smoke(**arguments, format="geojson"))
+    assert data["crs"] == {"type": "name", "properties": {"name": "EPSG:3006"}}
+    assert data["metadata"]["crs"] == "EPSG:3006"
+    assert data["features"][0]["geometry"]["coordinates"][:2] == [0.0, 0.0]
+
+    data = json.loads(datasets.smoke(**arguments, crs=None, format="geojson"))
     assert "crs" not in data
     assert "crs" not in data["metadata"]
-    assert len(data["features"][0]["geometry"]["coordinates"]) == 2
 
 
 def test_smoke_streamlines_geojson_format_returns_lines():
@@ -750,6 +828,185 @@ def test_smoke_rejects_non_geojson_visualization_formats():
                 format="pb",
             )
         )
+
+
+SMOKE_PRODUCTS = {
+    "slice": (
+        FieldSlice,
+        (
+            "slice_axis",
+            "slice_position",
+            "resolution",
+            "axes",
+            "name",
+            "time",
+            "period",
+            "crs",
+            "include_z",
+            "domain_bounds",
+            "metadata_payload",
+        ),
+    ),
+    "streamlines": (
+        StreamlineCollection,
+        (
+            "seed_axis",
+            "seed_position",
+            "requested_line_count",
+            "streamline_steps",
+            "streamline_step_size",
+            "time",
+            "period",
+            "crs",
+            "include_z",
+            "axes",
+            "name",
+            "domain_bounds",
+            "metadata_payload",
+        ),
+    ),
+}
+
+
+def _assert_fields_equal(source, restored):
+    assert [(f.name, f.unit, f.dim, f.association) for f in restored] == [
+        (f.name, f.unit, f.dim, f.association) for f in source
+    ]
+    for a, b in zip(source, restored, strict=True):
+        np.testing.assert_array_equal(b.values, a.values)
+
+
+@pytest.mark.parametrize("offline", [False, True], ids=["unpatched", "no_network"])
+@pytest.mark.parametrize("product", list(SMOKE_PRODUCTS))
+def test_smoke_product_canonical_package_round_trip(
+    product, offline, request, tmp_path
+):
+    """The registered smoke Dataset call survives a canonical package round trip."""
+    if offline:
+        request.getfixturevalue("no_network")
+    cls, attributes = SMOKE_PRODUCTS[product]
+    result = datasets.smoke(
+        bounds=(0.0, 0.0, 10.0, 20.0),
+        zmax=40.0,
+        resolution=4,
+        product=product,
+        streamline_count=4,
+        streamline_steps=20,
+        time=1.5,
+        crs="EPSG:3006",
+    )
+    package = result.export(tmp_path / "smoke.dtccpkg", canonical=True)
+    restored = load_model_package(package.path)
+
+    assert type(result) is cls
+    assert type(restored) is cls
+    for name in attributes:
+        assert getattr(restored, name) == getattr(result, name), name
+    if cls is FieldSlice:
+        for name in (
+            "points",
+            "classification",
+            "intensity",
+            "return_number",
+            "num_returns",
+        ):
+            np.testing.assert_array_equal(
+                getattr(restored, name), getattr(result, name)
+            )
+        np.testing.assert_array_equal(
+            restored.transform.affine, result.transform.affine
+        )
+        assert restored.transform.srs == result.transform.srs
+        assert [f.association for f in result.fields] == ["sample"] * 3
+        _assert_fields_equal(result.fields, restored.fields)
+    else:
+        assert len(result.lines) > 0
+        assert len(restored.lines) == len(result.lines)
+        for a, b in zip(result.lines, restored.lines, strict=True):
+            np.testing.assert_array_equal(b.vertices, a.vertices)
+            np.testing.assert_array_equal(b.transform.affine, a.transform.affine)
+            assert b.transform.srs == a.transform.srs
+            assert [f.association for f in a.fields] == ["vertex"] * 3
+            _assert_fields_equal(a.fields, b.fields)
+    assert restored.dataset_context == result.dataset_context
+    assert restored.to_geojson() == result.to_geojson()
+
+
+@pytest.mark.usefixtures("no_network")
+def test_smoke_slice_exports_canonical_png_and_tif_without_the_producer(
+    tmp_path, monkeypatch
+):
+    smoke_module = importlib.import_module("dtcc_core.datasets.smoke")
+    bounds = (319720.0, 6397660.0, 320220.0, 6398160.0)
+    result = datasets.smoke(
+        bounds=bounds, resolution=6, product="slice", crs="EPSG:3006"
+    )
+
+    def producer_must_not_run(*_args, **_kwargs):
+        raise AssertionError("the analytical producer ran")
+
+    for name in ("_field_slice", "_velocity", "_pressure"):
+        monkeypatch.setattr(smoke_module, name, producer_must_not_run)
+    monkeypatch.setattr(SmokeDataset, "build", producer_must_not_run)
+    png_options = {
+        "format": "png",
+        "field": "speed",
+        "colormap": "viridis",
+        "value_range": (0, 10),
+        "unit": "m/s",
+    }
+
+    png_package = result.export(tmp_path / "png", canonical=True, **png_options)
+    tif_package = result.export(
+        tmp_path / "tif", canonical=True, format="tif", field="speed"
+    )
+    restored = load_model_package(png_package.path)
+    again = restored.export(tmp_path / "again", canonical=True, **png_options)
+    tif_again = load_model_package(tif_package.path).export(
+        tmp_path / "tif_again", canonical=True, format="tif", field="speed"
+    )
+
+    [png] = [a for a in png_package.artifacts if a.role == "derived"]
+    [tif] = [a for a in tif_package.artifacts if a.role == "derived"]
+    [source] = [a for a in png_package.artifacts if a.role != "derived"]
+    assert source.model_type == "FieldSlice"
+    assert type(restored) is FieldSlice
+    assert png.rendering.model_dump() == {
+        "bands": None,
+        "field": "speed",
+        "band": 0,
+        "unit": "m/s",
+        "value_range": [0.0, 10.0],
+        "colormap": "viridis",
+        "transparent_nodata": True,
+    }
+    # The 6 x 6 sample grid has 100 m cells in EPSG:3006, which the Web
+    # Mercator placement scales by 1 / cos(latitude) at about 57.7 degrees.
+    cell = 100.0 / np.cos(np.radians(57.69))
+    to_mercator = Transformer.from_crs("EPSG:3006", "EPSG:3857", always_xy=True)
+    corners = np.array(
+        [to_mercator.transform(x, y) for x in bounds[0::2] for y in bounds[1::2]]
+    )
+    extent = [*corners.min(axis=0), *corners.max(axis=0)]
+    assert png.placement.crs == "EPSG:3857"
+    low, high = png.placement.bounds[:2], png.placement.bounds[2:]
+    assert all(extent[i] - cell <= low[i] <= extent[i] for i in range(2)), (
+        "placement covers the extent within one cell"
+    )
+    assert all(extent[2 + i] <= high[i] <= extent[2 + i] + cell for i in range(2))
+
+    assert (tif.rendering.field, tif.rendering.unit) == ("speed", "m/s")
+    with rasterio.open(tif_package.path / tif.path) as src:
+        assert src.units[0] == result.field("speed").unit
+        assert src.crs.to_string() == "EPSG:3006"
+        assert src.transform == Affine(100, 0, 319720 - 50, 0, -100, 6398160 + 50)
+
+    [png_again] = [a for a in again.artifacts if a.role == "derived"]
+    [tif_reloaded] = [a for a in tif_again.artifacts if a.role == "derived"]
+    assert png_again.placement == png.placement
+    assert png_again.rendering == png.rendering
+    assert tif_reloaded.placement == tif.placement
+    assert tif_reloaded.rendering == tif.rendering
 
 
 def _assert_smoke_visual_package(

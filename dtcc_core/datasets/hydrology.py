@@ -306,6 +306,16 @@ class HydrologyDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     provider = [provider_entry("smhi", role="source_provider")]
     source = [
         {

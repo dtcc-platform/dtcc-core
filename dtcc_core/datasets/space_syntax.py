@@ -101,6 +101,16 @@ class SpaceSyntaxDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "road_network"
     python_return_type = "dtcc_core.model.RoadNetwork"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     timeout_hint = 300
     provider = [provider_entry("dtcc-platform", role="processor")]
     source = [

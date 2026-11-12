@@ -33,6 +33,15 @@ message Object {
     SENSOR_COLLECTION = 10;
     VEHICLE_COLLECTION = 11;
     DESO = 12;
+    // Root-only Dataset wrappers: a transient Object with id "collection".
+    // Rejected below the root.
+    TREE_COLLECTION = 13;
+    BUILDING_COLLECTION = 14;
+    FOOTPRINT_COLLECTION = 15;
+    CALIBRATION_GRID = 16;
+    FIELD_SLICE = 17;
+    STREAMLINE_COLLECTION = 18;
+    RASTER_TILE_COLLECTION = 19;
   }
   Kind kind = 1;
   string id = 2;
