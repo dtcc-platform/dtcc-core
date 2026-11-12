@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from ...model import Bounds, Object, PlaceCollection
 from ...model.geometry import Point
@@ -217,9 +218,10 @@ def download_places_geodataframe(
         info(f"Querying Overpass for places in bbox={bounds.tuple}")
         gdf = _places_from_elements(_query_places(bounds), bounds)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = cache_path.with_name(cache_path.name + ".part.gpkg")
-        gdf.to_file(tmp_path, layer="places", driver="GPKG")
-        os.replace(tmp_path, cache_path)
+        with TemporaryDirectory(dir=cache_path.parent, prefix=".places-") as tmpdir:
+            tmp_path = Path(tmpdir) / "places.gpkg"
+            gdf.to_file(tmp_path, layer="places", driver="GPKG")
+            os.replace(tmp_path, cache_path)
 
     if categories is not None:
         gdf = gdf[gdf["category"].isin(categories)].reset_index(drop=True)

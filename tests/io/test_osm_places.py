@@ -1,3 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
+
 import pytest
 from pyproj import Transformer
 
@@ -177,6 +180,67 @@ def test_uses_cache_on_second_call(fake_overpass):
     assert len(fake_overpass.queries) == 1
     assert [p.attributes["name"] for p in cached.places()] == ["Salong Marie"]
     assert cached.places()[0].attributes["osm_id"] == 2
+
+
+def test_concurrent_downloads_publish_complete_cache(fake_overpass, monkeypatch):
+    write = osm_places.gpd.GeoDataFrame.to_file
+    write_lock = Lock()
+    finished_writing = Barrier(2)
+
+    def synchronized_write(gdf, *args, **kwargs):
+        # Keep GDAL writes serial, then let both writers publish their files.
+        with write_lock:
+            write(gdf, *args, **kwargs)
+        finished_writing.wait(timeout=10)
+
+    monkeypatch.setattr(osm_places.gpd.GeoDataFrame, "to_file", synchronized_write)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(osm_places.download_places_geodataframe, BOUNDS)
+            for _ in range(2)
+        ]
+        results = [future.result(timeout=20) for future in futures]
+
+    cached = osm_places.download_places_geodataframe(BOUNDS)
+    assert len(fake_overpass.queries) == 2
+    for result in [*results, cached]:
+        assert result["name"].tolist() == [
+            "Panos",
+            "Salong Marie",
+            "Vasaskolan",
+            "Sjukgymnast",
+            "Röhsska",
+        ]
+        assert result.crs.to_epsg() == 3006
+    cache_path = osm_places._cache_path(BOUNDS)
+    assert list(cache_path.parent.iterdir()) == [cache_path]
+
+
+@pytest.mark.parametrize("failure", ["write", "replace"])
+def test_failed_cache_refresh_preserves_cache_and_cleans_temporary_files(
+    fake_overpass, monkeypatch, failure
+):
+    osm_places.download_places_geodataframe(BOUNDS)
+    cache_path = osm_places._cache_path(BOUNDS)
+    previous = cache_path.read_bytes()
+
+    def failing_write(gdf, path, **kwargs):
+        path.write_bytes(b"partial GeoPackage")
+        raise OSError("write failed")
+
+    def failing_replace(source, destination):
+        raise OSError("replace failed")
+
+    if failure == "write":
+        monkeypatch.setattr(osm_places.gpd.GeoDataFrame, "to_file", failing_write)
+    else:
+        monkeypatch.setattr(osm_places.os, "replace", failing_replace)
+
+    with pytest.raises(OSError, match=f"{failure} failed"):
+        osm_places.download_places_geodataframe(BOUNDS, use_cache=False)
+
+    assert cache_path.read_bytes() == previous
+    assert list(cache_path.parent.iterdir()) == [cache_path]
 
 
 def test_changed_category_tables_do_not_reuse_the_cache(fake_overpass, monkeypatch):
