@@ -20,6 +20,11 @@ class PopulationGrid(Raster):
     ``data`` holds persons per cell for one variable. Cells without registered
     residents are 0; cells outside Sweden are ``nodata`` (NaN).
 
+    Unlike a plain :class:`Raster`, it cannot be saved with ``to_proto``,
+    ``to_json`` or a protobuf save; these raise ``NotImplementedError``. Call
+    :meth:`to_raster` first to save the numbers as a plain ``Raster``, without
+    the year, variable and boundaries.
+
     Attributes
     ----------
     year : int or None
