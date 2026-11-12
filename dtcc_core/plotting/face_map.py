@@ -176,8 +176,9 @@ def _layers(
     from matplotlib.colors import Normalize
 
     ids = np.flatnonzero(selected | context)
-    shown = _sample(ids, max_elements)
-    ground = shown[selected[shown]]
+    ground = _sample(np.flatnonzero(selected), max_elements)
+    background = _sample(np.flatnonzero(context), max_elements - len(ground))
+    remaining = max_elements - len(ground) - len(background)
     artist = PolyCollection(
         xy[faces[ground]],
         array=values[ground],
@@ -191,21 +192,21 @@ def _layers(
     if context.any():
         colors = get_theme(theme)
         neutral = PolyCollection(
-            xy[faces[shown[context[shown]]]],
+            xy[faces[background]],
             facecolors=colors["muted"],
             edgecolors="none",
             antialiaseds=False,
         )
         neutral.set_gid("face_context")
         ax.add_collection(neutral)
-        edges = _perimeter(xy, faces[context])
-        edge_ids = _sample(np.arange(len(edges)), max_elements - len(shown))
+        edges = _perimeter(xy, faces[context]) if remaining else np.empty((0, 2, 2))
+        edge_ids = _sample(np.arange(len(edges)), remaining)
         outline = LineCollection(edges[edge_ids], colors=colors["text"], linewidths=0.7)
         outline.set_gid("context_outline")
         ax.add_collection(outline)
     else:
         edges = []
-    if len(ids) + len(edges) > max_elements:
+    if len(ids) + len(edges) > max_elements or (context.any() and not remaining):
         ax.text(
             0.01,
             0.01,
