@@ -22,6 +22,7 @@ def test_rectangle_mesh(nx, ny):
     np.testing.assert_array_equal(mesh.vertices[:, 2], 0)
     restored = Mesh()
     restored.from_proto(mesh.to_proto())
+    np.testing.assert_array_equal(restored.vertices, mesh.vertices)
     np.testing.assert_array_equal(restored.faces, mesh.faces)
 
 
@@ -58,7 +59,9 @@ def test_box_mesh(nx, ny, nz):
     assert (counts == 1).sum() == len(mesh.boundary_faces)
     restored = VolumeMesh()
     restored.from_proto(mesh.to_proto())
+    np.testing.assert_array_equal(restored.vertices, mesh.vertices)
     np.testing.assert_array_equal(restored.cells, mesh.cells)
+    np.testing.assert_array_equal(restored.boundary_faces, mesh.boundary_faces)
     np.testing.assert_array_equal(restored.boundary_markers, mesh.boundary_markers)
 
 
