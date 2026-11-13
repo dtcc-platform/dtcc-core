@@ -22,6 +22,7 @@ from affine import Affine
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import attach_dataset_context
+from dtcc_core.datasets.printable_city_tiles import _layout, _realization
 from dtcc_core.model import (
     Bounds,
     Building,
@@ -227,6 +228,24 @@ def _mesh(variant, directory):
     return mesh
 
 
+def _printable_city_tiles(variant, directory):
+    if variant == "empty":
+        return Object()
+    if variant != "populated":
+        _unknown(variant)
+    bounds = (X0, Y0, X0 + 50, Y0 + 50)
+    args = datasets.printable_city_tiles.validate(dict(bounds=bounds, scale=250))
+    mesh = Mesh(
+        vertices=_square(X0, Y0, z=5.0),
+        faces=np.array([[0, 1, 2], [0, 2, 3]]),
+        markers=np.array([-2, -2]),
+    )
+    return attach_dataset_context(
+        _realization(_layout(args), args, mesh),
+        datasets.printable_city_tiles.create_context(args),
+    )
+
+
 def _volume_mesh(variant, directory):
     if variant == "empty":
         return VolumeMesh()
@@ -368,6 +387,7 @@ PRODUCTS = {
     ("terrain_surface_mesh", "mesh"): _mesh,
     ("terrain_surface_mesh", "raster"): _height_raster,
     ("city_surface_mesh", None): _mesh,
+    ("printable_city_tiles", None): _printable_city_tiles,
     ("city_flat_mesh", None): _mesh,
     ("city_volume_mesh", None): _volume_mesh,
     ("air_quality", None): _sensors,
