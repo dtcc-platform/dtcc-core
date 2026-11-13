@@ -76,10 +76,22 @@ The compiled schema is reused; validity is evaluated against the current mutable
 
 ## Remaining scope
 
-The existing faithful CityJSON subset is unchanged. Native builder representation
-IDs/roles, unsupported feature kinds and other unmapped state still require explicit
-mappings. Permissive loading can omit unsupported content and is not certified by
-this change. Other external format adapters and default artifact-only packages
+Strict export accepts the standard native `GeometryType.LOD0` through `LOD3`
+slots and standalone Building/BuildingPart Surfaces as single-polygon
+MultiSurfaces. Imported `cityjson-<n>` representation IDs also remain supported.
+Custom representation IDs/roles, stored normals, fields, Surface regions and
+other unmapped state still require explicit mappings. City-root attributes,
+including conversion reports, have no mapping and remain rejected; native
+`.dtcc` retains them.
+
+Both import modes retain all building LoDs and nested part IDs/attributes.
+Repeated/fractional LoD labels are preserved exactly; ambiguous native selection
+still raises. Default building import uses MultiSurface for a one-shell Solid
+and retains a multi-shell Solid so cavities cannot be erased. Invalid building
+representations fail loading rather than leaving a silently incomplete City.
+Writers emit CityJSON 2.0 string LoD labels and flat MultiSurface semantic
+assignment arrays. This does not certify other permissive content or implement
+additional unsupported feature kinds. Other external format adapters and default artifact-only packages
 remain separate adoption work. Qualified measurements, code spaces and additional
 urban themes remain schema work; this does not claim complete CityGML conformance.
 

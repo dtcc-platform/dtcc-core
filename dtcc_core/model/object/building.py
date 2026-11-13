@@ -61,6 +61,10 @@ class Building(Object):
         """
         Extract a footprint surface from the building geometry.
 
+        To derive separate footprints at every roof level of a closed LOD1
+        solid, use ``dtcc_core.builder.footprints_from_lod1``. Its workflow and
+        supported geometry are documented in ``docs/buildings-from-lod1.md``.
+
         Parameters
         ----------
         geom_type : GeometryType, optional

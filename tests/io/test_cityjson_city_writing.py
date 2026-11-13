@@ -111,7 +111,7 @@ class TestCityToCityJSON:
         # Check geometry
         geometry = building_data["geometry"][0]
         assert geometry["type"] == "MultiSurface"
-        assert geometry["lod"] == 2.0
+        assert geometry["lod"] == "2"
         assert len(geometry["boundaries"]) == 12  # 12 faces from the box
         assert len(result["vertices"]) == 8  # 8 vertices from the box
 
@@ -150,7 +150,7 @@ class TestCityToCityJSON:
         assert "part_001" in building_data["children"]
         assert part_data["parents"] == ["building_001"]
         assert len(part_data["geometry"]) == 1
-        assert part_data["geometry"][0]["lod"] == 1.0
+        assert part_data["geometry"][0]["lod"] == "1"
 
     def test_city_with_terrain(self):
         """Test conversion of city with terrain."""
@@ -274,7 +274,7 @@ class TestCityToCityJSON:
         assert geometry["semantics"]["surfaces"][0]["type"] == "CustomWallSurface"
 
         # Check custom LOD mapping
-        assert geometry["lod"] == 1.5
+        assert geometry["lod"] == "1.5"
 
 
 class TestFileOperations:
@@ -397,8 +397,8 @@ class TestEdgeCases:
 
         # Check LOD values
         lods = [geom["lod"] for geom in building_data["geometry"]]
-        assert 1.0 in lods
-        assert 2.0 in lods
+        assert "1" in lods
+        assert "2" in lods
 
     def test_large_coordinate_values(self):
         """Test handling of large coordinate values."""
