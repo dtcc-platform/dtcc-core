@@ -149,7 +149,10 @@ class StreamlineCollection(Model):
             transform, a Field does not have one row per vertex (one row
             for a geometry Field), or a Field would overwrite a
             feature property.
+        NotImplementedError
+            If a line carries time series, which GeoJSON has no mapping for.
         """
+        from ...io._attachments import reject_time_series
         from ...io.geojson import (
             exported_coordinates,
             feature_collection,
@@ -157,6 +160,7 @@ class StreamlineCollection(Model):
             resolve_source_crs,
         )
 
+        reject_time_series(self.lines, "GeoJSON")
         include_z = self.include_z if include_z is None else include_z
         model = exported_coordinates(self)
         source_crs = resolve_source_crs(model, model.lines)

@@ -23,6 +23,7 @@ from ...model import (
     Terrain,
     exchange,
 )
+from .._attachments import reject_time_series
 from .attributes import read_attributes
 from .semantics import SEMANTIC_NAMESPACE, validate_region_owner
 from .utils import build_geometry, build_tin
@@ -499,10 +500,7 @@ def validate_export(city):
                     raise NotImplementedError(
                         "Stored Surface normals have no explicit CityJSON mapping"
                     )
-                if item.time_series:
-                    raise NotImplementedError(
-                        "Time series require an explicit CityJSON mapping"
-                    )
+                reject_time_series([item], "CityJSON")
                 if item.fields or (item is not geometry and item.regions):
                     raise NotImplementedError(
                         "Nested fields/regions require an explicit CityJSON mapping"
