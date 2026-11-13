@@ -174,9 +174,7 @@ class Operation:
         self._consume("delivered_body_bytes", size, "read")
         self.state.counters.delivered_body_bytes += size
 
-    def error(
-        self, kind, *, status=None, body=b"", phase="connect", redirect_target=None
-    ):
+    def error(self, kind, *, status=None, body=b"", phase=None, redirect_target=None):
         retry_allowed_by_policy = retry_allowed(
             self.request, self.state.retry, 0, kind, phase, status
         )
@@ -230,7 +228,7 @@ class Operation:
             except ValueError:
                 pass
             raise self.error(
-                "redirect_policy", status=status, redirect_target=target
+                "redirect_policy", status=status, redirect_target=target, phase="read"
             ) from None
         self.hops += 1
 

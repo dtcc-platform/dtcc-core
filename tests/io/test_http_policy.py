@@ -820,3 +820,103 @@ def test_async_client_requires_the_aiohttp_replay_switch(monkeypatch):
 
     asyncio.run(scenario())
     assert closed == [True]
+
+
+@pytest.mark.parametrize("backend", ["sync", "async"])
+def test_failed_error_body_read_keeps_the_status_error(monkeypatch, backend):
+    import aiohttp
+
+    sends = []
+    if backend == "sync":
+        session = requests.Session()
+
+        def send(*args, **kwargs):
+            sends.append(1)
+            return FakeResponse([b"part", requests.ConnectionError("reset")], 404)
+
+        monkeypatch.setattr(session.get_adapter("https://"), "send", send)
+        monkeypatch.setattr(requests, "Session", lambda: session)
+        with HttpClient(
+            retry=RetryPolicy(retries=2), sleep=lambda delay: None
+        ) as client:
+            with pytest.raises(HttpTransportError) as caught:
+                client.request(Request("GET", "https://example.test/"))
+    else:
+
+        class Content:
+            async def iter_chunked(self, size):
+                yield b"part"
+                raise aiohttp.ClientPayloadError("reset")
+
+        class AsyncResponse:
+            status, headers, content = 404, {}, Content()
+
+            def close(self):
+                pass
+
+        async def request(*args, **kwargs):
+            sends.append(1)
+            return AsyncResponse()
+
+        monkeypatch.setattr(aiohttp.ClientSession, "request", request)
+
+        async def scenario():
+            async def sleep(delay):
+                pass
+
+            async with AsyncHttpClient(
+                retry=RetryPolicy(retries=2), sleep=sleep
+            ) as client:
+                with pytest.raises(HttpTransportError) as caught:
+                    await client.request(Request("GET", "https://example.test/"))
+            return caught
+
+        caught = asyncio.run(scenario())
+    error = caught.value
+    assert (error.kind, error.status, error.phase) == ("http_status", 404, "read")
+    assert (error.attempts, len(sends), error.error_body) == (1, 1, b"part")
+
+
+def test_errors_after_headers_report_the_read_phase():
+    state = State(redirects=RedirectPolicy(max_hops=1))
+    operation = Operation(state, Request("GET", "https://example.test/"), None)
+    with pytest.raises(HttpTransportError) as caught:
+        operation.follow("https://other.test/", status=302)
+    assert caught.value.phase == "read"
+    cache = ResponseCache()
+    request = Request("GET", "https://example.test/", public=True, cache_ttl=60)
+    cache.put(request, Response(200, request.target, {}, b"cached", request))
+    operation = Operation(State(cache=cache), request, 1)
+    with pytest.raises(HttpTransportError) as caught:
+        operation.state.cached(operation)
+    # A cache hit performs no network I/O.
+    assert caught.value.phase is None
+
+
+def test_transport_errors_survive_pickling_and_copying():
+    import copy
+    import pickle
+
+    request = Request("GET", "https://example.test/data?key=secret")
+    error = HttpTransportError(
+        request, "timeout", status=504, attempts=3, error_body=b"x", phase="read"
+    )
+    for clone in (pickle.loads(pickle.dumps(error)), copy.copy(error)):
+        assert type(clone) is HttpTransportError and str(clone) == str(error)
+        assert clone.metadata() == error.metadata()
+        assert clone.error_body == b"x"
+    assert error.metadata()["phase"] == "read"
+
+
+def test_json_body_is_snapshotted_when_the_request_is_built():
+    payload = {"value": 1}
+    request = Request("POST", "https://example.test/", json=payload, idempotent=True)
+    payload["value"] = 2
+    with HttpClient() as client:
+        assert client._kwargs(request)["data"] == b'{"value": 1}'
+    assert AsyncHttpClient()._kwargs(request, [])["data"] == b'{"value": 1}'
+
+
+def test_absent_headers_and_params_mean_none():
+    request = Request("GET", "https://example.test/", headers=None, params=None)
+    assert (request.headers, request.params) == ((), ())

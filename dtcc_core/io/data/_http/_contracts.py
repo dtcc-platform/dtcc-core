@@ -86,6 +86,13 @@ def _allowed_origin(value):
     return origin
 
 
+def _rebuild_error(cls, message, state):
+    error = cls.__new__(cls)
+    RuntimeError.__init__(error, message)
+    error.__dict__.update(state)
+    return error
+
+
 class HttpTransportError(RuntimeError):
     """Safe transport failure; raw error_body requires caller sanitization."""
 
@@ -111,12 +118,16 @@ class HttpTransportError(RuntimeError):
         self.error_body = error_body
         self.retry_after = retry_after
         self.redirect_target = redirect_target
-        # "connect" before response headers arrive, "read" after; None if unknown.
+        # "connect" before response headers arrive, "read" after, None without I/O.
         self.phase = phase
         super().__init__(
             f"{self.method} {self.target}: {kind}"
             + (f" (HTTP {status})" if status else "")
         )
+
+    def __reduce__(self):
+        # The constructor takes a Request, which the error does not keep.
+        return _rebuild_error, (type(self), str(self), dict(self.__dict__))
 
     def metadata(self):
         """Return diagnostics suitable for recording without raw payloads."""
@@ -129,6 +140,7 @@ class HttpTransportError(RuntimeError):
                 "status",
                 "attempts",
                 "retry_allowed_by_policy",
+                "phase",
             )
         }
 
@@ -171,7 +183,12 @@ class RetryPolicy:
 
 @dataclass(frozen=True)
 class RedirectPolicy:
-    """Explicit redirect destinations, given as complete origins or host names."""
+    """Redirect limits: hop count, cross-origin destinations and a host restriction.
+
+    Same-origin hops need only max_hops. A cross-origin hop also needs its exact
+    origin in allowed_origins. allowed_hosts, when set, restricts every request
+    and destination to those hosts; it never permits a redirect by itself.
+    """
 
     max_hops: int = 0
     allowed_origins: frozenset[str] = frozenset()
@@ -251,10 +268,15 @@ class Request:
             raise ValueError("Choose one request body representation")
         if self.body is not None and not isinstance(self.body, bytes):
             raise ValueError("body must be bytes")
-        for name in ("params", "headers", "form"):
-            value = getattr(self, name)
-            if value is not None:
-                object.__setattr__(self, name, _pairs(value, name))
+        for name in ("params", "headers"):
+            object.__setattr__(self, name, _pairs(getattr(self, name) or (), name))
+        if self.form is not None:
+            object.__setattr__(self, "form", _pairs(self.form, "form"))
+        if self.json is not _UNSET:
+            # Encode now so every attempt sends the body as it was when built.
+            object.__setattr__(
+                self, "_json_body", json.dumps(self.json).encode("utf-8")
+            )
         if self.multipart is not None:
             object.__setattr__(self, "multipart", tuple(self.multipart))
         names = [name.lower() for name, _ in self.headers]

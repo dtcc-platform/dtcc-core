@@ -2,7 +2,6 @@
 
 import asyncio
 import io
-import json
 import os
 import random
 import ssl
@@ -161,7 +160,7 @@ class AsyncHttpClient:
             ),
         )
         if request.json is not _UNSET:
-            kwargs["data"] = json.dumps(request.json).encode("utf-8")
+            kwargs["data"] = request._json_body
             if "content-type" not in headers_lower(headers):
                 headers["Content-Type"] = "application/json"
         elif request.multipart is not None:
@@ -245,11 +244,17 @@ class AsyncHttpClient:
     async def _status_error(self, response, operation):
         body = bytearray()
         # Error bodies have their own 8 KiB bound instead of max_body_bytes.
-        async for chunk in self._chunks(response, operation, 8192, limited=False):
-            body.extend(chunk[: 8192 - len(body)])
-            if len(body) == 8192:
-                break
-        return operation.error("http_status", status=response.status, body=bytes(body))
+        # A failed body read keeps the status error and the bytes read so far.
+        try:
+            async for chunk in self._chunks(response, operation, 8192, limited=False):
+                body.extend(chunk[: 8192 - len(body)])
+                if len(body) == 8192:
+                    break
+        except HttpTransportError:
+            pass
+        return operation.error(
+            "http_status", status=response.status, body=bytes(body), phase="read"
+        )
 
     async def _open(self, operation):
         while True:
@@ -261,7 +266,9 @@ class AsyncHttpClient:
                 if status in {301, 302, 303, 307, 308}:
                     location = headers.get("location")
                     if not location:
-                        raise operation.error("redirect_policy", status=status)
+                        raise operation.error(
+                            "redirect_policy", status=status, phase="read"
+                        )
                     operation.follow(location, status=status)
                 elif status in operation.request.expected_status:
                     return response
@@ -326,7 +333,6 @@ class AsyncHttpClient:
             except HttpTransportError as error:
                 if not operation.retry(error, "read"):
                     raise
-                response.close()
                 await self._sleep(operation.delay(headers_lower(response.headers)))
                 continue
             finally:

@@ -30,7 +30,9 @@ with HttpClient(timeout=Timeout(connect=8, read=30),
 over `request(Request(...))`, available on both clients (await the async methods).
 Options are `Request` fields plus `max_body_bytes`. For example,
 `client.post(url, json=payload, headers={"Accept": "application/json"})` returns a
-`Response`; call `.json()` separately. `json=None` sends JSON null. POST retries
+`Response`; call `.json()` separately. `json=None` sends JSON null. The JSON
+body is encoded when the `Request` is built, so later changes to the payload
+object do not reach retries. `headers=None` and `params=None` mean none. POST retries
 still require explicit `idempotent=True`. Use `Request` directly for other methods
 and streams. There is one execution, validation, caching and accounting path.
 
@@ -181,12 +183,15 @@ concurrent reads already in flight can return data and are counted. Recovery use
 a new Budget; there is no implicit reset. Limits include the chunk that crosses a received-byte cap; this chunk is
 not delivered. These are decoded-body limits, not exact wire-byte measurements or
 peak-memory guarantees: backends can buffer/decompress before yielding. Error
-bodies are read only up to 8 KiB. Unread redirect bodies are closed without being
+bodies are read only up to 8 KiB; if that read fails, the status error is raised
+with the bytes read so far. Unread redirect bodies are closed without being
 counted. Observation counts, time intervals and provider-specific budgets remain
 outside this package.
 
 `HttpTransportError` exposes `kind`, `status`, `attempts`, `retry_allowed_by_policy`,
-`phase` ("connect", "read" or None), `method` and sanitized `target`. Kinds include
+`phase`, `method` and sanitized `target`. `phase` is "connect" before response
+headers arrive, "read" after them, and None for failures without network I/O such
+as a cache hit over its limit. Errors pickle and copy with these fields. Kinds include
 timeout, connection, certificate, request, http_status, redirect_policy, decoding
 and resource_limit. Certificate verification failures are never retried; other
 TLS failures count as connection failures. `.metadata()` returns only safe
