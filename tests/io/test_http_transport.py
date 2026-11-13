@@ -935,3 +935,16 @@ def test_non_idempotent_upload_stream_is_sent_with_retries_enabled(backend, serv
         assert len(received) == 1 and b"payload" in received[0][1]
 
     run(backend, scenario, retry=RetryPolicy(retries=2))
+
+
+def test_stream_cannot_be_read_after_its_block_exits(backend, server):
+    url, _, _ = server
+
+    async def scenario(api):
+        async with api.stream(Request("GET", url + "/json")) as response:
+            pass
+        with pytest.raises(ValueError, match="closed"):
+            async for _ in api.chunks(response):
+                pass
+
+    run(backend, scenario)

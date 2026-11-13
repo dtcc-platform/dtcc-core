@@ -32,7 +32,8 @@ Options are `Request` fields plus `max_body_bytes`. For example,
 `client.post(url, json=payload, headers={"Accept": "application/json"})` returns a
 `Response`; call `.json()` separately. `json=None` sends JSON null. The JSON
 body is encoded when the `Request` is built, so later changes to the payload
-object do not reach retries. `headers=None` and `params=None` mean none. POST retries
+object do not reach retries. NaN and infinite numbers raise `ValueError`, since
+JSON cannot represent them. `headers=None` and `params=None` mean none. POST retries
 still require explicit `idempotent=True`. Use `Request` directly for other methods
 and streams. There is one execution, validation, caching and accounting path.
 
@@ -78,7 +79,8 @@ async def read_tile(url, consume_chunk):
 
 Sync streaming uses `with client.stream(...)` and `for chunk in
 response.iter_bytes(...)`. Streams have no default body cap; pass
-`max_body_bytes` to set one. Iteration is single-use. Close the context even if
+`max_body_bytes` to set one. Iteration is single-use and must happen inside the
+`stream` block; reading after it exits raises `ValueError`. Close the context even if
 iteration stops early. Responses are also closed on exceptions and async
 cancellation. Client-created sessions are reused and closed with their client;
 upload files remain caller-owned. Both clients always own their sessions. Sync clients are

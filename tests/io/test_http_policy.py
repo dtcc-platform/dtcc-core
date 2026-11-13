@@ -920,3 +920,20 @@ def test_json_body_is_snapshotted_when_the_request_is_built():
 def test_absent_headers_and_params_mean_none():
     request = Request("GET", "https://example.test/", headers=None, params=None)
     assert (request.headers, request.params) == ((), ())
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_json_body_rejects_non_finite_numbers(value):
+    with pytest.raises(ValueError):
+        Request("POST", "https://example.test/", json={"value": value})
+
+
+def test_cache_hit_over_delivery_budget_has_no_phase():
+    cache = ResponseCache()
+    request = Request("GET", "https://example.test/", public=True, cache_ttl=60)
+    cache.put(request, Response(200, request.target, {}, b"cached", request))
+    state = State(cache=cache, budget=Budget(max_delivered_bytes=1))
+    operation = Operation(state, request, None)
+    with pytest.raises(HttpTransportError) as caught:
+        state.cached(operation)
+    assert (caught.value.kind, caught.value.phase) == ("resource_limit", None)

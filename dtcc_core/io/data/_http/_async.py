@@ -44,12 +44,14 @@ class _AsyncStream:
         self._client, self._operation, self._response = client, operation, response
         self.status, self.headers = response.status, headers_lower(response.headers)
         self.target = operation.request.target
-        self._started = False
+        self._started = self.closed = False
 
     async def iter_bytes(self, chunk_size=65536):
         """Deliver decoded chunks once without catching caller exceptions."""
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
+        if self.closed:
+            raise ValueError("Response stream is closed")
         if self._started:
             raise ValueError("Response stream has already been consumed")
         self._started = True
@@ -297,10 +299,13 @@ class AsyncHttpClient:
         await self._ensure_session()
         operation = Operation(self._state, request, max_body_bytes)
         response = await self._open(operation)
+        stream = _AsyncStream(self, operation, response)
         try:
-            yield _AsyncStream(self, operation, response)
+            yield stream
         finally:
             response.close()
+            # Reads after the block would otherwise see an empty or broken body.
+            stream.closed = True
 
     async def get(
         self, url: str, *, max_body_bytes: int | None = DEFAULT_BODY_LIMIT, **options

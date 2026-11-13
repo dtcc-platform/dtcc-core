@@ -43,12 +43,14 @@ class _Stream:
         self.status = response.status_code
         self.headers = headers_lower(response.headers)
         self.target = operation.request.target
-        self._started = False
+        self._started = self.closed = False
 
     def iter_bytes(self, chunk_size=65536):
         """Deliver decoded chunks once; caller exceptions stay outside transport."""
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
+        if self.closed:
+            raise ValueError("Response stream is closed")
         if self._started:
             raise ValueError("Response stream has already been consumed")
         self._started = True
@@ -259,10 +261,13 @@ class HttpClient:
             raise ValueError("Client is closed")
         operation = Operation(self._state, request, max_body_bytes)
         response = self._open(operation)
+        stream = _Stream(self, operation, response)
         try:
-            yield _Stream(self, operation, response)
+            yield stream
         finally:
             response.close()
+            # Reads after the block would otherwise see an empty or broken body.
+            stream.closed = True
 
     def get(
         self, url: str, *, max_body_bytes: int | None = DEFAULT_BODY_LIMIT, **options

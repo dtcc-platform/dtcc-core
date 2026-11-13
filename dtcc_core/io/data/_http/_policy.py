@@ -170,8 +170,8 @@ class Operation:
         if limited and self.limit is not None and self.size > self.limit:
             raise self.error("resource_limit", phase="read")
 
-    def delivered(self, size):
-        self._consume("delivered_body_bytes", size, "read")
+    def delivered(self, size, *, phase="read"):
+        self._consume("delivered_body_bytes", size, phase)
         self.state.counters.delivered_body_bytes += size
 
     def error(self, kind, *, status=None, body=b"", phase=None, redirect_target=None):
@@ -265,7 +265,8 @@ class State:
                 return None
             if operation.limit is not None and len(response.body) > operation.limit:
                 raise operation.error("resource_limit")
-            operation.delivered(len(response.body))
+            # A cache hit performs no network I/O, so its errors have no phase.
+            operation.delivered(len(response.body), phase=None)
             self.counters.cache_hits += 1
         return response
 

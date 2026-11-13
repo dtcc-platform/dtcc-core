@@ -134,7 +134,8 @@ class ResponseCache:
         now, key = self._clock(), _key(request)
         with self._lock:
             self._remove(key)
-            # A response that is already stale replaces no fresh entry.
+            # A newer response that is already stale is not stored, and it also
+            # drops the older entry for the same request, which it supersedes.
             if ttl <= 0:
                 return
             self._entries[key] = (

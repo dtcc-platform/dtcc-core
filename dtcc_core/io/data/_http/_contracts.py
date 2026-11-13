@@ -275,7 +275,9 @@ class Request:
         if self.json is not _UNSET:
             # Encode now so every attempt sends the body as it was when built.
             object.__setattr__(
-                self, "_json_body", json.dumps(self.json).encode("utf-8")
+                self,
+                "_json_body",
+                json.dumps(self.json, allow_nan=False).encode("utf-8"),
             )
         if self.multipart is not None:
             object.__setattr__(self, "multipart", tuple(self.multipart))
