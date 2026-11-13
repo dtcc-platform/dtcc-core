@@ -245,19 +245,8 @@ def _time_series(value, owner=None):
         _text(getattr(value, key), f"TimeSeries.{key}")
     if not 1 <= value.dim <= 2**32 - 1:
         raise ValueError("TimeSeries.dim must be a positive uint32")
-    times = value.times
-    if times.dtype != np.dtype("datetime64[ns]") or times.ndim != 1:
-        raise ValueError("TimeSeries.times must be a 1D datetime64[ns] array")
-    if np.isnat(times).any() or not (times[1:] > times[:-1]).all():
-        raise ValueError("TimeSeries.times must be strictly increasing without NaT")
     _array(value.values, "TimeSeries.values", dimensions=3)
-    expected = 2 if value.dim == 1 else 3
-    if (
-        value.values.ndim != expected
-        or value.values.shape[0] != len(times)
-        or (value.dim > 1 and value.values.shape[2] != value.dim)
-    ):
-        raise ValueError("TimeSeries.values shape must match times and dim")
+    value._check_data(value.times, value.values)
     _value_association(value, owner, value.values.shape[1])
 
 

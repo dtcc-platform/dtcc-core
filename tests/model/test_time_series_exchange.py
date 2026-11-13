@@ -247,3 +247,24 @@ def test_strict_cityjson_rejects_time_series(tmp_path):
     city.add_child(child)
     with pytest.raises(NotImplementedError, match="Time series"):
         city.save(tmp_path / "city.json", strict=True)
+
+
+@pytest.mark.parametrize(
+    "corrupt, message",
+    [
+        (
+            lambda ts: ts._times.__setitem__(slice(0, 2), ts._times[1::-1].copy()),
+            r"^TimeSeries\.times must be strictly increasing\.$",
+        ),
+        (
+            lambda ts: ts.__dict__.__setitem__("_values", np.zeros((3, 2, 2))),
+            r"^TimeSeries\.values must have shape",
+        ),
+    ],
+    ids=["order", "shape"],
+)
+def test_save_checks_the_time_series_invariants(corrupt, message):
+    source = series()
+    corrupt(source)
+    with pytest.raises(ValueError, match=message):
+        exchange.dumps(source, validate_schema=False)

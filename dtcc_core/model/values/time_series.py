@@ -523,13 +523,17 @@ class TimeSeries(Model):
             )
         return values
 
-    def _set_data(self, times, values, copy=True):
-        # copy=False adopts the arrays as storage; the caller must own them.
+    def _check_data(self, times, values):
+        """Check the time and value invariants; return the canonical values."""
         if np.isnat(times).any():
             raise ValueError("TimeSeries.times must not contain NaT.")
         if not _strictly_increasing(times):
             raise ValueError("TimeSeries.times must be strictly increasing.")
-        values = self._canonical_values(values, len(times))
+        return self._canonical_values(values, len(times))
+
+    def _set_data(self, times, values, copy=True):
+        # copy=False adopts the arrays as storage; the caller must own them.
+        values = self._check_data(times, values)
         if copy:
             times, values = np.array(times, dtype=_NS), np.array(values)
         self._times = times
