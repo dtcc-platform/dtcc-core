@@ -238,3 +238,28 @@ It is neither a runtime dependency nor an alternative wire authority. Python
 round-trip and rejection checks are in
 [test_canonical_exchange.py](../../tests/model/test_canonical_exchange.py).
 No browser/C++ interoperability or representative large-city benchmark is claimed.
+
+## Time series (wire version 7)
+
+Only wire version 7 is read and written. Versions 1–6 are rejected; consumers
+must regenerate their bindings from `dtcc.proto`. The semantic schema retains
+its 0.9.0 identity and includes the native TimeSeries binding.
+
+`ModelFile.time_series` (tag 11) supports standalone series. Each Geometry has
+an ordered `time_series` list (tag 15), separate from static `fields`. In Python,
+pass `time_series=[series]` to a geometry constructor or append to the list.
+`TimeSeries.to_proto()` / `from_proto()`, `exchange.dumps()` / `loads()`, and
+`io.save_model()` / `load_model()` use the same validated codec.
+
+TimeSeries tags 1–6 mirror Field: name, unit, description, values, dim and
+association. Tag 7 is an Array of signed little-endian int64 UTC nanoseconds
+since the Unix epoch, shape `[T]`; timestamps must strictly increase and cannot
+contain the NaT sentinel (`INT64_MIN`). Tag 8 is the free-text role. Values retain
+their numeric dtype and NaNs, with shape `[T, N]` for scalars or `[T, N, dim]`
+for vectors. Empty arrays retain their shapes; spare append capacity is omitted.
+
+Serialization requires an explicit Field-style association. Attached series
+validate N against their owner's element count, including when T is zero.
+Nested dataset contexts are rejected, as for Field. Malformed data is rejected
+before replacing an existing model or file. Strict CityJSON export rejects
+time-series attachments because it has no mapping for them.
