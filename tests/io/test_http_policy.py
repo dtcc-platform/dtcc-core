@@ -184,8 +184,8 @@ class FakeResponse:
     status_code = 200
     headers = {}
 
-    def __init__(self, chunks=()):
-        self.chunks, self.closed = chunks, False
+    def __init__(self, chunks=(), status=200):
+        self.chunks, self.closed, self.status_code = chunks, False, status
 
     def iter_content(self, chunk_size):
         for chunk in self.chunks:
@@ -664,3 +664,159 @@ def test_cache_reads_unknown_zone_http_dates_as_utc(monkeypatch, freshness):
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+def test_async_connect_timeout_excludes_waiting_for_a_pooled_connection():
+    client = AsyncHttpClient(timeout=Timeout(connect=3, read=7))
+    timeout = client._kwargs(Request("GET", "https://example.test/"), [])["timeout"]
+    assert (timeout.connect, timeout.sock_connect, timeout.sock_read) == (None, 3, 7)
+
+
+@pytest.mark.parametrize(
+    ("exception", "phase", "attempts"),
+    [("total", "read", 1), ("connect", "connect", 2)],
+)
+def test_async_timeouts_before_headers_use_their_phase_switch(
+    monkeypatch, exception, phase, attempts
+):
+    import aiohttp
+
+    async def timeout(*args, **kwargs):
+        raise (
+            TimeoutError() if exception == "total" else aiohttp.ConnectionTimeoutError()
+        )
+
+    monkeypatch.setattr(aiohttp.ClientSession, "request", timeout)
+
+    async def scenario():
+        async with AsyncHttpClient(
+            retry=RetryPolicy(retries=1, read=False, backoff=0),
+            timeout=Timeout(total=5),
+        ) as client:
+            with pytest.raises(HttpTransportError) as caught:
+                await client.request(Request("GET", "https://example.test/"))
+        error = caught.value
+        assert (error.kind, error.phase, error.attempts) == ("timeout", phase, attempts)
+
+    asyncio.run(scenario())
+
+
+def test_budget_errors_report_the_attempts_made(monkeypatch):
+    responses = [FakeResponse([b"retry"], status=503), FakeResponse([b"ok"])]
+    session = requests.Session()
+    monkeypatch.setattr(
+        session.get_adapter("https://"),
+        "send",
+        lambda *args, **kwargs: responses.pop(0),
+    )
+    monkeypatch.setattr(requests, "Session", lambda: session)
+    with HttpClient(
+        retry=RetryPolicy(retries=1, backoff=0),
+        budget=Budget(max_received_bytes=6),
+        sleep=lambda delay: None,
+    ) as client:
+        with pytest.raises(HttpTransportError) as caught:
+            client.request(Request("GET", "https://example.test/"))
+    error = caught.value
+    assert (error.kind, error.attempts, error.phase) == ("resource_limit", 2, "read")
+    session.close()
+
+
+def _certificate_errors():
+    import aiohttp
+    from urllib3.exceptions import MaxRetryError
+    from urllib3.exceptions import SSLError as Urllib3SSLError
+
+    def sync_error(cause):
+        # requests wraps urllib3's MaxRetryError, whose reason wraps the ssl error.
+        return requests.exceptions.SSLError(
+            MaxRetryError(None, "https://example.test/", reason=Urllib3SSLError(cause))
+        )
+
+    verify = ssl.SSLCertVerificationError(1, "certificate verify failed")
+    return {
+        "sync": (sync_error(verify), sync_error(ssl.SSLEOFError(8, "EOF"))),
+        "async": (
+            aiohttp.ClientConnectorCertificateError(object(), verify),
+            aiohttp.ClientConnectorSSLError(object(), ssl.SSLEOFError(8, "EOF")),
+        ),
+    }
+
+
+@pytest.mark.parametrize("backend", ["sync", "async"])
+def test_certificate_failures_are_not_retried(monkeypatch, backend):
+    import aiohttp
+
+    certificate, transient = _certificate_errors()[backend]
+    calls = []
+
+    def fail(error):
+        def send(*args, **kwargs):
+            calls.append(error)
+            raise error
+
+        return send
+
+    def outcome(error):
+        calls.clear()
+        if backend == "sync":
+            session = requests.Session()
+            monkeypatch.setattr(session.get_adapter("https://"), "send", fail(error))
+            monkeypatch.setattr(requests, "Session", lambda: session)
+            with HttpClient(
+                retry=RetryPolicy(retries=2), sleep=lambda delay: None
+            ) as client:
+                with pytest.raises(HttpTransportError) as caught:
+                    client.request(Request("GET", "https://example.test/"))
+            return caught.value
+
+        send = fail(error)
+
+        async def request(*args, **kwargs):
+            send()
+
+        monkeypatch.setattr(aiohttp.ClientSession, "request", request)
+
+        async def scenario():
+            async def sleep(delay):
+                pass
+
+            async with AsyncHttpClient(
+                retry=RetryPolicy(retries=2), sleep=sleep
+            ) as client:
+                with pytest.raises(HttpTransportError) as caught:
+                    await client.request(Request("GET", "https://example.test/"))
+            return caught.value
+
+        return asyncio.run(scenario())
+
+    error = outcome(certificate)
+    assert (error.kind, error.attempts, len(calls)) == ("certificate", 1, 1)
+    assert not error.retry_allowed_by_policy
+    # Other TLS failures, such as a dropped handshake, remain retryable.
+    error = outcome(transient)
+    assert (error.kind, error.attempts, len(calls)) == ("connection", 3, 3)
+
+
+def test_async_client_requires_the_aiohttp_replay_switch(monkeypatch):
+    import aiohttp
+
+    closed = []
+
+    class Session:
+        def __init__(self, **kwargs):
+            pass
+
+        async def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(aiohttp, "TCPConnector", lambda **kwargs: None)
+    monkeypatch.setattr(aiohttp, "ClientSession", Session)
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="_retry_connection"):
+            async with AsyncHttpClient():
+                pass
+
+    asyncio.run(scenario())
+    assert closed == [True]

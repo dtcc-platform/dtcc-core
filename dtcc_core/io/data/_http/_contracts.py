@@ -100,6 +100,7 @@ class HttpTransportError(RuntimeError):
         error_body=b"",
         retry_after=None,
         redirect_target=None,
+        phase=None,
     ):
         self.method = request.method
         self.target = _target(request.url)
@@ -110,6 +111,8 @@ class HttpTransportError(RuntimeError):
         self.error_body = error_body
         self.retry_after = retry_after
         self.redirect_target = redirect_target
+        # "connect" before response headers arrive, "read" after; None if unknown.
+        self.phase = phase
         super().__init__(
             f"{self.method} {self.target}: {kind}"
             + (f" (HTTP {status})" if status else "")

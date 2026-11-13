@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 from collections import OrderedDict
+from dataclasses import replace
 from threading import Lock
 
 from ._contracts import _UNSET
@@ -114,8 +115,6 @@ class ResponseCache:
                 return None
             self._entries.move_to_end(key)
             # Headers are mutable convenience values: don't share the stored dict.
-            from dataclasses import replace
-
             return replace(response, headers=dict(response.headers), _request=request)
 
     def put(self, request, response):
@@ -132,8 +131,6 @@ class ResponseCache:
         ):
             return
         ttl = _lifetime(headers, directives, request.cache_ttl, self._wall_clock)
-        from dataclasses import replace
-
         now, key = self._clock(), _key(request)
         with self._lock:
             self._remove(key)

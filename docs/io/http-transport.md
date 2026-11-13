@@ -135,8 +135,11 @@ in `expected_status` does not bypass redirect policy. The transport therefore do
 not reproduce provider diagnostics that included a redirect's raw Location/body.
 
 `Timeout` requires finite positive connect and read inactivity timeouts; it is
-not a complete operation deadline. Async `total` limits each backend attempt,
-not retry sleeps or a whole batch. Sync clients reject `total`, because requests
+not a complete operation deadline. Async `connect` bounds the socket connection
+and TLS handshake, not waiting for a free pooled connection. Async `total` limits
+each backend attempt, not retry sleeps or a whole batch; when it fires before
+headers arrive, the request may already have been sent, so it uses the read retry
+switch. Sync clients reject `total`, because requests
 cannot implement the same deadline reliably.
 
 Owned sessions disable environment proxies and implicit netrc authentication.
@@ -152,7 +155,8 @@ own sessions, so ownership, cookies, retries and verification have one policy.
 Tests instrument those owned sessions without exposing an injection API.
 
 The async adapter disables aiohttp's implicit connection replay through the
-isolated `_retry_connection` switch. Backend conformance tests exercise the locked
+isolated `_retry_connection` switch, and raises `RuntimeError` when opening a
+session if an aiohttp version lacks it. Backend conformance tests exercise the locked
 dependency versions; dependency upgrades must retain exact attempt accounting.
 
 ## Limits and diagnostics
@@ -181,9 +185,11 @@ bodies are read only up to 8 KiB. Unread redirect bodies are closed without bein
 counted. Observation counts, time intervals and provider-specific budgets remain
 outside this package.
 
-`HttpTransportError` exposes `kind`, `status`, `attempts`, `retry_allowed_by_policy`, `method`
-and sanitized `target`. Kinds include timeout, connection, request, http_status,
-redirect_policy, decoding and resource_limit. `.metadata()` returns only safe
+`HttpTransportError` exposes `kind`, `status`, `attempts`, `retry_allowed_by_policy`,
+`phase` ("connect", "read" or None), `method` and sanitized `target`. Kinds include
+timeout, connection, certificate, request, http_status, redirect_policy, decoding
+and resource_limit. Certificate verification failures are never retried; other
+TLS failures count as connection failures. `.metadata()` returns only safe
 diagnostics. `.error_body` is bounded raw provider data: callers must sanitize it
 before exposing it. Body, headers, query values and upload content are excluded
 from request/response repr; backend exception chains are suppressed. URLs may

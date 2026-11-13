@@ -29,12 +29,6 @@ def headers_lower(headers):
     return result
 
 
-def origin(url):
-    parsed = urlsplit(url)
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    return parsed.scheme, parsed.hostname, port
-
-
 def redirect(request, location, policy, hops):
     allowed = (
         policy.max_hops > hops
@@ -51,14 +45,14 @@ def redirect(request, location, policy, hops):
         parsed = urlsplit(target)
     except ValueError:
         raise HttpTransportError(request, "redirect_policy") from None
-    source_origin, destination = origin(request.url), origin(target)
+    destination = _origin(target)
     if policy.allowed_hosts and parsed.hostname not in policy.allowed_hosts:
         allowed = False
-    if parsed.scheme == "http" and source_origin[0] == "https":
+    if parsed.scheme == "http" and urlsplit(request.url).scheme == "https":
         allowed = False
     headers = headers_lower(dict(request.headers))
-    if source_origin != destination:
-        explicit_origin = _origin(target) in policy.allowed_origins
+    if _origin(request.url) != destination:
+        explicit_origin = destination in policy.allowed_origins
         allowed = allowed and explicit_origin and request.public
         # Forward only public representation headers across origins.
         updated = replace(
@@ -149,22 +143,35 @@ class Operation:
         self.local_errors = []
         state.counters.logical_requests += 1
 
+    def _consume(self, name, amount, phase):
+        """Charge the shared budget, reporting this operation's attempts on failure."""
+        try:
+            self.state.budget.consume(name, amount, self.request)
+        except HttpTransportError:
+            raise self.error("resource_limit", phase=phase) from None
+
     def attempt(self):
-        self.state.budget.consume("network_attempts", 1, self.request)
+        self._consume("network_attempts", 1, "connect")
         self.state.counters.network_attempts += 1
         self.attempts += 1
         self.size = 0
+
+    def before_read(self):
+        try:
+            self.state.budget.before_read(self.request)
+        except HttpTransportError:
+            raise self.error("resource_limit", phase="read") from None
 
     def received(self, chunk, *, limited=True):
         """Account for a chunk; limited=False skips max_body_bytes, not budgets."""
         self.size += len(chunk)
         self.state.counters.received_body_bytes += len(chunk)
-        self.state.budget.consume("received_body_bytes", len(chunk), self.request)
+        self._consume("received_body_bytes", len(chunk), "read")
         if limited and self.limit is not None and self.size > self.limit:
-            raise self.error("resource_limit")
+            raise self.error("resource_limit", phase="read")
 
     def delivered(self, size):
-        self.state.budget.consume("delivered_body_bytes", size, self.request)
+        self._consume("delivered_body_bytes", size, "read")
         self.state.counters.delivered_body_bytes += size
 
     def error(
@@ -173,7 +180,7 @@ class Operation:
         retry_allowed_by_policy = retry_allowed(
             self.request, self.state.retry, 0, kind, phase, status
         )
-        error = HttpTransportError(
+        return HttpTransportError(
             self.request,
             kind,
             status=status,
@@ -181,10 +188,8 @@ class Operation:
             retry_allowed_by_policy=retry_allowed_by_policy,
             error_body=body,
             redirect_target=redirect_target,
+            phase=phase,
         )
-
-        error.phase = phase
-        return error
 
     def retry(self, error, phase):
         return retry_allowed(
@@ -192,7 +197,7 @@ class Operation:
             self.state.retry,
             self.retries,
             error.kind,
-            getattr(error, "phase", phase),
+            error.phase or phase,
             error.status,
         )
 

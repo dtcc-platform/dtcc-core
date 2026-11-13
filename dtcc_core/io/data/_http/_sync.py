@@ -3,6 +3,7 @@
 import json
 import os
 import random
+import ssl
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -20,6 +21,21 @@ from ._contracts import (
     Timeout,
 )
 from ._policy import Operation, State, headers_lower, parse_retry_after
+
+
+def _caused_by(exc, error_type):
+    """Search an exception's causes, contexts, arguments and urllib3 reasons."""
+    pending, seen = [exc], set()
+    while pending:
+        current = pending.pop()
+        if not isinstance(current, BaseException) or id(current) in seen:
+            continue
+        if isinstance(current, error_type):
+            return True
+        seen.add(id(current))
+        pending += [current.__cause__, current.__context__, *current.args]
+        pending.append(getattr(current, "reason", None))
+    return False
 
 
 class _Stream:
@@ -127,6 +143,10 @@ class HttpClient:
     def _kind(self, exc):
         from urllib3.exceptions import ReadTimeoutError
 
+        if isinstance(exc, self._requests.exceptions.SSLError) and _caused_by(
+            exc, ssl.SSLCertVerificationError
+        ):
+            return "certificate"
         if exc.args and isinstance(exc.args[0], ReadTimeoutError):
             return "timeout"
         if isinstance(exc, self._requests.Timeout):
@@ -171,7 +191,7 @@ class HttpClient:
     def _chunks(self, response, operation, size=65536, *, limited=True):
         iterator = response.iter_content(chunk_size=size)
         while True:
-            operation.state.budget.before_read(operation.request)
+            operation.before_read()
             try:
                 chunk = next(iterator, None)
             except self._requests.RequestException as exc:
@@ -202,7 +222,7 @@ class HttpClient:
                 headers = headers_lower(response.headers)
                 status = response.status_code
                 if status in {301, 302, 303, 307, 308}:
-                    location = headers_lower(headers).get("location")
+                    location = headers.get("location")
                     if not location:
                         raise operation.error("redirect_policy", status=status)
                     operation.follow(location, status=status)

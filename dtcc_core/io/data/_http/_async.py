@@ -119,6 +119,13 @@ class AsyncHttpClient:
             )
             # aiohttp can replay a persistent-connection failure internally.
             # Disable that replay so budgets and retry policy own every attempt.
+            if not hasattr(self._session, "_retry_connection"):
+                session, self._session = self._session, None
+                await session.close()
+                raise RuntimeError(
+                    "aiohttp no longer has ClientSession._retry_connection; "
+                    "implicit connection replay cannot be disabled"
+                )
             self._session._retry_connection = False
 
     def _ssl_context(self):
@@ -148,8 +155,8 @@ class AsyncHttpClient:
             raise_for_status=False,
             timeout=self._aiohttp.ClientTimeout(
                 total=timeout.total,
+                # ClientTimeout.connect would also bound waiting for a pool slot.
                 sock_connect=timeout.connect,
-                connect=timeout.connect,
                 sock_read=timeout.read,
             ),
         )
@@ -187,6 +194,8 @@ class AsyncHttpClient:
             return "decoding"
         if isinstance(exc, TimeoutError):
             return "timeout"
+        if isinstance(exc, self._aiohttp.ClientConnectorCertificateError):
+            return "certificate"
         if isinstance(exc, self._aiohttp.ClientPayloadError):
             return "connection"
         return (
@@ -208,9 +217,12 @@ class AsyncHttpClient:
         try:
             return await self._session.request(request.method, request.url, **kwargs)
         except (self._aiohttp.ClientError, TimeoutError) as exc:
+            # Only a connect timeout is known to precede sending; the total
+            # deadline can fire while waiting for response headers.
             phase = (
                 "read"
-                if isinstance(exc, self._aiohttp.SocketTimeoutError)
+                if isinstance(exc, TimeoutError)
+                and not isinstance(exc, self._aiohttp.ConnectionTimeoutError)
                 else "connect"
             )
             raise self._error(operation, exc, phase=phase) from None
@@ -218,7 +230,7 @@ class AsyncHttpClient:
     async def _chunks(self, response, operation, size=65536, *, limited=True):
         iterator = response.content.iter_chunked(size).__aiter__()
         while True:
-            operation.state.budget.before_read(operation.request)
+            operation.before_read()
             try:
                 chunk = await anext(iterator, None)
             except (self._aiohttp.ClientError, TimeoutError) as exc:
@@ -247,7 +259,7 @@ class AsyncHttpClient:
                 headers = headers_lower(response.headers)
                 status = response.status
                 if status in {301, 302, 303, 307, 308}:
-                    location = headers_lower(headers).get("location")
+                    location = headers.get("location")
                     if not location:
                         raise operation.error("redirect_policy", status=status)
                     operation.follow(location, status=status)
