@@ -3,6 +3,7 @@
 import copy
 import dataclasses
 import datetime as dt
+import pickle
 import time
 
 import numpy as np
@@ -834,6 +835,15 @@ def test_align_to_from_empty_series_gives_nan_steps():
     assert len(empty.align_to(empty)) == 0
 
 
+def test_align_to_does_not_share_the_callers_times():
+    src = scalar([0.0, 1.0, 2.0])
+    for query in (hours(0.5, 1.5), hours(0, 1, 2), hours(1, 2)):
+        aligned = src.align_to(query)
+        assert not np.shares_memory(aligned.times, query)
+        query[0] = T0 + 10 * H
+        assert aligned.times[0] < aligned.times[-1]
+
+
 # Resampling and aggregation
 
 
@@ -1132,3 +1142,51 @@ def test_resample_bins_before_the_time_range_raise():
     out = near.resample("1min")
     assert out.times[0] == np.datetime64("1677-09-21T00:13", "ns")
     np.testing.assert_array_equal(out.values[:, 0], [1.0, np.nan, 2.0])
+
+
+def test_durations_without_a_unit_are_rejected():
+    ts = scalar([0.0, 1.0])
+    with pytest.raises(ValueError, match="unit"):
+        ts.resample(np.timedelta64(3_600_000_000_000))
+    with pytest.raises(ValueError, match="unit"):
+        ts.at(hours(0.5), max_gap=np.timedelta64(5))
+
+
+@pytest.mark.parametrize("dim, elements", [(1, 1), (1, 2), (2, 2)])
+def test_to_pandas_does_not_share_memory(dim, elements):
+    shape = (2, elements) if dim == 1 else (2, elements, dim)
+    ts = TimeSeries(times=hours(0, 1), values=np.zeros(shape), dim=dim)
+    assert not np.shares_memory(ts.to_pandas().to_numpy(), ts.values)
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [lambda ts: ts.copy(), copy.deepcopy, lambda ts: pickle.loads(pickle.dumps(ts))],
+    ids=["copy", "deepcopy", "pickle"],
+)
+def test_copies_and_pickles_keep_only_the_used_steps(duplicate):
+    ts = scalar([1.0, 2.0, 3.0])
+    ts.append(T0 + 3 * H, 4.0)  # leaves spare capacity
+    assert ts._values.shape[0] > len(ts)
+    other = duplicate(ts)
+    assert other._times.shape[0] == other._values.shape[0] == 4
+    np.testing.assert_array_equal(other.times, ts.times)
+    np.testing.assert_array_equal(other.values, ts.values)
+    other.append(T0 + 4 * H, 5.0)
+    assert len(other) == 5 and len(ts) == 4 and ts._values.shape[0] > 4
+
+
+def test_resample_does_not_copy_its_result_twice(monkeypatch):
+    ts = scalar([1.0, 2.0, 4.0])
+    copied = []
+    original = TimeSeries._set_data
+
+    def spy(self, times, values, copy=True):
+        if len(times):  # skip the empty series _like starts from
+            copied.append(copy)
+        return original(self, times, values, copy)
+
+    monkeypatch.setattr(TimeSeries, "_set_data", spy)
+    ts.resample("2h")
+    ts.resample("2h", how="count")
+    assert copied == [False, False]

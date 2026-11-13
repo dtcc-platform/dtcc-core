@@ -168,22 +168,29 @@ def _to_times(value):
     return np.array([_scalar_time(value)]), True
 
 
+def _numpy_duration(value, what):
+    unit = np.datetime_data(value.dtype)[0]
+    if unit == "generic":
+        raise ValueError(f"{what} needs a unit, such as np.timedelta64(1, 'h').")
+    if unit in ("Y", "M"):
+        raise ValueError(
+            f"{what} must be a fixed-length duration; months and years vary in length."
+        )
+    return value.astype(_TD_NS)
+
+
 def _to_duration(value, what):
     """Convert a positive fixed-length duration to ``timedelta64[ns]``.
 
     Strings take a whole count and a lowercase unit: ``ns``, ``us``, ``ms``,
     ``s``, ``min``, ``h``, ``d`` or ``w``. Months and years are rejected
-    because their length varies. NaT and durations longer than
-    ``timedelta64[ns]`` can hold (about 292 years) raise ValueError.
+    because their length varies, and so is a ``np.timedelta64`` without a
+    unit. NaT and durations longer than ``timedelta64[ns]`` can hold (about
+    292 years) raise ValueError.
     """
     try:
         if isinstance(value, np.timedelta64):
-            if np.datetime_data(value.dtype)[0] in ("Y", "M"):
-                raise ValueError(
-                    f"{what} must be a fixed-length duration; months and years "
-                    "vary in length."
-                )
-            result = value.astype(_TD_NS)
+            result = _numpy_duration(value, what)
         elif isinstance(value, _dt.timedelta):
             result = np.timedelta64(value).astype(_TD_NS)
         elif _is_pandas(value):
@@ -536,6 +543,13 @@ class TimeSeries(Model):
         result._times = self._times[: self._length].copy()
         result._values = self._values[: self._length].copy()
         return result
+
+    def __getstate__(self):
+        """Return the state for deepcopy and pickle without spare capacity."""
+        state = dict(self.__dict__)
+        state["_times"] = self._times[: self._length]
+        state["_values"] = self._values[: self._length]
+        return state
 
     @property
     def times(self) -> np.ndarray:
@@ -931,7 +945,7 @@ class TimeSeries(Model):
         if isinstance(target, TimeSeries):
             times = target.times.copy()
         else:
-            times = _to_times(target)[0]
+            times = np.array(_to_times(target)[0])
             if np.isnat(times).any():
                 raise ValueError("align_to() target times must not contain NaT.")
             if not _strictly_increasing(times):
@@ -1036,7 +1050,9 @@ class TimeSeries(Model):
         width = _to_duration(freq, "freq").astype(np.int64)
         if not self._length:
             dtype = np.int64 if how == "count" else np.float64
-            return self._like(np.empty(0, dtype=_NS), self.values.astype(dtype))
+            return self._like(
+                np.empty(0, dtype=_NS), self.values.astype(dtype), copy=False
+            )
         bins = self.times.view(np.int64) // width
         if int(bins[0]) * int(width) < _MIN_NS:
             raise ValueError(
@@ -1051,7 +1067,7 @@ class TimeSeries(Model):
         values = np.full((count,) + aggregated.shape[1:], fill, aggregated.dtype)
         values[occupied] = aggregated
         times = ((bins[0] + np.arange(count)) * width).view(_NS)
-        return self._like(times, values)
+        return self._like(times, values, copy=False)
 
     def _reduce(self, how):
         if not self._length:
@@ -1089,15 +1105,17 @@ class TimeSeries(Model):
         index = pd.DatetimeIndex(self.times).tz_localize("UTC")
         values = self.values
         if self.dim == 1 and self.num_elements == 1:
-            return pd.Series(values[:, 0], index=index, name=self.name or None)
+            return pd.Series(
+                values[:, 0], index=index, name=self.name or None, copy=True
+            )
         if self.dim == 1:
-            return pd.DataFrame(values, index=index)
+            return pd.DataFrame(values, index=index, copy=True)
         columns = pd.MultiIndex.from_product(
             [range(self.num_elements), range(self.dim)],
             names=["element", "component"],
         )
         flat = values.reshape(len(values), self.num_elements * self.dim)
-        return pd.DataFrame(flat, index=index, columns=columns)
+        return pd.DataFrame(flat, index=index, columns=columns, copy=True)
 
     @classmethod
     def from_pandas(
