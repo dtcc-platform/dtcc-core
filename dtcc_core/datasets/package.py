@@ -268,6 +268,7 @@ def _write_directory_package(
     canonical_data: bytes | None = None,
     raster_artifact: tuple | None = None,
     tiles: list | None = None,
+    print_tiles: bool = False,
 ) -> DatasetPackage:
     artifact_dir = package_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -278,6 +279,13 @@ def _write_directory_package(
         canonical_path.write_bytes(canonical_data)
     artifact_path = canonical_path
     web_bounds = placement = None
+    if print_tiles:
+        from .printable_city_tiles import _print_preview, _write_print_files
+
+        _write_print_files(obj, artifact_dir)
+        web_bounds = _write_geojson_payload(
+            _print_preview(obj), artifact_dir / "preview.geojson"
+        )
     if artifact_format is not None:
         extension = DatasetDescriptor.format_extension(artifact_format)
         artifact_stem = _artifact_stem(obj, context)
@@ -362,7 +370,10 @@ def _write_directory_package(
 
 def _write_web_geojson(obj, path: Path) -> list[float] | None:
     """Write RFC 7946 GeoJSON and return its WGS84 bounds, None when empty."""
-    payload = obj.to_geojson(crs="EPSG:4326")
+    return _write_geojson_payload(obj.to_geojson(crs="EPSG:4326"), path)
+
+
+def _write_geojson_payload(payload, path: Path) -> list[float] | None:
     path.write_text(
         json.dumps(payload, separators=(",", ":"), sort_keys=True, allow_nan=False)
         + "\n",
@@ -760,6 +771,15 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema, o
         )
     if supplemental_format == "tiff":
         supplemental_format = "tif"
+    if not isinstance(obj.dataset_context, DatasetContext):
+        raise ValueError("Canonical package export requires a DatasetContext")
+    print_tiles = obj.dataset_context.identity.name == "printable_city_tiles"
+    if print_tiles:
+        if supplemental_format not in (None, "dtcc", "geojson"):
+            raise ValueError(
+                "Printable city tile packages include STL and GeoJSON artifacts"
+            )
+        supplemental_format = None
     if supplemental_format not in (None, "png", "tif") and (
         DatasetDescriptor.format_kind(supplemental_format) == "raster"
     ):
@@ -776,8 +796,6 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema, o
             "its GeoJSON writer does not produce RFC 7946 WGS84 coordinates"
         )
 
-    if not isinstance(obj.dataset_context, DatasetContext):
-        raise ValueError("Canonical package export requires a DatasetContext")
     from ..model.object.object import _validate_attributes
 
     _validate_attributes(
@@ -813,6 +831,7 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema, o
             canonical_data=data,
             raster_artifact=raster_artifact,
             tiles=tiles,
+            print_tiles=print_tiles,
         )
         if (
             len(package.artifacts) > 9999

@@ -28,6 +28,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_trees.py` | Point-cloud-derived trees | `trees.plot()` |
 | `demos/dataset_terrain_surface_mesh.py` | Terrain surface mesh | `terrain.plot()` / `.view()` |
 | `demos/dataset_city_surface_mesh.py` | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
+| `demos/dataset_printable_city_tiles.py` | Four Gothenburg city tiles and the magnetic base | STLs and `layout.json` in `output/gothenburg-stls/` |
 | `demos/dataset_city_flat_mesh.py` | Flat mesh with footprint subdomains | `flat_mesh.plot()` / `.view()` |
 | `demos/dataset_city_volume_mesh.py` | Air-volume mesh; see limitations below | `volume_mesh.plot()` / `.view()` |
 | `demos/dataset_city.py` | Terrain and catalogue LOD2 city model | `city.plot()` / `.view()` |

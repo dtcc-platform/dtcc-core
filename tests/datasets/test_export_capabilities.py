@@ -66,12 +66,14 @@ def _export(model, tmp_path, label, **options):
 
 
 def _derived(package):
-    [artifact] = [a for a in package.artifacts if a.role == "derived"]
+    [artifact] = [
+        a for a in package.artifacts if a.role == "derived" and a.format in WEB_FORMATS
+    ]
     return artifact
 
 
 def test_every_builtin_dataset_declares_each_product():
-    assert len(BUILTINS) == 25
+    assert len(BUILTINS) == 26
     for name, dataset in BUILTINS.items():
         product = dataset.describe()["args_schema"]["properties"].get("product")
         expected = product["enum"] if product else [None]
@@ -138,6 +140,10 @@ def test_canonical_matches_the_populated_fixture(name, entry, tmp_path):
 @pytest.mark.parametrize(("name", "entry"), ENTRIES)
 def test_empty_instance_exports_canonically_and_refuses_images(name, entry, tmp_path):
     model = build(name, entry["product"], "empty", tmp_path)
+    if name == "printable_city_tiles":
+        with pytest.raises(ValueError, match="realized print layout"):
+            _export(model, tmp_path, "pkg")
+        return
     if entry["canonical"]:
         load_model_package(_export(model, tmp_path, "pkg").path)
     for fmt in {"png", "tif"} & set(entry["web_formats"]):

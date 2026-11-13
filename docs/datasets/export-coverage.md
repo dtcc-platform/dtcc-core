@@ -34,6 +34,7 @@ and fails when this page differs.
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
 | `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: tile collections have no web artifact; use the raster product for imagery |
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
+| `printable_city_tiles` | - | `Object` | yes | `geojson` | none | none |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
 | `smoke` | `field` | `VolumeMesh` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
 | `smoke` | `slice` | `FieldSlice` | yes | `geojson`, `png`, `tif` | geojson: crs_resolvable; png: slice_axis=z, translation_only_root_transform, crs_resolvable; tif: slice_axis=z, translation_only_root_transform, crs_resolvable | none |
@@ -72,6 +73,9 @@ and fails when this page differs.
 - **Exclusion**: formats a product does not offer, with the reason. A product
   with no web format has an exclusion; the 3D-only products have no
   map-placed or RFC 7946 form, and `orthophoto` tiles have no web output.
+
+The [printable city tiles Dataset](printable-city-tiles.md) includes its
+GeoJSON preview, layout and STLs in the default canonical package.
 
 `datasets.info()` lists the web formats per product and marks a constrained
 format with `*`.
