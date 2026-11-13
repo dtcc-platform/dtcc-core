@@ -136,9 +136,14 @@ class PlaceCollection(Object):
         dict
             The FeatureCollection.
         """
+        import copy
+
         from ...io.geojson import _point_feature_collection, exported_coordinates
 
-        model = exported_coordinates(self)
+        # Roads are never exported, so they are left out before the deep copy.
+        without_roads = copy.copy(self)
+        without_roads.context_roads = None
+        model = exported_coordinates(without_roads)
         members = []
         for place in model.places():
             point = self._point_geometry(place)
@@ -330,6 +335,7 @@ class PlaceCollection(Object):
             0.99,
             0.01,
             self.attributes.get("attribution", DEFAULT_PLACE_ATTRIBUTION),
+            parse_math=False,
             transform=ax.transAxes,
             ha="right",
             va="bottom",
@@ -414,6 +420,8 @@ class PlaceCollection(Object):
                 color=theme_values["text"],
                 path_effects=outline,
                 zorder=4,
+                # OSM names are user-edited; "$...$" must not be read as mathtext.
+                parse_math=False,
             )
 
     @staticmethod
@@ -427,6 +435,7 @@ class PlaceCollection(Object):
             color=theme_values["text"],
             zorder=6,
             visible=False,
+            parse_math=False,
             bbox={
                 "boxstyle": "round,pad=0.3",
                 "facecolor": theme_values["panel"],

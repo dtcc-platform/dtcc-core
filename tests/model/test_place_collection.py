@@ -284,3 +284,44 @@ def test_place_collection_geojson_is_longitude_latitude(reload):
     ]
     assert [f["id"] for f in geojson["features"]] == [1, 2, 3]
     assert "crs" not in geojson
+
+
+def test_plot_draws_place_text_that_looks_like_a_formula(plt):
+    # OpenStreetMap text is user-edited; "$...$" must not be read as mathtext.
+    from matplotlib.backend_bases import MouseEvent
+
+    name = r"$\frac{a$"
+    collection = PlaceCollection()
+    place = _place(name, "food_and_drink", 50.0, 50.0)
+    place.attributes.update(osm_key="amenity", osm_value=r"$\sqrt{x$")
+    collection.add_place(place)
+    collection.attributes = {
+        "requested_bounds": [0.0, 0.0, 100.0, 100.0],
+        "attribution": r"$\int",
+    }
+
+    ax = collection.plot(show=False)
+    ax.figure.canvas.draw()
+    x, y = ax.transData.transform((50.0, 50.0))
+    ax.figure.canvas.callbacks.process(
+        "motion_notify_event", MouseEvent("motion_notify_event", ax.figure.canvas, x, y)
+    )
+    ax.figure.canvas.draw()
+
+    assert name in _texts(ax)
+
+
+def test_geojson_ignores_context_roads():
+    import numpy as np
+
+    from dtcc_core.model import RoadNetwork
+
+    collection = _located_collection()
+    expected = collection.to_geojson(crs="EPSG:4326")
+    roads = RoadNetwork()
+    # Roads are never exported, so their own transform must not matter.
+    roads.transform.affine = np.diag([2.0, 2.0, 1.0, 1.0])
+    collection.context_roads = roads
+
+    assert collection.to_geojson(crs="EPSG:4326") == expected
+    assert collection.context_roads is roads
