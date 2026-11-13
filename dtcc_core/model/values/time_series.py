@@ -140,7 +140,7 @@ def _to_times(value):
     Accepts NumPy datetime64 of any unit, ``datetime``, ISO-8601 strings and
     pandas timestamps or indexes. Time-zone-aware input is converted to UTC;
     naive input is taken as UTC. Finite times outside the nanosecond storage
-    range raise ValueError before conversion.
+    range and arrays with more than one dimension raise ValueError.
     """
     if isinstance(value, np.datetime64):
         return np.array([_scalar_time(value)]), True
@@ -154,6 +154,10 @@ def _to_times(value):
             value = value.tz_convert("UTC").tz_localize(None)
         return _checked_times(value.to_numpy()), False
     if isinstance(value, np.ndarray):
+        if value.ndim > 1:
+            raise ValueError(
+                f"Times must be one time or a 1-D sequence; got shape {value.shape}."
+            )
         if value.dtype.kind == "M":
             return np.atleast_1d(_checked_times(value)), value.ndim == 0
         if value.ndim == 0:
@@ -169,31 +173,69 @@ def _to_duration(value, what):
 
     Strings take a whole count and a lowercase unit: ``ns``, ``us``, ``ms``,
     ``s``, ``min``, ``h``, ``d`` or ``w``. Months and years are rejected
-    because their length varies.
+    because their length varies. NaT and durations longer than
+    ``timedelta64[ns]`` can hold (about 292 years) raise ValueError.
     """
-    if isinstance(value, np.timedelta64):
-        if np.datetime_data(value.dtype)[0] in ("Y", "M"):
-            raise ValueError(
-                f"{what} must be a fixed-length duration; months and years "
-                "vary in length."
-            )
-        result = value.astype(_TD_NS)
-    elif isinstance(value, _dt.timedelta):
-        result = np.timedelta64(value).astype(_TD_NS)
-    elif _is_pandas(value):
-        result = np.timedelta64(value.to_timedelta64(), "ns")
-    elif isinstance(value, str):
-        match = _DURATION.match(value)
-        if match is None:
-            raise ValueError(f"Cannot interpret {value!r} as a duration.")
-        count = int(match.group(1) or 1)
-        unit = _DURATION_UNITS[match.group(2)]
-        result = np.timedelta64(count, unit).astype(_TD_NS)
-    else:
-        raise TypeError(f"Cannot interpret {type(value).__name__} as a duration.")
+    try:
+        if isinstance(value, np.timedelta64):
+            if np.datetime_data(value.dtype)[0] in ("Y", "M"):
+                raise ValueError(
+                    f"{what} must be a fixed-length duration; months and years "
+                    "vary in length."
+                )
+            result = value.astype(_TD_NS)
+        elif isinstance(value, _dt.timedelta):
+            result = np.timedelta64(value).astype(_TD_NS)
+        elif _is_pandas(value):
+            import pandas as pd
+
+            if value is pd.NaT:
+                raise ValueError(f"{what} must not be NaT.")
+            if not hasattr(value, "to_timedelta64"):
+                raise TypeError(
+                    f"Cannot interpret {type(value).__name__} as a duration."
+                )
+            result = np.timedelta64(value.to_timedelta64(), "ns")
+        elif isinstance(value, str):
+            match = _DURATION.match(value)
+            if match is None:
+                raise ValueError(f"Cannot interpret {value!r} as a duration.")
+            count = int(match.group(1) or 1)
+            unit = _DURATION_UNITS[match.group(2)]
+            result = np.timedelta64(count, unit).astype(_TD_NS)
+        else:
+            raise TypeError(f"Cannot interpret {type(value).__name__} as a duration.")
+    except OverflowError as exc:
+        raise ValueError(
+            f"{what} is outside the timedelta64[ns] range (about 292 years)."
+        ) from exc
+    if np.isnat(result):
+        raise ValueError(f"{what} must not be NaT.")
     if result <= np.timedelta64(0, "ns"):
         raise ValueError(f"{what} must be a positive duration.")
     return result
+
+
+def _span(start, stop):
+    """Exact ``stop - start`` in nanoseconds as uint64, for ``stop >= start``.
+
+    ``start`` and ``stop`` are int64 nanosecond times. Their int64 difference
+    overflows for spans longer than about 292 years; the difference of their
+    uint64 views wraps back to the exact value, which is below 2**64.
+    """
+    with np.errstate(over="ignore"):
+        return np.asarray(stop).astype(np.uint64) - np.asarray(start).astype(np.uint64)
+
+
+def _interval(nanos):
+    """A ``timedelta64`` for a nanosecond count of any size.
+
+    Counts that ``timedelta64[ns]`` cannot hold are given in microseconds,
+    truncated.
+    """
+    if nanos <= _MAX_NS:
+        return np.timedelta64(nanos, "ns")
+    return np.timedelta64(nanos // 1000, "us")
 
 
 def _strictly_increasing(times):
@@ -201,12 +243,13 @@ def _strictly_increasing(times):
 
 
 def _checked_cast(values, dtype, what):
-    """Cast ``values`` to ``dtype``, refusing any value the cast would change.
+    """Cast ``values`` to ``dtype``, refusing casts that lose integers or overflow.
 
     Kinds follow NumPy ``same_kind`` casting, except that any integer may go
     into any integer dtype. Integers outside the range of an integer
-    ``dtype`` and finite floats that would overflow to infinity raise instead
-    of wrapping or saturating.
+    ``dtype``, integers a float ``dtype`` would round, and finite values that
+    would overflow to infinity raise ValueError. Floats cast to a narrower
+    float round as NumPy rounds them.
     """
     if values.dtype == dtype:
         return values
@@ -224,15 +267,28 @@ def _checked_cast(values, dtype, what):
         cast = values.astype(dtype)
     if dtype.kind == "f" and (np.isinf(cast) & ~np.isinf(values)).any():
         raise ValueError(f"{what.capitalize()} values overflow {dtype}.")
+    if dtype.kind == "f" and values.dtype.kind in "iu":
+        # Integers below 2**(nmant + 1) are exact; compare the others as
+        # Python integers, which never round.
+        mask = np.abs(cast) >= 2.0 ** (np.finfo(dtype).nmant + 1)
+        for original, converted in zip(
+            values[mask].tolist(), cast[mask].tolist(), strict=True
+        ):
+            if int(converted) != original:
+                raise ValueError(
+                    f"{what.capitalize()} values hold the integer {original}, "
+                    f"which {dtype} cannot represent exactly."
+                )
     return cast
 
 
 def _format_duration(duration):
-    """Readable text for a ``timedelta64[ns]``."""
-    ns = int(duration.astype(np.int64))
-    if ns % 1000:
-        return f"{ns} ns"
-    return str(_dt.timedelta(microseconds=ns // 1000))
+    """Readable text for a ``timedelta64`` in nanoseconds or coarser units."""
+    if np.datetime_data(duration.dtype)[0] == "ns":
+        ns = int(duration.astype(np.int64))
+        if ns % 1000:
+            return f"{ns} ns"
+    return str(duration.astype("timedelta64[us]").item())
 
 
 def _pchip_slopes(t, y, knots):
@@ -245,14 +301,14 @@ def _pchip_slopes(t, y, knots):
     """
     shape = (-1,) + (1,) * (y.ndim - 1)
     if len(t) == 2:
-        slope = (y[1].astype(np.float64) - y[0]) / ((t[1] - t[0]) / 1e9)
+        slope = (y[1].astype(np.float64) - y[0]) / (_span(t[0], t[1]) / 1e9)
         return np.broadcast_to(slope, (len(knots),) + y.shape[1:])
     # Each knot uses the two secants around it; the end knots use the first
     # or last two secants.
     first = np.clip(knots - 1, 0, len(t) - 3)
     y0, y1, y2 = (np.asarray(y[first + i], dtype=np.float64) for i in range(3))
-    h0 = ((t[first + 1] - t[first]) / 1e9).reshape(shape)
-    h1 = ((t[first + 2] - t[first + 1]) / 1e9).reshape(shape)
+    h0 = (_span(t[first], t[first + 1]) / 1e9).reshape(shape)
+    h1 = (_span(t[first + 1], t[first + 2]) / 1e9).reshape(shape)
     m0, m1 = (y1 - y0) / h0, (y2 - y1) / h1
     w1, w2 = 2 * h1 + h0, h1 + 2 * h0
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -388,7 +444,6 @@ class TimeSeries(Model):
         self.dim = dim
         self.association = association
         self.role = role
-        self._check_metadata()
         if times is None:
             if values is not None:
                 raise ValueError("TimeSeries values were given without times.")
@@ -403,18 +458,31 @@ class TimeSeries(Model):
 
     # Storage
 
-    def _check_metadata(self):
-        if (
-            isinstance(self.dim, (bool, np.bool_))
-            or not isinstance(self.dim, (int, np.integer))
-            or self.dim < 1
-        ):
-            raise ValueError("TimeSeries.dim must be a positive integer.")
-        if self.association is not None and self.association not in _ASSOCIATIONS:
-            raise ValueError(
-                f"TimeSeries.association must be one of {', '.join(_ASSOCIATIONS)} "
-                f"or None; got {self.association!r}."
-            )
+    def __setattr__(self, name, value):
+        """Validate ``dim`` and ``association`` on every assignment."""
+        if name == "dim":
+            if (
+                isinstance(value, (bool, np.bool_))
+                or not isinstance(value, (int, np.integer))
+                or value < 1
+            ):
+                raise ValueError("TimeSeries.dim must be a positive integer.")
+            storage = self.__dict__.get("_values")
+            if storage is not None and value != self.dim:
+                if self._length or storage.shape[1]:
+                    raise ValueError(
+                        "TimeSeries.dim cannot change once the series has "
+                        "elements; build a new TimeSeries."
+                    )
+                shape = (0, 0) if value == 1 else (0, 0, value)
+                self.__dict__["_values"] = np.empty(shape, storage.dtype)
+        elif name == "association":
+            if value is not None and value not in _ASSOCIATIONS:
+                raise ValueError(
+                    "TimeSeries.association must be one of "
+                    f"{', '.join(_ASSOCIATIONS)} or None; got {value!r}."
+                )
+        super().__setattr__(name, value)
 
     def _canonical_values(self, values, steps):
         values = np.asarray(values)
@@ -516,14 +584,17 @@ class TimeSeries(Model):
     def is_regular(self):
         """Return ``(True, interval)`` when steps are evenly spaced.
 
-        Returns ``(False, None)`` for uneven spacing and for fewer than two
-        steps.
+        ``interval`` is a ``timedelta64[ns]``, or a ``timedelta64[us]``
+        truncated to whole microseconds when it is longer than
+        ``timedelta64[ns]`` can hold (about 292 years). Returns
+        ``(False, None)`` for uneven spacing and for fewer than two steps.
         """
         if self._length < 2:
             return False, None
-        steps = np.diff(self.times)
+        t = self.times.view(np.int64)
+        steps = _span(t[:-1], t[1:])
         if np.all(steps == steps[0]):
-            return True, steps[0]
+            return True, _interval(int(steps[0]))
         return False, None
 
     def _summary_items(self):
@@ -766,11 +837,18 @@ class TimeSeries(Model):
     def between(self, start=None, end=None) -> "TimeSeries":
         """Return a copy of the steps in the half-open range ``[start, end)``.
 
-        ``None`` leaves that side open.
+        ``None`` leaves that side open; a NaT bound raises ValueError.
         """
+
+        def bound(value):
+            time = _to_times(value)[0][0]
+            if np.isnat(time):
+                raise ValueError("between() bounds must not be NaT; use None.")
+            return time
+
         times = self.times
-        lo = 0 if start is None else np.searchsorted(times, _to_times(start)[0][0])
-        hi = len(times) if end is None else np.searchsorted(times, _to_times(end)[0][0])
+        lo = 0 if start is None else np.searchsorted(times, bound(start))
+        hi = len(times) if end is None else np.searchsorted(times, bound(end))
         hi = max(lo, hi)
         return self._like(times[lo:hi].copy(), self.values[lo:hi].copy())
 
@@ -780,7 +858,7 @@ class TimeSeries(Model):
         """Interpolate values at arbitrary times.
 
         Query times that match a step exactly return that step's values for
-        every method.
+        every method. NaT query times give NaN.
 
         Parameters
         ----------
@@ -828,13 +906,15 @@ class TimeSeries(Model):
         out = np.full((len(q),) + values.shape[1:], np.nan)
         if n == 0:
             return out
+        missing = np.isnat(query)
         right = np.searchsorted(t, q, side="right")
         exact = (right > 0) & (t[np.maximum(right - 1, 0)] == q)
         inside = (q > t[0]) & (q < t[-1]) & ~exact
         if inside.any():
             j = right[inside] - 1
             lo, hi = t[j], t[j + 1]
-            w = (q[inside] - lo) / (hi - lo)
+            span = _span(lo, hi)
+            w = _span(lo, q[inside]).astype(np.float64) / span.astype(np.float64)
             w = w.reshape((-1,) + (1,) * (values.ndim - 1))
             left = np.asarray(values[j], dtype=np.float64)
             right_values = np.asarray(values[j + 1], dtype=np.float64)
@@ -845,7 +925,7 @@ class TimeSeries(Model):
             elif method == "nearest":
                 inner = np.where(w <= 0.5, left, right_values)
             else:
-                h = ((hi - lo) / 1e9).reshape(w.shape)
+                h = (span / 1e9).reshape(w.shape)
                 w2, w3 = w * w, w * w * w
                 inner = (
                     (2 * w3 - 3 * w2 + 1) * left
@@ -854,11 +934,11 @@ class TimeSeries(Model):
                     + (w3 - w2) * h * _pchip_slopes(t, values, j + 1)
                 )
             if gap is not None:
-                inner[(hi - lo) > gap.astype(np.int64)] = np.nan
+                inner[span > np.uint64(gap.astype(np.int64))] = np.nan
             out[inside] = inner
         out[exact] = values[right[exact] - 1]
         if fill == "edge":
-            out[q < t[0]] = values[0]
+            out[(q < t[0]) & ~missing] = values[0]
             out[q > t[-1]] = values[-1]
         return out
 
@@ -875,6 +955,10 @@ class TimeSeries(Model):
         last, empty or not, so its size is ``(end - start) / freq`` rather
         than the number of samples. Sparse data over a long span with a small
         ``freq`` can allocate a very large array.
+
+        Raises ``ValueError`` when the first bin would start before the
+        ``datetime64[ns]`` range, which only happens for data within ``freq``
+        of 1677-09-21.
 
         Parameters
         ----------
@@ -893,10 +977,15 @@ class TimeSeries(Model):
             dtype = np.int64 if how == "count" else np.float64
             return self._like(np.empty(0, dtype=_NS), self.values.astype(dtype))
         bins = self.times.view(np.int64) // width
+        if int(bins[0]) * int(width) < _MIN_NS:
+            raise ValueError(
+                "The first resample bin starts before 1677-09-21, outside the "
+                "datetime64[ns] range."
+            )
         starts = np.flatnonzero(np.r_[True, bins[1:] != bins[:-1]])
         occupied = bins[starts] - bins[0]
         aggregated = _aggregate(self.values, starts, how)
-        count = int(bins[-1] - bins[0]) + 1
+        count = int(bins[-1]) - int(bins[0]) + 1
         fill = 0 if how == "count" else np.nan
         values = np.full((count,) + aggregated.shape[1:], fill, aggregated.dtype)
         values[occupied] = aggregated

@@ -847,3 +847,161 @@ def test_to_pandas_scalar_is_named_series():
 def test_serialization_is_not_supported_yet():
     with pytest.raises(NotImplementedError):
         scalar([1.0]).to_proto()
+
+
+# Range and validation edge cases
+
+LONG_SPAN = ["1700-01-01", "2200-01-01"]
+LONG_DAYS = (dt.date(2200, 1, 1) - dt.date(1700, 1, 1)).days
+
+
+@pytest.mark.parametrize("method", ["linear", "pchip"])
+def test_interpolation_across_spans_longer_than_int64_nanoseconds(method):
+    ts = TimeSeries(times=LONG_SPAN, values=[0.0, 10.0])
+    mid = "1950-01-01"
+    expected = 10.0 * (dt.date(1950, 1, 1) - dt.date(1700, 1, 1)).days / LONG_DAYS
+    np.testing.assert_allclose(ts.at(mid, method=method), [expected])
+    assert np.isnan(ts.at(mid, method=method, max_gap="1w")).all()
+
+
+def test_pchip_across_spans_longer_than_int64_nanoseconds():
+    ts = TimeSeries(times=["1680-01-01", "2000-01-01", "2250-01-01"], values=[0, 5, 10])
+    value = ts.at("1840-01-01", method="pchip")[0]
+    assert 0.0 < value < 5.0
+
+
+def test_is_regular_and_info_on_spans_longer_than_int64_nanoseconds():
+    ts = TimeSeries(times=LONG_SPAN, values=[0.0, 10.0])
+    regular, interval = ts.is_regular()
+    assert regular and interval == np.timedelta64(LONG_DAYS, "D")
+    rows = dict(ts._info_sections()[0][2])
+    assert rows["Interval"] == str(dt.timedelta(days=LONG_DAYS))
+    uneven = TimeSeries(
+        times=["1700-01-01", "1701-01-01", "2200-01-01"], values=[0, 1, 2]
+    )
+    assert uneven.is_regular() == (False, None)
+    assert dict(uneven._info_sections()[0][2])["Interval"] == "irregular"
+
+
+@pytest.mark.parametrize("fill", [None, "edge"])
+@pytest.mark.parametrize("method", ["linear", "previous", "nearest", "pchip"])
+def test_nat_query_times_give_nan(fill, method):
+    ts = scalar([1.0, 2.0, 3.0])
+    out = ts.at([T0, np.datetime64("NaT", "ns"), "NaT"], method=method, fill=fill)[:, 0]
+    np.testing.assert_array_equal(out, [1.0, np.nan, np.nan])
+    assert np.isnan(ts.at("NaT", method=method, fill=fill)).all()
+
+
+def test_between_rejects_nat_bounds():
+    ts = scalar([1.0, 2.0])
+    with pytest.raises(ValueError, match="NaT"):
+        ts.between("NaT", T0 + H)
+    with pytest.raises(ValueError, match="NaT"):
+        ts.between(T0, np.datetime64("NaT", "ns"))
+
+
+@pytest.mark.parametrize(
+    "times",
+    [
+        hours(0, 1, 2).reshape(-1, 1),
+        np.array([["2024-01-01", "2024-01-02"]], dtype=object),
+    ],
+)
+def test_multidimensional_times_are_rejected(times):
+    with pytest.raises(ValueError, match="1-D"):
+        TimeSeries(times=times, values=np.zeros(times.size))
+    ts = scalar([1.0, 2.0])
+    with pytest.raises(ValueError, match="1-D"):
+        ts.at(times)
+    with pytest.raises(ValueError, match="1-D"):
+        ts.append(times, np.zeros(times.size))
+    with pytest.raises(ValueError, match="1-D"):
+        ts.times = times
+    assert len(ts) == 2
+
+
+def test_nat_durations_are_rejected():
+    ts = scalar([1.0, 2.0])
+    with pytest.raises(ValueError, match="max_gap must not be NaT"):
+        ts.at(hours(0.5), max_gap=np.timedelta64("NaT", "s"))
+    with pytest.raises(ValueError, match="freq must not be NaT"):
+        ts.resample(np.timedelta64("NaT", "h"))
+
+
+def test_pandas_nat_duration_is_rejected():
+    pd = pytest.importorskip("pandas")
+    with pytest.raises(ValueError, match="freq must not be NaT"):
+        scalar([1.0, 2.0]).resample(pd.NaT)
+    out = scalar([1.0, 2.0]).resample(pd.Timedelta("2h"))
+    np.testing.assert_array_equal(out.values[:, 0], [1.5])
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        "100000w",
+        "9" * 30 + "s",
+        np.timedelta64(10**17, "s"),
+        dt.timedelta(days=999_999),
+    ],
+)
+def test_durations_outside_the_nanosecond_range_raise_value_error(duration):
+    ts = scalar([1.0, 2.0])
+    with pytest.raises(ValueError, match="range"):
+        ts.resample(duration)
+    with pytest.raises(ValueError, match="range"):
+        ts.at(hours(0.5), max_gap=duration)
+
+
+@pytest.mark.parametrize(
+    "dtype,value",
+    [(np.float64, 2**53 + 1), (np.float32, 2**24 + 1), (np.float64, -(2**63) + 1)],
+)
+def test_integers_that_would_round_are_rejected(dtype, value):
+    ts = TimeSeries(times=hours(0), values=np.array([1.0], dtype=dtype))
+    with pytest.raises(ValueError, match="exactly"):
+        ts.append(T0 + H, np.array([value]))
+    other = TimeSeries(times=hours(5), values=np.array([value]))
+    with pytest.raises(ValueError, match="exactly"):
+        ts.merge(other)
+    assert len(ts) == 1
+    ts.append(T0 + H, np.array([2**53 + 2 if dtype == np.float64 else 2**24 + 2]))
+    assert len(ts) == 2
+
+
+def test_metadata_assignment_is_validated():
+    ts = scalar([1.0, 2.0])
+    with pytest.raises(ValueError, match="dim"):
+        ts.dim = 3
+    with pytest.raises(ValueError, match="dim"):
+        ts.copy(dim=4)
+    with pytest.raises(ValueError, match="positive integer"):
+        ts.dim = 0
+    with pytest.raises(ValueError, match="association"):
+        ts.association = "bogus"
+    assert ts.dim == 1 and ts.association == "sample"
+    ts.dim = 1
+    ts.association = "vertex"
+    assert ts.copy(association=None).association is None
+
+
+def test_dim_of_an_empty_series_can_change():
+    ts = TimeSeries()
+    ts.dim = 3
+    assert ts.values.shape == (0, 0, 3)
+    ts.append(T0, np.ones((2, 3)))
+    assert ts.values.shape == (1, 2, 3)
+    shaped = TimeSeries(times=hours(), values=np.zeros((0, 2)))
+    with pytest.raises(ValueError, match="dim"):
+        shaped.dim = 3
+
+
+def test_resample_bins_before_the_time_range_raise():
+    first = "1677-09-21T00:12:43.145224193"
+    ts = TimeSeries(times=[first, "1677-09-22"], values=[1.0, 2.0])
+    with pytest.raises(ValueError, match="range"):
+        ts.resample("1d")
+    near = TimeSeries(times=["1677-09-21T00:13", "1677-09-21T00:15"], values=[1, 2])
+    out = near.resample("1min")
+    assert out.times[0] == np.datetime64("1677-09-21T00:13", "ns")
+    np.testing.assert_array_equal(out.values[:, 0], [1.0, np.nan, 2.0])
