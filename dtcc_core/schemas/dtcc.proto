@@ -42,6 +42,7 @@ message Object {
     FIELD_SLICE = 17;
     STREAMLINE_COLLECTION = 18;
     RASTER_TILE_COLLECTION = 19;
+    PLACE_COLLECTION = 20; // Generic object rules: named places as child Objects.
   }
   Kind kind = 1;
   string id = 2;

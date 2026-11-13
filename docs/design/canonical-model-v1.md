@@ -233,6 +233,11 @@ This kind extension is a recorded compatibility decision: wire version stays **6
 schema 0.9.0 is unchanged. The kinds are rejected anywhere below the root. A kind
 retired later is marked `reserved` in `dtcc.proto` rather than reused.
 
+`PLACE_COLLECTION` (20) is a generic object kind under the same decision: wire
+version 6 and schema 0.9.0 are unchanged. A reader without kind 20 rejects a file
+that contains one ("Unsupported canonical object kind 20"); files without it
+load as before.
+
 LinkML remains isolated in [the profile experiment](../../sandbox/model_profiles/README.md).
 It is neither a runtime dependency nor an alternative wire authority. Python
 round-trip and rejection checks are in

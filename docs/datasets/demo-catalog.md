@@ -17,6 +17,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_smoke.py` | Synthetic smoke slice and streamlines | `smoke_slice.plot()` / `smoke_streamlines.plot()` |
 | `demos/dataset_building_footprints.py` | Building footprint context | `footprints.plot()` |
 | `demos/dataset_roads.py` | OpenStreetMap road network | `roads.plot(column="highway")` |
+| `demos/dataset_place.py` | OpenStreetMap places of interest by category | `places.plot()` |
 | `demos/dataset_space_syntax.py` | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | `demos/dataset_deso.py` | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
 | `demos/dataset_weather.py` | SMHI weather stations | `weather.plot("air_temperature")` |

@@ -3,6 +3,7 @@ import json
 import os
 from collections.abc import Sequence
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import numpy as np
@@ -195,9 +196,10 @@ def download_deso_geodataframe(
                 f"Failed to download DeSO {year} polygons from SCB"
             ) from exc
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
-        tmp_path.write_bytes(response.content)
-        os.replace(tmp_path, cache_path)
+        with TemporaryDirectory(dir=cache_path.parent, prefix=".deso-") as tmpdir:
+            tmp_path = Path(tmpdir) / cache_path.name
+            tmp_path.write_bytes(response.content)
+            os.replace(tmp_path, cache_path)
         gdf = gpd.read_file(cache_path)
 
     if gdf.crs is None:
@@ -441,10 +443,11 @@ def _read_statistics_cache(path: Path, expected_len: int) -> np.ndarray | None:
 
 def _write_statistics_cache(path: Path, values: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".part")
-    with tmp_path.open("wb") as handle:
-        np.save(handle, np.asarray(values, dtype=float))
-    os.replace(tmp_path, path)
+    with TemporaryDirectory(dir=path.parent, prefix=".statistics-") as tmpdir:
+        tmp_path = Path(tmpdir) / path.name
+        with tmp_path.open("wb") as handle:
+            np.save(handle, np.asarray(values, dtype=float))
+        os.replace(tmp_path, path)
 
 
 def _parse_scb_statistic_response(

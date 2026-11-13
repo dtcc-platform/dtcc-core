@@ -191,6 +191,10 @@ def _roads(bounds, provider="OSM", epsg="3006"):
     return PRODUCTS["roads", None]("populated", None)
 
 
+def _places(bounds, categories=None):
+    return PRODUCTS["places", None]("populated", None)
+
+
 SCB_POPULATION_URL = (
     f"{deso_data.SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/FolkmDesoAldKon"
 )
@@ -534,6 +538,13 @@ CASES = [
     ),
     Case("roads", sources={"dtcc_core.io.data.download_roadnetwork": _roads}),
     Case("space_syntax", sources={"dtcc_core.io.data.download_roadnetwork": _roads}),
+    Case(
+        "places",
+        sources={
+            "dtcc_core.io.data.download_places": _places,
+            "dtcc_core.io.data.download_roadnetwork": _roads,
+        },
+    ),
     Case(
         "transit_vehicles",
         bounds=TRANSIT["bounds"],

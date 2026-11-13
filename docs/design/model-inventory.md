@@ -7,7 +7,7 @@ tracks native carriers, which support more numerical state than CityJSON exchang
 Status: 12 September 2026, after the exterior-city milestone; wire **6**,
 standard schema **0.9.0**.
 This is the current inventory; the earlier phase-1 serialization tables are
-historical. It covers all 36 exported Model subclasses: 27 supported concrete
+historical. It covers all 37 exported Model subclasses: 28 supported concrete
 roots, six root-only result wrappers, two explicitly unsupported result/container
 types and abstract Geometry, plus a seventh root-only result wrapper,
 RasterTileCollection, which is not exported.
@@ -54,6 +54,7 @@ bounds and the remaining global transform-composition limits.
 | SensorCollection | Shared state; child stations retain concrete type | SensorCollection / generic Object rules | Observation metadata not covered by the current city vocabulary |
 | VehicleCollection | Shared state; child vehicles retain concrete type | VehicleCollection / generic Object rules | Live snapshot; temporal/moving-object semantics remain open |
 | DeSO | Shared state; area attributes and explicitly associated fields | DeSO / generic Object rules | Statistical area collection, not automatically LandUse |
+| PlaceCollection | Shared state; named places as child Objects with a Point `location` and their attributes. `context_roads` is not exchanged | PlaceCollection / generic Object rules | Points of interest; categories are source-derived, not a city vocabulary |
 | BuildingCollection | Root-only result wrapper (kind 14): exchanged as a transient `Object` with ID `collection`; children are the buildings in order | No binding; root validates as a generic `Object` with typed Building members | Wrapper that carries its own kind on the wire; restored as BuildingCollection. Slots with no destination in the wrapper (root transform, semantic and profile labels, relations) must be default; the root carries no representations |
 | FootprintCollection | Root-only result wrapper (kind 15): transient `Object` with ID `collection`, one synthetic `MultiSurface` representation `footprints` (identity transform, no fields or regions) and attributes `source_ids` and `source_indices` | No binding; root validates as a generic `Object` | Source identity is preserved; footprints are representations, not a new city class. Synthetic slots must be default, and the representation's LOD and role must be unset |
 | TreeCollection | Root-only result wrapper (kind 13): transient `Object` with ID `collection`; children are the trees in order | No binding; root validates as a generic `Object` with typed Tree members | Wrapper that carries its own kind on the wire; restored as TreeCollection. Synthetic root slots must be default |

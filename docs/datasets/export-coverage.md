@@ -33,6 +33,7 @@ and fails when this page differs.
 | `ocean` | - | `SensorCollection` | yes | `geojson` | none | none |
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
 | `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: tile collections have no web artifact; use the raster product for imagery |
+| `places` | - | `PlaceCollection` | yes | `geojson` | none | none |
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
 | `smoke` | `field` | `VolumeMesh` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
