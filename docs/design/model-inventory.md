@@ -7,7 +7,7 @@ tracks native carriers, which support more numerical state than CityJSON exchang
 Status: 12 September 2026, after the exterior-city milestone; wire **6**,
 standard schema **0.9.0**.
 This is the current inventory; the earlier phase-1 serialization tables are
-historical. It covers all 36 exported Model subclasses: 27 supported concrete
+historical. It covers all 37 exported Model subclasses: 28 supported concrete
 roots, six root-only result wrappers, two explicitly unsupported result/container
 types and abstract Geometry, plus a seventh root-only result wrapper,
 RasterTileCollection, which is not exported.
