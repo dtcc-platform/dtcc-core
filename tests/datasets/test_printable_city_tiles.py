@@ -1,6 +1,7 @@
 """Geometry and placement of printable city tile packages."""
 
 import json
+from importlib import import_module
 
 import numpy as np
 import pytest
@@ -9,7 +10,10 @@ from pyproj import Transformer
 from shapely.geometry import box
 
 from dtcc_core import datasets, io
-from dtcc_core.builder.geometry_builders.printable_tiles import _validate_solid
+from dtcc_core.builder.geometry_builders.printable_tiles import (
+    _build_printable_tile,
+    _validate_solid,
+)
 from dtcc_core.model import Mesh, Object
 from tests.datasets.test_export_matrix import SITE, X0, Y0, _site
 
@@ -159,3 +163,68 @@ def test_invalid_layout_is_rejected_before_fetch(no_network):
         datasets.printable_city_tiles(bounds=SITE, scale=10)
     with pytest.raises(ValueError, match="finite"):
         datasets.printable_city_tiles.layout(bounds=(X0, Y0, float("inf"), Y0 + 1))
+    with pytest.raises(ValueError, match="precise placement"):
+        datasets.printable_city_tiles.layout(
+            bounds=(319720, 6397660, 320220, 6398160), grid_origin=(1e18, 1e18)
+        )
+
+
+def test_fractional_tile_size_preserves_cut_planes():
+    size = 140.12345
+    pitch = size / 1000
+    vertices = np.array(
+        [[-1.0, -1.0, 5.0], [2.0, -1.0, 5.0], [2.0, 2.0, 5.0], [-1.0, 2.0, 5.0]]
+    )
+    triangles = vertices[[[0, 1, 2], [0, 2, 3]]]
+    mesh, _, _ = _build_printable_tile(
+        triangles, np.array([-2, -2]), (0, 0, pitch, pitch), size, 1, 0
+    )
+    assert np.ptp(mesh.vertices, axis=0)[:2] == pytest.approx((size, size))
+
+
+def test_print_formats_describe_assembly_exports(tmp_path, no_network):
+    dataset = datasets.printable_city_tiles
+    described = dataset.describe()
+    assert described["multi_file_formats"] == ["stl"]
+    assert not described["serialization"]["bytes_when_format_is_set"]
+    assert not described["serialization"]["format_parameter"]
+    with pytest.raises(ValueError, match="export_stls"):
+        dataset.export(tmp_path / "print.stl", bounds=SITE)
+
+
+def test_print_export_matches_tile_ids(monkeypatch, tmp_path, no_network):
+    for target, provider in _site().items():
+        monkeypatch.setattr(target, provider)
+    tiles = datasets.printable_city_tiles(bounds=SITE, scale=150)
+    expected = tiles.export_stl(folder=tmp_path / "expected")
+    tiles.children[Object].reverse()
+    reordered = tiles.export_stl(folder=tmp_path / "reordered")
+    assert {p.name: p.read_bytes() for p in expected.iterdir()} == {
+        p.name: p.read_bytes() for p in reordered.iterdir()
+    }
+
+    layout = tiles.attributes["layout"]
+    layout["tiles"][1] = layout["tiles"][0]
+    with pytest.raises(ValueError, match="one unique mesh per tile ID"):
+        tiles.export_stl(folder=tmp_path / "duplicate")
+    assert not (tmp_path / "duplicate").exists()
+
+
+def test_print_export_preserves_a_destination_created_during_staging(
+    monkeypatch, tmp_path, no_network
+):
+    for target, provider in _site().items():
+        monkeypatch.setattr(target, provider)
+    tiles = datasets.printable_city_tiles(bounds=SITE, scale=300)
+    destination = tmp_path / "print"
+    module = import_module("dtcc_core.datasets.printable_city_tiles")
+    write_print_files = module._write_print_files
+
+    def stage(assembly, directory):
+        write_print_files(assembly, directory)
+        destination.mkdir()
+
+    monkeypatch.setattr(module, "_write_print_files", stage)
+    with pytest.raises(FileExistsError):
+        tiles.export_stl(folder=destination)
+    assert list(destination.iterdir()) == []

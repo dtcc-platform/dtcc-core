@@ -2,8 +2,9 @@
 
 import json
 import math
-import os
+import shutil
 from collections.abc import Sequence
+from contextlib import suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal
@@ -93,6 +94,7 @@ class PrintableCityTilesDataset(DatasetDescriptor):
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Object"
     supported_formats = ["stl", "geojson"]
+    multi_file_formats = ("stl",)
     default_crs = WORKING_CRS
     geographic_coverage = "Sweden, subject to terrain and building source coverage"
     update_frequency = "derived on demand from upstream source data"
@@ -131,6 +133,19 @@ class PrintableCityTilesDataset(DatasetDescriptor):
         """Preview the resolved tile footprints as WGS84 GeoJSON without fetching data."""
         args = self.validate(kwargs)
         return _preview(_layout(args), ())
+
+    def describe(self):
+        """Describe the Dataset and the formats of its assembly exports."""
+        descriptor = super().describe()
+        descriptor["serialization"]["bytes_when_format_is_set"] = False
+        return descriptor
+
+    def export(self, path, **kwargs):
+        """Direct callers to the multi-file export or canonical assembly package."""
+        raise ValueError(
+            "Use export_stls(folder, **selection) for STLs or "
+            "export(path, canonical=True) on the built assembly for a package"
+        )
 
     def export_stls(
         self, directory: str | Path, *, tiles: Object | None = None, **kwargs
@@ -207,7 +222,17 @@ def _layout(args):
             f"layout is limited to {MAX_TILES} tiles and {MAX_SPAN_M} metres per axis"
         )
     x0, y0 = ox + col0 * pitch, oy + row0 * pitch
-    validate_2d_bounds((x0, y0, x0 + columns * pitch, y0 + rows * pitch))
+    resolved = validate_2d_bounds((x0, y0, x0 + columns * pitch, y0 + rows * pitch))
+    tolerance = max(1e-8, pitch * 1e-9)
+    if (
+        x0 > xmin + tolerance
+        or y0 > ymin + tolerance
+        or resolved[2] < xmax - tolerance
+        or resolved[3] < ymax - tolerance
+    ):
+        raise ValueError(
+            "grid_origin is too far from the selection for precise placement"
+        )
     tiles = []
     for row in range(rows):
         for col in range(columns):
@@ -230,7 +255,7 @@ def _layout(args):
         "crs": WORKING_CRS,
         "requested_crs": args.crs,
         "requested_bounds": list(args.bounds),
-        "bounds": [x0, y0, x0 + columns * pitch, y0 + rows * pitch],
+        "bounds": list(resolved),
         "grid_origin": [ox, oy],
         "axes": ["east", "grid north", "up"],
         "scale": args.scale,
@@ -366,7 +391,22 @@ def _export_stl(assembly, folder):
         stage = Path(temporary) / "tiles"
         stage.mkdir()
         _write_print_files(assembly, stage)
-        os.replace(stage, path)
+        files = sorted(stage.iterdir(), key=lambda file: file.suffix != ".stl")
+        published = []
+        path.mkdir(exist_ok=False)
+        try:
+            for file in files:
+                destination = path / file.name
+                with file.open("rb") as source, destination.open("xb") as target:
+                    published.append(destination)
+                    shutil.copyfileobj(source, target)
+        except OSError:
+            for file in published:
+                with suppress(OSError):
+                    file.unlink()
+            with suppress(OSError):
+                path.rmdir()
+            raise
     return path
 
 
@@ -374,6 +414,7 @@ def _write_print_files(assembly, directory):
     from ..io import save_mesh
 
     layout = _print_layout(assembly)
+    children = _print_children(assembly, layout)
     (directory / "layout.json").write_text(
         json.dumps(layout, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
@@ -383,24 +424,53 @@ def _write_print_files(assembly, directory):
         Mesh(vertices=base.vertices + [0, 0, BASE_HEIGHT_MM], faces=base.faces),
         directory / "base_tile.stl",
     )
-    for child, tile in zip(assembly.get_children(Object), layout["tiles"], strict=True):
+    for child, tile in zip(children, layout["tiles"], strict=True):
         mesh = child.get_geometry(id="print_mesh")
-        name = f"tile_{int(tile['column'])}_{int(tile['row'])}.stl"
         save_mesh(
             Mesh(vertices=mesh.vertices - tile["print_origin_mm"], faces=mesh.faces),
-            directory / name,
+            directory / tile["stl"],
         )
 
 
 def _print_preview(assembly):
-    return _preview(_print_layout(assembly), assembly.get_children(Object))
+    layout = _print_layout(assembly)
+    return _preview(layout, _print_children(assembly, layout))
+
+
+def _print_children(assembly, layout):
+    children = assembly.get_children(Object)
+    by_id = {child.id: child for child in children}
+    ids = []
+    for tile in layout["tiles"]:
+        if not isinstance(tile, dict):
+            raise ValueError("Invalid tile entry in print layout")
+        col, row = tile.get("column"), tile.get("row")
+        tile_id = f"tile_{col}_{row}"
+        if (
+            type(col) is not int
+            or type(row) is not int
+            or tile.get("id") != tile_id
+            or tile.get("stl") != f"{tile_id}.stl"
+        ):
+            raise ValueError("Invalid tile coordinates, ID or STL filename")
+        ids.append(tile_id)
+    if (
+        len(set(ids)) != len(ids)
+        or len(by_id) != len(children)
+        or set(ids) != by_id.keys()
+    ):
+        raise ValueError("Print layout requires one unique mesh per tile ID")
+    return [by_id[tile_id] for tile_id in ids]
 
 
 def _print_layout(assembly):
     layout = getattr(assembly, "attributes", {}).get("layout")
     if (
         not isinstance(layout, dict)
+        or not isinstance(layout.get("tiles"), list)
         or not layout.get("tiles")
+        or not isinstance(layout.get("base_tile"), dict)
+        or layout["base_tile"].get("stl") != "base_tile.stl"
         or not isinstance(assembly.get_geometry(id="base_tile"), Mesh)
     ):
         raise ValueError("Printable city tiles require a realized print layout")

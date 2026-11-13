@@ -103,7 +103,10 @@ def _clip_surface(triangles, markers, bounds):
     planes = [(0, low[0], 1), (0, high[0], -1), (1, low[1], 1), (1, high[1], -1)]
     clipped, owners = _clip_triangles(xyz[selected], markers[selected], planes)
     clipped[:, :, :2] -= low
-    return np.round(clipped, 7), owners
+    upper_edge = clipped[:, :, :2] == high - low
+    clipped = np.round(clipped, 7)
+    np.copyto(clipped[:, :, :2], high - low, where=upper_edge)
+    return clipped, owners
 
 
 def _ring_edges(ring):
