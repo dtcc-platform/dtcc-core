@@ -55,7 +55,7 @@ def test_default_city_io_version_and_explicit_bypass(city, tmp_path):
     before = path.read_bytes()
     pb = wire.ModelFile.FromString(before)
     assert (pb.version, pb.schema_id, pb.schema_version) == (
-        6,
+        7,
         SCHEMA_ID,
         DEFAULT_VERSION,
     )
@@ -148,7 +148,7 @@ def test_package_validation_bypass_and_integrity(city, tmp_path, name):
     restored = load_model_package(path, validate_schema=False)
     assert restored.dataset_context == city.dataset_context
     assert restored.buildings[0].attributes["measured_height"] == -1
-    assert package.manifest.artifacts[0].model_schema_version == 6
+    assert package.manifest.artifacts[0].model_schema_version == 7
     if path.is_dir():
         artifact = path / "artifacts/model.dtcc"
         artifact.write_bytes(artifact.read_bytes()[:-1])

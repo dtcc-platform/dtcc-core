@@ -172,6 +172,9 @@ class DeSO(Object):
             for index, area in enumerate(model.areas)
         ]
         areas = [item for item in areas if isinstance(item[2], MultiSurface)]
+        from ...io._attachments import reject_time_series
+
+        reject_time_series([geometry for _, _, geometry in areas], "GeoJSON")
         source_crs = resolve_source_crs(
             model,
             [

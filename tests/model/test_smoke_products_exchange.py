@@ -210,7 +210,7 @@ def product(request):
 def test_populated_product_round_trips_bytes_and_proto(product, validate_schema):
     payload = exchange.dumps(product, validate_schema=validate_schema)
     pb = wire.ModelFile.FromString(payload)
-    assert pb.version == 6
+    assert pb.version == 7
     assert pb.object.kind == KINDS[type(product)]
     assert pb.object.id == "collection"
 

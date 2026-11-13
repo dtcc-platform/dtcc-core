@@ -102,7 +102,10 @@ class FieldSlice(PointCloud):
             row per point (one row for a geometry Field), a Field would
             overwrite a property or metadata key, or the transform cannot map
             a vector Field.
+        NotImplementedError
+            If the slice carries time series, which GeoJSON has no mapping for.
         """
+        from ...io._attachments import reject_time_series
         from ...io.geojson import (
             exported_coordinates,
             feature_collection,
@@ -110,6 +113,7 @@ class FieldSlice(PointCloud):
             resolve_source_crs,
         )
 
+        reject_time_series([self], "GeoJSON")
         include_z = self.include_z if include_z is None else include_z
         model = exported_coordinates(self)
         source_crs = resolve_source_crs(model, [])

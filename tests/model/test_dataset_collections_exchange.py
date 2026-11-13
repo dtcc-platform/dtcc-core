@@ -185,7 +185,7 @@ def wrapper(request):
 def test_populated_wrapper_round_trips_bytes_and_proto(wrapper, validate_schema):
     payload = exchange.dumps(wrapper, validate_schema=validate_schema)
     pb = wire.ModelFile.FromString(payload)
-    assert pb.version == 6
+    assert pb.version == 7
     assert pb.object.kind == KINDS[type(wrapper)]
     assert pb.object.id == "collection"
 

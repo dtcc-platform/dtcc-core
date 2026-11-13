@@ -100,7 +100,7 @@ def test_new_file_wrappers_and_failed_read_preserve_receiver(tmp_path):
 
 def test_retired_wire_versions_and_unknown_fields_fail_without_fallback():
     source = model.Point(x=1).to_proto()
-    for version in range(1, 6):
+    for version in range(1, 7):
         source.version = version
         with pytest.raises(ValueError, match="Unsupported model format/version"):
             model.Point().from_proto(source, validate_schema=False)

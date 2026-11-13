@@ -183,7 +183,7 @@ exchange but do not select or replace the standard contract.
 - New roots with neither schema property set use the bundled default.
 - Loaded roots expose `model.schema_id` and `model.schema_version`. A subsequent
   save preserves that selection. Saving does not alter the source model's metadata.
-- Only wire version 6 is supported. Older layouts are rejected, including with
+- Only wire version 7 is supported. Older layouts are rejected, including with
   validation bypassed. No legacy baseline or migration reader remains.
 - Default reads/writes reject an unavailable schema ID/version. An explicit
   bypass permits handling such data while retaining its declaration for re-save.

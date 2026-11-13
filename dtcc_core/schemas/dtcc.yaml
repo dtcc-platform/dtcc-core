@@ -291,6 +291,14 @@ classes:
       association:
         description: Native association; admissible values and element counts are checked
           by Core.
+  TimeSeries:
+    is_a: Field
+    annotations:
+      dtcc_native_type: TimeSeries
+    description: Values on fixed geometry elements over strictly increasing UTC timestamps.
+    attributes:
+      role:
+        description: Free label such as observed or predicted.
   CityObject:
     is_a: Object
     description: Native DTCC CityObject; generic object rules, without a claim of CityGML

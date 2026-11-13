@@ -5,7 +5,7 @@ from abc import abstractmethod
 from dataclasses import dataclass, field
 
 from ..model import Model
-from ..values import Field
+from ..values import Field, TimeSeries
 from .bounds import Bounds
 from .semantic_region import SemanticRegion
 from .transform import Transform
@@ -33,15 +33,20 @@ class Geometry(Model):
     transform : Transform
         Affine transform to a global coordinate system.
     fields: list[Field]
+    time_series: list[TimeSeries]
+        Values over time on this geometry, with explicit element associations.
     """
 
     _bounds: Bounds = field(default_factory=Bounds)
     transform: Transform = field(default_factory=Transform)
     fields: list[Field] = field(default_factory=list)
+    time_series: list[TimeSeries] = field(default_factory=list, kw_only=True)
     regions: list[SemanticRegion] = field(default_factory=list, kw_only=True)
 
     def _summary_items(self):
         items = [("num_fields", len(self.fields))]
+        if self.time_series:
+            items.append(("num_time_series", len(self.time_series)))
         if self.regions:
             items.append(("num_regions", len(self.regions)))
         return items
@@ -51,7 +56,7 @@ class Geometry(Model):
 
         import numpy as np
 
-        from .._display import field_section
+        from .._display import field_section, time_series_section
 
         sections = super()._info_sections()
         sections[0][2].extend(
@@ -76,6 +81,8 @@ class Geometry(Model):
             sections.append(("Arrays", ("Name", "Shape", "Type"), arrays))
         if self.fields:
             sections.append(field_section(self.fields))
+        if self.time_series:
+            sections.append(time_series_section(self.time_series))
         if self.regions:
             sections.append(
                 (

@@ -3,7 +3,7 @@
 Status: implemented and verified locally, 13 September 2026.
 
 This milestone updates the existing Core, Sim, Upload, Atlas and Tangible Twin
-workflows for native wire version 6 and standard semantic schema 0.9.0. The native
+workflows for native wire version 7 and standard semantic schema 0.9.0. The native
 format is `dtcc`, suffix `.dtcc`, media type
 `application/vnd.dtcc.model+protobuf`, and dataset data kind `model`.
 Legacy Protobuf layouts are not restored. Dataset Manifest v2 remains supported

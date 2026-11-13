@@ -4,10 +4,10 @@ For the current strict CityJSON feature and geometry coverage, see the
 [exterior-city profile](exterior-city-profile.md). This inventory separately
 tracks native carriers, which support more numerical state than CityJSON exchange.
 
-Status: 12 September 2026, after the exterior-city milestone; wire **6**,
+Status: wire **7**,
 standard schema **0.9.0**.
 This is the current inventory; the earlier phase-1 serialization tables are
-historical. It covers all 36 exported Model subclasses: 27 supported concrete
+historical. It covers all 37 exported Model subclasses: 28 supported concrete
 roots, six root-only result wrappers, two explicitly unsupported result/container
 types and abstract Geometry, plus a seventh root-only result wrapper,
 RasterTileCollection, which is not exported.
@@ -61,7 +61,7 @@ bounds and the remaining global transform-composition limits.
 
 ## Geometry, values and support
 
-Concrete Geometry roots preserve transforms, attached fields and supported semantic
+Concrete Geometry roots preserve transforms, attached fields, time series and supported semantic
 regions. Arrays preserve dtype, shape and values with little-endian row-major bytes.
 Raster/Bounds can also be representation values. Grid bounds define the numerical
 domain, including explicitly zero-area domains. The
@@ -83,13 +83,14 @@ derived caches.
 | PointCloud | Points, classification, intensity, return_number, num_returns | Generic Geometry; classification numbers do not establish city-feature semantics |
 | Grid | Width, height, domain bounds | Generic Geometry; numerical discretization; explicit domain retained independently of cell resolution |
 | VolumeGrid | Width, height, depth, domain bounds | Generic Geometry; numerical discretization; explicit domain retained independently of cell resolution |
-| Field | Values, name, unit, description, dim, association | Field metadata projected to schema; arrays and counts checked natively; general time/scenario axes missing |
+| TimeSeries | Name, unit, description, dim, association, role, typed values and UTC nanosecond timestamps; standalone or attached to geometry | TimeSeries metadata projected to schema; shapes, strictly increasing times and owner element counts checked natively |
+| Field | Values, name, unit, description, dim, association | Field metadata projected to schema; arrays and counts checked natively; temporal values use TimeSeries; general scenario axes missing |
 | Raster | Data array, six affine coefficients, nodata, CRS | Generic Entity; Terrain can associate schema-declared elevation interpretation by representation ID. Native DEM support is not a CityGML RasterRelief or CityJSON conversion |
 | Bounds | Six finite ordered bounds | Generic Entity; standalone bounds or explicit representation, not cached Object extent |
 | Transform | SRS and affine 4x4 matrix | Generic Entity; local/global transform composition remains a separate model concern |
-| FieldSlice | Root-only result wrapper (kind 17): transient `Object` with ID `collection`, one `PointCloud` representation `samples` that is the slice's own geometry (points, classification, intensity and return arrays, the slice transform and every attached Field), a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `slice_axis`, `slice_position`, `resolution`, `axes`, `name`, `time`, `period`, `crs`, `include_z` and `metadata` | No binding; root validates as a generic `Object` and is restored as FieldSlice, never a plain PointCloud. Synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
+| FieldSlice | Root-only result wrapper (kind 17): transient `Object` with ID `collection`, one `PointCloud` representation `samples` that is the slice's own geometry (points, classification, intensity and return arrays, the slice transform and every attached Field and TimeSeries), a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `slice_axis`, `slice_position`, `resolution`, `axes`, `name`, `time`, `period`, `crs`, `include_z` and `metadata` | No binding; root validates as a generic `Object` and is restored as FieldSlice, never a plain PointCloud. Synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
 | RasterTileCollection | Root-only result wrapper (kind 19), not exported from `dtcc_core.model`: transient `Object` with ID `collection` and one attribute `tiles`, a list of records `id`, `collection`, `datetime` (ISO 8601 string), `extent` (`xmin`, `ymin`, `xmax`, `ymax`, `zmin`, `zmax`), `crs`, `spektraltyp`, `resolution` or null, `size_bytes` or null and `artifact`. `artifact` is `artifacts/tiles/<collection>/<index>-<id>.tif`, with collection and id reduced to `[A-Za-z0-9_-]` and index the tile's position; local cache paths are never written | No binding; root validates as a generic `Object`. A reference must equal that form and pass the portable package-path check; restored tiles hold the reference as `path` and refuse `load()` without a package binding. Synthetic root slots must be default; no representations |
-| StreamlineCollection | Root-only result wrapper (kind 18): transient `Object` with ID `collection`, one synthetic `MultiLineString` representation `lines` whose LineString children keep their own transforms and per-vertex Fields, a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `seed_axis`, `seed_position`, `requested_line_count`, `streamline_steps`, `streamline_step_size`, `time`, `period`, `crs`, `include_z`, `axes`, `name` and `metadata` | No binding; root validates as a generic `Object`. The `lines` carrier must have an identity transform, no fields and no regions; synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
+| StreamlineCollection | Root-only result wrapper (kind 18): transient `Object` with ID `collection`, one synthetic `MultiLineString` representation `lines` whose LineString children keep their own transforms, per-vertex Fields and time series, a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `seed_axis`, `seed_position`, `requested_line_count`, `streamline_steps`, `streamline_step_size`, `time`, `period`, `crs`, `include_z`, `axes`, `name` and `metadata` | No binding; root validates as a generic `Object`. The `lines` carrier must have an identity transform, no fields, time series or regions; synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
 | DatasetCollection | **Unsupported**: arbitrary items | No binding; define durable collection meaning first |
 | DatasetValue | **Unsupported**: arbitrary Python value | No binding; do not invent a universal Python-object serializer |
 
