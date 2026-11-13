@@ -42,7 +42,8 @@ def clean_footprints(
         Geometry to take footprints from. By default each building uses the
         first of LOD1, LOD2, LOD3 and LOD0 that it has.
     strict : bool, default False
-        Raise instead of accepting residual separation below the scale.
+        Raise instead of accepting residual separation below the scale, or
+        overlapping footprints at zero scale.
     show : bool, default False
         Plot the input and cleaned footprints.
     remove_holes : bool, default False

@@ -279,6 +279,8 @@ def test_condition_polygon_coverage_rejects_nonboolean_permissions():
 def test_cleaning_public_api_contains_only_supported_entry_points():
     assert set(cleaning_package.__all__) == {
         "clean_footprints",
+        "building_cells",
+        "FootprintCell",
         "UnresolvedFootprintCleaningError",
         "plot_footprint_cleaning_comparison",
     }

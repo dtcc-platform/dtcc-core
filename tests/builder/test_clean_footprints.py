@@ -1,11 +1,17 @@
 """The single footprint cleaning entry point for buildings and cities."""
 
+from itertools import combinations
+
 import numpy as np
 import pytest
 from shapely.geometry import Polygon, box
 
 from dtcc_core import io
-from dtcc_core.builder import clean_footprints
+from dtcc_core.builder import (
+    UnresolvedFootprintCleaningError,
+    building_cells,
+    clean_footprints,
+)
 from dtcc_core.builder.cleaning import clean as clean_module
 from dtcc_core.builder.cleaning.blocks import block_walls
 from dtcc_core.builder.cleaning.clean import (
@@ -138,6 +144,47 @@ def test_isolated_cleaning_never_merges():
     assert cleaned.attributes[RECORD_KEY]["isolated"] is True
     # Isolated results are no valid input for meshing.
     assert cleaning_record(cleaned, min_building_detail=0.5) is None
+
+
+def test_zero_detail_keeps_overlaps_and_warns_of_them(caplog):
+    tower = building("tower", box(0, 0, 10, 10), 60)
+    house = building("house", box(5, 0, 40, 10), 6)  # overlaps the tower
+    shed = building("shed", box(40, 0, 45, 10), 3)  # shares an edge with the house
+    city = city_of(tower, house, shed, terrain=False)
+
+    cleaned = city.clean_footprints(min_building_detail=0)
+
+    assert [x.id for x in cleaned.buildings] == ["tower", "house", "shed"]
+    assert footprint(cleaned.buildings[0]).overlaps(footprint(cleaned.buildings[1]))
+    overlaps = [r.getMessage() for r in caplog.records if "overlap" in r.getMessage()]
+    assert len(overlaps) == 1
+    assert "1 pair(s)" in overlaps[0] and "tower/house" in overlaps[0]
+    assert "shed" not in overlaps[0]
+
+    # Buildings cleaned in isolation may overlap; nothing to warn of.
+    caplog.clear()
+    city.clean_footprints(min_building_detail=0, isolated=True)
+    assert "overlap" not in caplog.text
+
+
+def test_strict_zero_detail_cleaning_does_not_accept_overlaps():
+    tower = building("tower", box(0, 0, 10, 10), 60)
+    house = building("house", box(5, 0, 40, 10), 6)  # overlaps the tower
+    shed = building("shed", box(40, 0, 45, 10), 3)  # shares an edge with the house
+
+    with pytest.raises(
+        UnresolvedFootprintCleaningError, match="overlap at zero detail.*tower/house"
+    ) as error:
+        clean_footprints([tower, house, shed], min_building_detail=0, strict=True)
+
+    (group,) = error.value.diagnostics["unresolved_groups"]
+    assert (group["reason"], group["source_indices"]) == ("overlap", [0, 1])
+    # Touching is no overlap, and buildings cleaned in isolation may overlap.
+    assert len(clean_footprints([house, shed], min_building_detail=0, strict=True)) == 2
+    cleaned = clean_footprints(
+        [tower, house], min_building_detail=0, strict=True, isolated=True
+    )
+    assert len(cleaned) == 2
 
 
 def test_min_area_and_missing_footprints_are_reported_by_id():
@@ -432,3 +479,61 @@ def test_mesh_builders_reuse_a_recorded_cleaning(monkeypatch):
     assert sorted(set(mesh.markers[mesh.markers >= 0].tolist())) == [0, 1]
     surface = meshes.build_city_surface_mesh(cleaned, report_mesh_quality=False)
     assert surface.vertices[:, 2].max() == pytest.approx(20)
+
+
+# Each case has a gap or notch narrower than 1 degree, wider than 1.5 times the
+# detail at its mouth: a corner contact and a shared edge from AIJ Case E
+# (E-126 and E-079), and one building with a notch.
+SECTOR_CASES = {
+    "corner_contact": [
+        (Polygon([(10, 4), (7, 11), (0, 7.5), (3, 0)]), 6),
+        (Polygon([(17, 5), (12.5, 13.5), (7, 11), (11, 2)]), 6),
+    ],
+    "shared_edge": [
+        (
+            Polygon([(0, 24), (3, 15.5), (7.5, 17), (5.5, 21), (14, 24.5), (12, 29.5)]),
+            12,
+        ),
+        (
+            Polygon([(11.5, 9.5), (7, 7), (9.5, 0), (23, 7), (14, 24.5), (5.5, 21)]),
+            24,
+        ),
+    ],
+    "notch": [
+        (
+            Polygon(
+                [(0, 0), (6, 0), (6, 10), (3.0431, 10), (3, 5), (2.9569, 10), (0, 10)]
+            ),
+            6,
+        ),
+    ],
+}
+
+
+@pytest.mark.parametrize("detail", [0.01, 0.05])
+@pytest.mark.parametrize("case", sorted(SECTOR_CASES))
+def test_a_sector_below_one_degree_is_truncated_at_small_detail(case, detail):
+    sources = SECTOR_CASES[case]
+    city = city_of(
+        *(
+            building(f"b{index}", polygon, height)
+            for index, (polygon, height) in enumerate(sources)
+        ),
+        terrain=False,
+    )
+
+    cleaned = clean_footprints(
+        city, min_building_detail=detail, min_area=0.0, lod=GeometryType.LOD0
+    )
+
+    assert len(cleaned.buildings) == 1
+    cells = building_cells(cleaned)
+    assert sorted(cell.height for cell in cells) == sorted(h for _, h in sources)
+    assert all(
+        a.polygon.intersection(b.polygon).area == 0 for a, b in combinations(cells, 2)
+    )
+    record = cleaned.attributes[RECORD_KEY]
+    assert record["mesher_profile"]["status"] == "pass"
+    # Truncating the sector moves the boundary by about half the detail, so it
+    # needs the retry budget.
+    assert record["fidelity_budget_used"] == pytest.approx(0.75 * detail)
