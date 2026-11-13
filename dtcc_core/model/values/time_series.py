@@ -291,6 +291,17 @@ def _format_duration(duration):
     return str(duration.astype("timedelta64[us]").item())
 
 
+def _interpolation_gap(method, fill, max_gap):
+    """Check the interpolation options and return ``max_gap`` as a duration."""
+    if method not in _METHODS:
+        raise ValueError(
+            f"method must be one of {', '.join(_METHODS)}; got {method!r}."
+        )
+    if fill not in (None, "edge"):
+        raise ValueError(f"fill must be None or 'edge'; got {fill!r}.")
+    return None if max_gap is None else _to_duration(max_gap, "max_gap")
+
+
 def _pchip_slopes(t, y, knots):
     """Shape-preserving (Fritsch-Carlson) slopes of ``y`` at the given knots.
 
@@ -505,14 +516,17 @@ class TimeSeries(Model):
             )
         return values
 
-    def _set_data(self, times, values):
+    def _set_data(self, times, values, copy=True):
+        # copy=False adopts the arrays as storage; the caller must own them.
         if np.isnat(times).any():
             raise ValueError("TimeSeries.times must not contain NaT.")
         if not _strictly_increasing(times):
             raise ValueError("TimeSeries.times must be strictly increasing.")
         values = self._canonical_values(values, len(times))
-        self._times = np.array(times, dtype=_NS)
-        self._values = np.array(values)
+        if copy:
+            times, values = np.array(times, dtype=_NS), np.array(values)
+        self._times = times
+        self._values = values
         self._length = len(times)
 
     def __copy__(self):
@@ -822,17 +836,17 @@ class TimeSeries(Model):
             association=self.association,
         )
 
-    def _like(self, times, values):
-        return TimeSeries(
+    def _like(self, times, values, copy=True):
+        result = TimeSeries(
             name=self.name,
             unit=self.unit,
             description=self.description,
-            times=times,
-            values=values,
             dim=self.dim,
             association=self.association,
             role=self.role,
         )
+        result._set_data(times, values, copy=copy)
+        return result
 
     def between(self, start=None, end=None) -> "TimeSeries":
         """Return a copy of the steps in the half-open range ``[start, end)``.
@@ -885,16 +899,63 @@ class TimeSeries(Model):
             query times, or the per-step shape for a single time. A NaN
             sample makes every query whose interpolation uses it NaN.
         """
-        if method not in _METHODS:
-            raise ValueError(
-                f"method must be one of {', '.join(_METHODS)}; got {method!r}."
-            )
-        if fill not in (None, "edge"):
-            raise ValueError(f"fill must be None or 'edge'; got {fill!r}.")
+        gap = _interpolation_gap(method, fill, max_gap)
         query, single = _to_times(times)
-        gap = None if max_gap is None else _to_duration(max_gap, "max_gap")
         result = self._interpolate(query, method, fill, gap)
         return result[0] if single else result
+
+    def align_to(
+        self, target, method="linear", fill=None, max_gap=None
+    ) -> "TimeSeries":
+        """Return this series interpolated onto the time steps of ``target``.
+
+        The result has the times of ``target`` and the metadata of this
+        series, with float values as returned by ``at`` with the same
+        options. Steps of ``target`` outside ``[start, end]`` are NaN unless
+        ``fill="edge"``, so the result always has ``len(target)`` steps; use
+        ``between`` to crop it to the overlap.
+
+        Target times that match steps of this series are copied, not
+        interpolated. When the target times are a contiguous run of this
+        series' steps, as for two series on the same clock, the values are
+        copied as one block without searching.
+
+        Parameters
+        ----------
+        target : TimeSeries or times
+            A series whose times to align to, or strictly increasing times.
+        method, fill, max_gap
+            As for ``at``.
+        """
+        gap = _interpolation_gap(method, fill, max_gap)
+        if isinstance(target, TimeSeries):
+            times = target.times.copy()
+        else:
+            times = _to_times(target)[0]
+            if np.isnat(times).any():
+                raise ValueError("align_to() target times must not contain NaT.")
+            if not _strictly_increasing(times):
+                raise ValueError("align_to() target times must be strictly increasing.")
+        run = self._matching_run(times)
+        if run is None:
+            values = self._interpolate(times, method, fill, gap)
+        else:
+            values = self.values[run].astype(np.float64)
+        return self._like(times, values, copy=False)
+
+    def _matching_run(self, times):
+        """Return the slice of steps whose times equal ``times``, or None."""
+        t = self.times.view(np.int64)
+        q = times.view(np.int64)
+        if not len(q):
+            return slice(0, 0)
+        if len(q) > len(t):
+            return None
+        lo = int(np.searchsorted(t, q[0]))
+        hi = lo + len(q)
+        if hi > len(t) or not np.array_equal(t[lo:hi], q):
+            return None
+        return slice(lo, hi)
 
     def _interpolate(self, query, method, fill, gap):
         # Only the rows each query needs are read and converted to float, so

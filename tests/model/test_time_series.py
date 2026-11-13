@@ -707,6 +707,133 @@ def test_at_on_empty_and_single_step():
     np.testing.assert_array_equal(one.at(hours(1), fill="edge")[:, 0], [4.0])
 
 
+# Alignment
+
+
+def test_align_to_series_or_times_interpolates_onto_target_steps():
+    src = scalar([0.0, 10.0, 20.0, 30.0], role="observed", description="d")
+    target = TimeSeries(
+        name="other",
+        unit="K",
+        times=hours(0.5, 1, 2.5, 4),
+        values=np.zeros((4, 7)),
+        association="vertex",
+        role="predicted",
+    )
+    aligned = src.align_to(target)
+    np.testing.assert_array_equal(aligned.times, target.times)
+    np.testing.assert_array_equal(aligned.values, src.at(target.times))
+    np.testing.assert_array_equal(aligned.values[:, 0], [5.0, 10.0, 25.0, np.nan])
+    assert (aligned.name, aligned.unit, aligned.description) == (
+        "temperature",
+        "C",
+        "d",
+    )
+    assert (aligned.association, aligned.role, aligned.dim) == ("sample", "observed", 1)
+    from_times = src.align_to(list(hours(0.5, 1, 2.5, 4)))
+    np.testing.assert_array_equal(from_times.values, aligned.values)
+    np.testing.assert_array_equal(from_times.times, aligned.times)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"method": "previous"},
+        {"method": "nearest"},
+        {"method": "pchip"},
+        {"fill": "edge"},
+        {"max_gap": "90min"},
+    ],
+)
+def test_align_to_passes_interpolation_options(kwargs):
+    src = scalar([0.0, 10.0, 15.0, 40.0], offsets=[0, 1, 3, 4])
+    query = hours(-1, 0.5, 1.5, 3.5, 5)
+    np.testing.assert_array_equal(
+        src.align_to(query, **kwargs).values, src.at(query, **kwargs)
+    )
+
+
+@pytest.mark.parametrize(
+    "offsets",
+    [
+        [0, 1, 2, 3, 4, 5],
+        [1, 2, 3],
+        [5],
+        [0, 2, 4],
+        [-1, 0, 1, 2, 3, 4, 5],
+        [0, 1, 2, 3, 4, 5, 6],
+        [0.5, 1.5],
+        [],
+    ],
+    ids=[
+        "identical",
+        "contiguous",
+        "last",
+        "subset",
+        "earlier",
+        "later",
+        "between",
+        "empty",
+    ],
+)
+@pytest.mark.parametrize("dim", [1, 3])
+def test_align_to_matches_at_for_matching_and_partial_steps(offsets, dim):
+    shape = (6, 2) if dim == 1 else (6, 2, dim)
+    src = TimeSeries(
+        times=hours(*range(6)),
+        values=np.arange(np.prod(shape), dtype=np.int32).reshape(shape),
+        dim=dim,
+    )
+    query = hours(*offsets)
+    aligned = src.align_to(query, fill="edge", max_gap="1min")
+    assert aligned.values.dtype == np.float64
+    assert aligned.values.shape == (len(offsets),) + shape[1:]
+    np.testing.assert_array_equal(
+        aligned.values, src.at(query, fill="edge", max_gap="1min")
+    )
+    np.testing.assert_array_equal(aligned.times, query)
+
+
+@pytest.mark.parametrize("offsets", [[0, 1, 2, 3], [1, 2]], ids=["identical", "run"])
+def test_align_to_matching_steps_copies_without_interpolating(offsets, monkeypatch):
+    src = scalar([0.0, 1.0, 2.0, 3.0])
+    target = scalar(np.zeros(len(offsets)), offsets=offsets)
+
+    def fail(*args):
+        raise AssertionError("matching steps must not be interpolated")
+
+    monkeypatch.setattr(TimeSeries, "_interpolate", fail)
+    aligned = src.align_to(target)
+    np.testing.assert_array_equal(aligned.values[:, 0], offsets)
+    assert not np.shares_memory(aligned.values, src.values)
+    assert not np.shares_memory(aligned.times, target.times)
+    aligned.append(hours(9), [9.0])
+    assert len(src) == 4 and len(target) == len(offsets)
+
+
+def test_align_to_validates_target_and_options():
+    src = scalar([0.0, 1.0, 2.0])
+    with pytest.raises(ValueError, match="strictly increasing"):
+        src.align_to(hours(1, 0))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        src.align_to(hours(1, 1))
+    with pytest.raises(ValueError, match="NaT"):
+        src.align_to(np.array([T0, np.datetime64("NaT", "ns")]))
+    with pytest.raises(ValueError, match="method"):
+        src.align_to(src, method="cubic")
+    with pytest.raises(ValueError, match="fill"):
+        src.align_to(src, fill="zero")
+    with pytest.raises(ValueError, match="max_gap"):
+        src.align_to(src, max_gap=np.timedelta64("NaT", "ns"))
+
+
+def test_align_to_from_empty_series_gives_nan_steps():
+    empty = TimeSeries(dim=2)
+    aligned = empty.align_to(hours(0, 1))
+    assert len(aligned) == 2 and aligned.values.shape == (2, 0, 2)
+    assert len(empty.align_to(empty)) == 0
+
+
 # Resampling and aggregation
 
 
