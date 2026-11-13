@@ -51,6 +51,7 @@ requires a graphical environment.
 - [Optional roof catalogue](docs/roof_catalogue.md): fitted flat, shed, gable and hip city surfaces.
 - [Compact catalogue meshing](docs/compact_mesher_interface.md): bounded shared-edge improvement and group budgets.
 - [Reprojection](docs/reprojection.md): changing coordinates while preserving fields.
+- [Internal HTTP transport](docs/io/http-transport.md): request policies, streaming and caching.
 - [Data schemas](dtcc_core/schemas/): model definitions and exchange formats.
 - [Architecture and design](DESIGN.md).
 
