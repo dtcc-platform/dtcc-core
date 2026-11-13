@@ -162,9 +162,15 @@ def test_public_dataset_context_metadata_audit():
     for name, dataset in datasets.list().items():
         if not dataset.__class__.__module__.startswith("dtcc_core.datasets."):
             continue
-        context = dataset.create_context(
-            dataset.validate({"bounds": (0.0, 0.0, 1.0, 1.0)})
-        )
+        request = {"bounds": (0.0, 0.0, 1.0, 1.0)}
+        if name == "weather_history":
+            request = {
+                "source": "open_meteo",
+                "location": (319500, 6399500),
+                "start": "2020-01-01",
+                "end": "2020-01-02",
+            }
+        context = dataset.create_context(dataset.validate(request))
         failures = []
         if not context.metadata.description:
             failures.append("description")

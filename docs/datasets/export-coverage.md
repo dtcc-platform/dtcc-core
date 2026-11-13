@@ -47,6 +47,7 @@ and fails when this page differs.
 | `trees` | `trees` | `TreeCollection` | yes | `geojson` | none | none |
 | `trees` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
 | `weather` | - | `SensorCollection` | yes | `geojson` | none | none |
+| `weather_history` | - | `TimeSeriesCollection` | no | none | none | geojson, png, tif: Temporal collection location and observation metadata have no exchange representation |
 
 - **Product**: the `product` argument; `-` for a Dataset with one product.
 - **Native type**: the class the product returns. A per-product type from

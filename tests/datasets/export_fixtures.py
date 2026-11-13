@@ -45,6 +45,8 @@ from dtcc_core.model import (
     SensorCollection,
     StreamlineCollection,
     Surface,
+    TimeSeries,
+    TimeSeriesCollection,
     Transform,
     Tree,
     TreeCollection,
@@ -61,6 +63,18 @@ GEOREF = Affine(1.0, 0.0, X0, 0.0, -1.0, Y0)
 def context(name, **arguments):
     """Return the DatasetContext the named Dataset builds for BOUNDS."""
     dataset = datasets.get_dataset(name)
+    if name == "weather_history":
+        return dataset.create_context(
+            dataset.validate(
+                {
+                    "source": "open_meteo",
+                    "location": (X0, Y0),
+                    "start": "2020-01-01",
+                    "end": "2020-01-02",
+                    **arguments,
+                }
+            )
+        )
     return dataset.create_context(dataset.validate({"bounds": BOUNDS, **arguments}))
 
 
@@ -99,6 +113,27 @@ def _point_collection(cls, add, name, field, variant):
     collection = cls(attributes={"crs": "EPSG:3006"})
     getattr(collection, add)(member)
     return collection
+
+
+def _weather_history(variant, directory):
+    if variant == "empty":
+        return TimeSeriesCollection()
+    if variant != "populated":
+        _unknown(variant)
+    key = ("open_meteo:location", "air_temperature")
+    return TimeSeriesCollection(
+        series={
+            key: TimeSeries(
+                name=key[1],
+                unit="celsius",
+                times=["2020-01-01"],
+                values=[4.5],
+                association="sample",
+                role="reanalysis",
+            )
+        },
+        locations={key[0]: {"point": Point(x=X0, y=Y0), "crs": "EPSG:3006"}},
+    )
 
 
 def _sensors(variant, directory):
@@ -372,6 +407,7 @@ PRODUCTS = {
     ("city_volume_mesh", None): _volume_mesh,
     ("air_quality", None): _sensors,
     ("weather", None): _sensors,
+    ("weather_history", None): _weather_history,
     ("hydrology", None): _sensors,
     ("ocean", None): _sensors,
     ("trees", "trees"): _trees,

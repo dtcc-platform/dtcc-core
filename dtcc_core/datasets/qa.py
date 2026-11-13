@@ -340,7 +340,6 @@ def _audit_descriptor(
         "result_kind",
         "python_return_type",
         "args_schema",
-        "supported_formats",
     ):
         _add_value_finding(
             findings,
@@ -350,17 +349,34 @@ def _audit_descriptor(
             descriptor.get(field),
         )
 
+    _add_value_finding(
+        findings,
+        dataset_name,
+        "descriptor",
+        "supported_formats",
+        descriptor.get("supported_formats"),
+        missing_status="not_applicable"
+        if descriptor.get("serialization", {}).get("python_only")
+        else "missing",
+    )
+
     schema = descriptor.get("args_schema")
     bounds_property = None
+    spatial_field = "bounds"
     if isinstance(schema, dict):
         properties = schema.get("properties")
         if isinstance(properties, dict):
-            bounds_property = properties.get("bounds")
+            spatial_field = (
+                "location"
+                if "location" in properties and "bounds" not in properties
+                else "bounds"
+            )
+            bounds_property = properties.get(spatial_field)
     _add_value_finding(
         findings,
         dataset_name,
         "args_schema",
-        "bounds",
+        spatial_field,
         bounds_property,
     )
 
