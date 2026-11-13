@@ -1096,6 +1096,56 @@ def test_durations_outside_the_nanosecond_range_raise_value_error(duration):
         ts.at(hours(0.5), max_gap=duration)
 
 
+@pytest.mark.parametrize("unit", ["ns", "us", "ms", "s", "min", "h", "d", "w"])
+@pytest.mark.parametrize("as_string", [False, True])
+def test_duration_nanosecond_range_boundary(unit, as_string):
+    numpy_unit = {"min": "m", "d": "D", "w": "W"}.get(unit, unit)
+    nanos_per_unit = int(np.timedelta64(1, numpy_unit).astype("timedelta64[ns]"))
+    last_count = np.iinfo(np.int64).max // nanos_per_unit
+    ts = scalar([1.0, 2.0])
+    for count in (last_count, last_count + 1):
+        if not as_string and unit == "ns" and count > last_count:
+            duration = np.array(2**62, dtype="timedelta64[2ns]")[()]
+        else:
+            duration = (
+                f"{count}{unit}" if as_string else np.timedelta64(count, numpy_unit)
+            )
+        if count == last_count:
+            np.testing.assert_array_equal(ts.resample(duration).values[:, 0], [1.5])
+            np.testing.assert_array_equal(ts.at(hours(0.5), max_gap=duration), [[1.5]])
+        else:
+            with pytest.raises(ValueError, match="range"):
+                ts.resample(duration)
+            with pytest.raises(ValueError, match="range"):
+                ts.at(hours(0.5), max_gap=duration)
+
+
+@pytest.mark.parametrize("unit", ["ps", "fs", "as"])
+def test_scaled_subnanosecond_durations(unit):
+    ts = scalar([1.0, 2.0])
+    duration = np.array(3_600_000_000_000, dtype=f"timedelta64[1000000000{unit}]")[()]
+    nanos = {"ps": 1000, "fs": 10**6, "as": 10**9}[unit]
+    expected = np.timedelta64(3_600_000_000_000 * 10**9 // nanos, "ns")
+    np.testing.assert_array_equal(
+        ts.resample(duration).values, ts.resample(expected).values
+    )
+    outside = np.array(np.iinfo(np.int64).max, dtype=f"timedelta64[2000000000{unit}]")[
+        ()
+    ]
+    with pytest.raises(ValueError, match="range"):
+        ts.resample(outside)
+    with pytest.raises(ValueError, match="range"):
+        ts.at(hours(0.5), max_gap=outside)
+
+
+def test_pandas_duration_preserves_nanoseconds():
+    pd = pytest.importorskip("pandas")
+    ts = scalar([1.0, 2.0])
+    duration = pd.Timedelta(1, "ns")
+    np.testing.assert_array_equal(ts.at(hours(0), max_gap=duration), [[1.0]])
+    np.testing.assert_array_equal(ts.at(hours(0.5), max_gap=pd.Timedelta.max), [[1.5]])
+
+
 @pytest.mark.parametrize(
     "dtype,value",
     [(np.float64, 2**53 + 1), (np.float32, 2**24 + 1), (np.float64, -(2**63) + 1)],

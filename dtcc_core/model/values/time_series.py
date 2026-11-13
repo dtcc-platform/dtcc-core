@@ -169,14 +169,26 @@ def _to_times(value):
 
 
 def _numpy_duration(value, what):
-    unit = np.datetime_data(value.dtype)[0]
+    """Convert a fixed-length duration without overflowing nanosecond storage."""
+    unit, count = np.datetime_data(value.dtype)
     if unit == "generic":
         raise ValueError(f"{what} needs a unit, such as np.timedelta64(1, 'h').")
     if unit in ("Y", "M"):
         raise ValueError(
             f"{what} must be a fixed-length duration; months and years vary in length."
         )
-    return value.astype(_TD_NS)
+    if np.isnat(value):
+        return value.astype(_TD_NS)
+    nanos = int(value.astype(np.int64)) * count
+    if unit in _SUB_NS_UNITS:
+        nanos //= _SUB_NS_UNITS[unit]
+    else:
+        nanos *= int(np.timedelta64(1, unit).astype(_TD_NS).astype(np.int64))
+    if not _MIN_NS <= nanos <= _MAX_NS:
+        raise ValueError(
+            f"{what} is outside the timedelta64[ns] range (about 292 years)."
+        )
+    return np.timedelta64(nanos, "ns")
 
 
 def _to_duration(value, what):
@@ -190,9 +202,7 @@ def _to_duration(value, what):
     """
     try:
         if isinstance(value, np.timedelta64):
-            result = _numpy_duration(value, what)
-        elif isinstance(value, _dt.timedelta):
-            result = np.timedelta64(value).astype(_TD_NS)
+            result = value
         elif _is_pandas(value):
             import pandas as pd
 
@@ -202,16 +212,19 @@ def _to_duration(value, what):
                 raise TypeError(
                     f"Cannot interpret {type(value).__name__} as a duration."
                 )
-            result = np.timedelta64(value.to_timedelta64(), "ns")
+            result = value.to_timedelta64()
+        elif isinstance(value, _dt.timedelta):
+            result = np.timedelta64(value)
         elif isinstance(value, str):
             match = _DURATION.match(value)
             if match is None:
                 raise ValueError(f"Cannot interpret {value!r} as a duration.")
             count = int(match.group(1) or 1)
             unit = _DURATION_UNITS[match.group(2)]
-            result = np.timedelta64(count, unit).astype(_TD_NS)
+            result = np.timedelta64(count, unit)
         else:
             raise TypeError(f"Cannot interpret {type(value).__name__} as a duration.")
+        result = _numpy_duration(result, what)
     except OverflowError as exc:
         raise ValueError(
             f"{what} is outside the timedelta64[ns] range (about 292 years)."
