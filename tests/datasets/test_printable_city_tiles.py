@@ -228,3 +228,21 @@ def test_print_export_preserves_a_destination_created_during_staging(
     with pytest.raises(FileExistsError):
         tiles.export_stl(folder=destination)
     assert list(destination.iterdir()) == []
+
+
+def test_interrupted_print_export_removes_partial_files(
+    monkeypatch, tmp_path, no_network
+):
+    for target, provider in _site().items():
+        monkeypatch.setattr(target, provider)
+    tiles = datasets.printable_city_tiles(bounds=SITE, scale=300)
+    destination = tmp_path / "print"
+
+    def interrupted_copy(source, target):
+        target.write(source.read(1))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("shutil.copyfileobj", interrupted_copy)
+    with pytest.raises(KeyboardInterrupt):
+        tiles.export_stl(folder=destination)
+    assert not destination.exists()

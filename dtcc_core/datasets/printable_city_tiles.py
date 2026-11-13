@@ -400,7 +400,7 @@ def _export_stl(assembly, folder):
                 with file.open("rb") as source, destination.open("xb") as target:
                     published.append(destination)
                     shutil.copyfileobj(source, target)
-        except OSError:
+        except BaseException:
             for file in published:
                 with suppress(OSError):
                     file.unlink()
