@@ -71,7 +71,7 @@ def _derived(package):
 
 
 def test_every_builtin_dataset_declares_each_product():
-    assert len(BUILTINS) == 25
+    assert len(BUILTINS) == 26
     for name, dataset in BUILTINS.items():
         product = dataset.describe()["args_schema"]["properties"].get("product")
         expected = product["enum"] if product else [None]

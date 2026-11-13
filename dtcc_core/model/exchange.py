@@ -47,6 +47,7 @@ from .object import (
     GeometryRepresentation,
     Landuse,
     Object,
+    PlaceCollection,
     RoadNetwork,
     SensorCollection,
     Terrain,
@@ -84,6 +85,7 @@ OBJECT_KINDS = {
     SensorCollection: wire.Object.SENSOR_COLLECTION,
     VehicleCollection: wire.Object.VEHICLE_COLLECTION,
     DeSO: wire.Object.DESO,
+    PlaceCollection: wire.Object.PLACE_COLLECTION,
 }
 KINDS_OBJECT = {value: key for key, value in OBJECT_KINDS.items()}
 # Root-only Dataset wrappers, exchanged as a transient Object with id "collection".

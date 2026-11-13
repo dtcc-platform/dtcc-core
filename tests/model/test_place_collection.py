@@ -231,3 +231,56 @@ def test_plot_title_shows_with_presentation_panel(plt, monkeypatch):
     ax = collection.plot(title="Food and drink", show=False)
 
     assert ax.get_title() == "Food and drink"
+
+
+def _located_collection():
+    from dtcc_core.io.vector_utils import set_geometry_crs
+
+    collection = _collection()
+    for index, place in enumerate(collection.places()):
+        place.attributes["osm_id"] = index + 1
+        place.attributes["opening_hours"] = None
+    set_geometry_crs(collection, "EPSG:3006")
+    return collection
+
+
+def test_place_collection_round_trips_through_dtcc():
+    from dtcc_core.model import RoadNetwork
+
+    collection = _located_collection()
+    collection.context_roads = RoadNetwork()
+
+    loaded = PlaceCollection()
+    loaded.from_proto(collection.to_proto())
+
+    assert type(loaded) is PlaceCollection
+    assert [p.attributes for p in loaded.places()] == [
+        p.attributes for p in collection.places()
+    ]
+    assert [
+        (p.geometry["location"].geometry.x, p.geometry["location"].geometry.y)
+        for p in loaded.places()
+    ] == [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]
+    # Context roads are plot background and are not saved.
+    assert loaded.context_roads is None
+
+
+@pytest.mark.parametrize("reload", [False, True], ids=["in-memory", "after-dtcc"])
+def test_place_collection_geojson_is_longitude_latitude(reload):
+    from pyproj import Transformer
+
+    collection = _located_collection()
+    if reload:
+        loaded = PlaceCollection()
+        loaded.from_proto(collection.to_proto())
+        collection = loaded
+
+    geojson = collection.to_geojson(crs="EPSG:4326")
+
+    to_wgs84 = Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
+    expected = [list(to_wgs84.transform(x, y)) for x, y in [(1, 2), (3, 4), (5, 6)]]
+    assert [f["geometry"]["coordinates"][:2] for f in geojson["features"]] == [
+        pytest.approx(point) for point in expected
+    ]
+    assert [f["id"] for f in geojson["features"]] == [1, 2, 3]
+    assert "crs" not in geojson

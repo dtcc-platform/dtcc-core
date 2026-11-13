@@ -30,6 +30,7 @@ OBJECTS = (
     "SensorCollection",
     "VehicleCollection",
     "DeSO",
+    "PlaceCollection",
 )
 GEOMETRIES = (
     "Grid",
@@ -60,7 +61,6 @@ UNEXPORTED_WRAPPERS = ("RasterTileCollection",)
 UNSUPPORTED = (
     "DatasetCollection",
     "DatasetValue",
-    "PlaceCollection",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 

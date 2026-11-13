@@ -62,8 +62,13 @@ class PlaceCollection(Object):
     ----------
     context_roads : RoadNetwork or None
         Roads for the same area, drawn underneath the places by :meth:`plot`.
-        They give the map geographic context and are not places themselves.
+        They give the map geographic context and are not places themselves,
+        so they are not saved: a collection loaded from ``.dtcc`` or GeoJSON
+        has ``context_roads`` None and plots without roads.
     """
+
+    # to_geojson(crs="EPSG:4326") writes RFC 7946 longitude/latitude.
+    web_geojson = True
 
     context_roads: RoadNetwork | None = field(default=None, kw_only=True)
 
@@ -112,6 +117,34 @@ class PlaceCollection(Object):
         for child_list in self.children.values():
             result.extend(child_list)
         return result
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the places as a GeoJSON FeatureCollection of Points.
+
+        Each place with a Point location becomes one feature whose ``id`` is its
+        ``osm_id`` attribute (else the object id) and whose properties are the
+        place attributes. ``context_roads`` are not included.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import _point_feature_collection, exported_coordinates
+
+        model = exported_coordinates(self)
+        members = []
+        for place in model.places():
+            point = self._point_geometry(place)
+            if point is not None:
+                members.append((place, point))
+        return _point_feature_collection(model, members, "osm_id", crs)
 
     def to_geodataframe(self, crs: str = "EPSG:3006"):
         """Return the places as a GeoDataFrame with one point row per place.

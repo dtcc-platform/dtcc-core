@@ -9,7 +9,7 @@ from dtcc_core.model import PlaceCollection
 
 from ..common import warning
 from ..io.data.overpass import OverpassError
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetBaseArgs, DatasetDescriptor, geojson_bytes
 from .providers import provider_entry
 
 Category = Literal[
@@ -40,11 +40,15 @@ class PlacesArgs(DatasetBaseArgs):
         description=(
             "Also download OpenStreetMap roads for the same bounds and keep them "
             "as context_roads, drawn underneath the places by plot(). Ignored for "
-            "geojson/gpkg output."
+            "pb/geojson/gpkg output, which do not include roads."
         ),
     )
-    format: Literal["geojson", "gpkg"] | None = Field(
-        None, description="Output format (geojson/gpkg for point vector bytes)"
+    format: Literal["pb", "geojson", "gpkg"] | None = Field(
+        None,
+        description=(
+            "Output format (pb for protobuf bytes, geojson for WGS84 GeoJSON bytes, "
+            "gpkg for GeoPackage bytes in EPSG:3006)"
+        ),
     )
 
 
@@ -68,6 +72,16 @@ class PlacesDataset(DatasetDescriptor):
     ArgsModel = PlacesArgs
     data_category = "raw"
     result_kind = "place_collection"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     python_return_type = "dtcc_core.model.PlaceCollection"
     default_crs = "EPSG:3006"
     provider = [
@@ -176,15 +190,19 @@ class PlacesDataset(DatasetDescriptor):
 
     def build(self, args: PlacesArgs):
         bounds = self.parse_bounds(args.bounds)
-        if args.format in ("geojson", "gpkg"):
+        if args.format == "gpkg":
             gdf = dtcc_core.io.data.osm_places.download_places_geodataframe(
                 bounds=bounds, categories=args.categories
             )
-            return self._export_gdf_to_bytes(gdf, args.format)
+            return self._export_gdf_to_bytes(gdf)
 
         places: PlaceCollection = dtcc_core.io.data.download_places(
             bounds=bounds, categories=args.categories
         )
+        if args.format == "pb":
+            return places.to_proto().SerializeToString()
+        if args.format == "geojson":
+            return geojson_bytes(places)
         if args.roads:
             try:
                 places.context_roads = dtcc_core.io.data.download_roadnetwork(
@@ -198,14 +216,10 @@ class PlacesDataset(DatasetDescriptor):
         return places
 
     @staticmethod
-    def _export_gdf_to_bytes(gdf, format: str) -> bytes:
+    def _export_gdf_to_bytes(gdf) -> bytes:
         with tempfile.TemporaryDirectory() as tmpdir:
-            if format == "geojson":
-                path = Path(tmpdir) / "places.geojson"
-                gdf.to_file(path, driver="GeoJSON")
-            else:
-                path = Path(tmpdir) / "places.gpkg"
-                gdf.to_file(path, layer="places", driver="GPKG")
+            path = Path(tmpdir) / "places.gpkg"
+            gdf.to_file(path, layer="places", driver="GPKG")
             return path.read_bytes()
 
 

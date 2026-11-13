@@ -38,6 +38,7 @@ from dtcc_core.model import (
     MultiLineString,
     MultiSurface,
     Object,
+    PlaceCollection,
     Point,
     PointCloud,
     Raster,
@@ -113,6 +114,20 @@ def _vehicles(variant, directory):
     return _point_collection(
         VehicleCollection, "add_vehicle", "vehicle_id", field, variant
     )
+
+
+def _places(variant, directory):
+    if variant == "empty":
+        return PlaceCollection()
+    if variant != "populated":
+        _unknown(variant)
+    place = Object(
+        attributes={"osm_id": 1, "name": "Panos", "category": "food_and_drink"}
+    )
+    place.add_geometry(Point(x=X0, y=Y0, z=0.0), "location")
+    places = PlaceCollection(attributes={"crs": "EPSG:3006"})
+    places.add_place(place)
+    return places
 
 
 def _roads(variant, directory):
@@ -380,6 +395,7 @@ PRODUCTS = {
     ("space_syntax", None): _roads,
     **{(name, None): _vehicles for name in TRANSIT},
     ("deso", None): _deso,
+    ("places", None): _places,
     ("smoke", "field"): _smoke("field"),
     ("smoke", "slice"): _smoke("slice"),
     ("smoke", "streamlines"): _smoke("streamlines"),
