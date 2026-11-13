@@ -56,7 +56,7 @@ class Geometry(Model):
 
         import numpy as np
 
-        from .._display import field_section
+        from .._display import field_section, time_series_section
 
         sections = super()._info_sections()
         sections[0][2].extend(
@@ -81,6 +81,8 @@ class Geometry(Model):
             sections.append(("Arrays", ("Name", "Shape", "Type"), arrays))
         if self.fields:
             sections.append(field_section(self.fields))
+        if self.time_series:
+            sections.append(time_series_section(self.time_series))
         if self.regions:
             sections.append(
                 (
