@@ -12,6 +12,12 @@ from .field import Field
 
 _NS = np.dtype("datetime64[ns]")
 _TD_NS = np.dtype("timedelta64[ns]")
+_MIN_NS = np.iinfo(np.int64).min + 1
+_MAX_NS = np.iinfo(np.int64).max
+_TIME_RANGE_ERROR = (
+    "Time is outside the datetime64[ns] range (1677-09-21 to 2262-04-11)."
+)
+_SUB_NS_UNITS = {"ps": 1000, "fs": 10**6, "as": 10**9}
 _ASSOCIATIONS = ("vertex", "edge", "face", "cell", "sample", "geometry")
 _METHODS = ("linear", "previous", "nearest", "pchip")
 _AGGREGATES = ("mean", "min", "max", "sum", "first", "last", "count")
@@ -33,25 +39,98 @@ def _is_pandas(value):
     return type(value).__module__.split(".")[0] == "pandas"
 
 
+def _checked_times(value):
+    """Convert a datetime array to nanoseconds without wrapping finite times."""
+    array = np.asarray(value)
+    if array.dtype == _NS:
+        return array
+    unit, count = np.datetime_data(array.dtype)
+    if unit == "generic":
+        return array.astype(_NS)
+    if unit in ("Y", "M"):
+        dtype = f"datetime64[{unit}]"
+        lower = int(np.datetime64(_MIN_NS, "ns").astype(dtype).astype(np.int64)) + 1
+        upper = int(np.datetime64(_MAX_NS, "ns").astype(dtype).astype(np.int64))
+        lower, upper = -(-lower // count), upper // count
+    else:
+        divisor = _SUB_NS_UNITS.get(unit, 1)
+        multiplier = (
+            count
+            if divisor > 1
+            else count * int(np.timedelta64(1, unit).astype(_TD_NS).astype(np.int64))
+        )
+        lower = -(-_MIN_NS * divisor // multiplier)
+        upper = _MAX_NS * divisor // multiplier
+    ticks = array.astype(np.int64)
+    outside = (ticks < max(lower, _MIN_NS - 1)) | (ticks > min(upper, _MAX_NS))
+    if (outside & ~np.isnat(array)).any():
+        raise ValueError(_TIME_RANGE_ERROR)
+    if unit in _SUB_NS_UNITS and count != 1:
+        # Python integers avoid an overflowing intermediate product for scaled
+        # subnanosecond dtypes whose final nanosecond count is representable.
+        nanos = ticks.astype(object) * count // _SUB_NS_UNITS[unit]
+        return np.where(np.isnat(array), _MIN_NS - 1, nanos).astype(np.int64).view(_NS)
+    return array.astype(_NS)
+
+
+def _datetime_time(value, extra_ns=0):
+    """Normalize a Python date or datetime with an extra nanosecond count."""
+    if isinstance(value, _dt.datetime) and value.tzinfo is not None:
+        try:
+            value = value.astimezone(_dt.UTC).replace(tzinfo=None)
+        except OverflowError as exc:
+            raise ValueError(_TIME_RANGE_ERROR) from exc
+    nanos = int(np.datetime64(value, "us").astype(np.int64)) * 1000 + extra_ns
+    if not _MIN_NS <= nanos <= _MAX_NS:
+        raise ValueError(_TIME_RANGE_ERROR)
+    return np.datetime64(nanos, "ns")
+
+
+def _iso_time(value):
+    """Parse ISO time, retaining nanoseconds in the clock and UTC offset."""
+    try:
+        parsed = _dt.datetime.fromisoformat(value)
+    except ValueError:
+        stamp = np.datetime64(value)
+        # Parsing directly into an inferred nanosecond dtype can itself wrap.
+        if not np.isnat(stamp) and stamp.astype("datetime64[D]") != np.datetime64(
+            value, "D"
+        ):
+            raise ValueError(_TIME_RANGE_ERROR) from None
+        return _checked_times(stamp)[()]
+    zone_start = (
+        max(value.rfind("+", 10), value.rfind("-", 10))
+        if parsed.tzinfo is not None
+        else -1
+    )
+    extra_ns = 0
+    parts, cursor = [], 0
+    for match in re.finditer(r"[.,](\d+)(?=$|[Zz+-])", value):
+        if match.start() <= 10:
+            continue
+        remainder = int(match.group(1)[:9].ljust(9, "0"))
+        if zone_start != -1 and match.start() > zone_start:
+            remainder *= -1 if value[zone_start] == "+" else 1
+        extra_ns += remainder
+        parts.append(value[cursor : match.start()])
+        cursor = match.end()
+    if parts:
+        parsed = _dt.datetime.fromisoformat("".join(parts) + value[cursor:])
+    return _datetime_time(parsed, extra_ns)
+
+
 def _scalar_time(value):
     """Convert one time value to a naive UTC ``datetime64[ns]``."""
     if isinstance(value, np.datetime64):
-        return value.astype(_NS)
+        return _checked_times(value)[()]
     if _is_pandas(value):
         if getattr(value, "tzinfo", None) is not None:
             value = value.tz_convert("UTC").tz_localize(None)
-        return np.datetime64(value.to_datetime64(), "ns")
+        return _checked_times(value.to_datetime64())[()]
     if isinstance(value, str):
-        try:
-            value = _dt.datetime.fromisoformat(value)
-        except ValueError:
-            return np.datetime64(value, "ns")
-    if isinstance(value, _dt.datetime):
-        if value.tzinfo is not None:
-            value = value.astimezone(_dt.UTC).replace(tzinfo=None)
-        return np.datetime64(value, "ns")
+        return _iso_time(value)
     if isinstance(value, _dt.date):
-        return np.datetime64(value, "ns")
+        return _datetime_time(value)
     raise TypeError(f"Cannot interpret {type(value).__name__} as a time.")
 
 
@@ -60,10 +139,11 @@ def _to_times(value):
 
     Accepts NumPy datetime64 of any unit, ``datetime``, ISO-8601 strings and
     pandas timestamps or indexes. Time-zone-aware input is converted to UTC;
-    naive input is taken as UTC.
+    naive input is taken as UTC. Finite times outside the nanosecond storage
+    range raise ValueError before conversion.
     """
     if isinstance(value, np.datetime64):
-        return np.array([value], dtype=_NS), True
+        return np.array([_scalar_time(value)]), True
     if _is_pandas(value) and hasattr(value, "__len__"):
         if value.dtype.kind != "M":
             return _to_times(value.to_numpy(dtype=object))
@@ -72,10 +152,10 @@ def _to_times(value):
                 value = value.dt.tz_convert("UTC").dt.tz_localize(None)
         elif value.tz is not None:
             value = value.tz_convert("UTC").tz_localize(None)
-        return np.asarray(value.to_numpy(), dtype=_NS), False
+        return _checked_times(value.to_numpy()), False
     if isinstance(value, np.ndarray):
         if value.dtype.kind == "M":
-            return np.atleast_1d(value.astype(_NS)), value.ndim == 0
+            return np.atleast_1d(_checked_times(value)), value.ndim == 0
         if value.ndim == 0:
             return np.array([_scalar_time(value.item())]), True
         return np.array([_scalar_time(v) for v in value.ravel()], dtype=_NS), False
@@ -240,7 +320,9 @@ class TimeSeries(Model):
     Times are stored as ``datetime64[ns]`` in UTC. Every method that accepts
     times also accepts ``datetime`` objects, ISO-8601 strings and pandas
     timestamps; time-zone-aware input is converted to UTC and naive input is
-    taken as UTC. ``NaN`` in ``values`` marks a missing value.
+    taken as UTC. ISO strings retain nanosecond precision. Times outside the
+    finite ``datetime64[ns]`` range raise ``ValueError``. ``NaN`` in ``values``
+    marks a missing value.
 
     ``times`` and ``values`` are views into storage that grows geometrically,
     so appending a step is amortized O(1). The ``times`` view is read-only so
@@ -892,7 +974,8 @@ class TimeSeries(Model):
             name = obj.name if obj.ndim == 1 and obj.name is not None else ""
         if obj.ndim == 2 and obj.columns.nlevels > 1:
             obj, elements, dim = cls._element_component_frame(obj)
-            values = obj.to_numpy().reshape(len(obj), elements, dim)
+            shape = (len(obj), elements) if dim == 1 else (len(obj), elements, dim)
+            values = obj.to_numpy().reshape(shape)
         else:
             values = obj.to_numpy()
         return cls(

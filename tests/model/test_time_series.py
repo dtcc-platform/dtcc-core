@@ -101,6 +101,205 @@ def test_time_input_forms_are_equivalent():
         np.testing.assert_array_equal(ts.times, expected)
 
 
+@pytest.mark.parametrize("suffix", ["", "Z", "+01:00", "-01:30"])
+def test_iso_time_preserves_nanoseconds_across_public_methods(suffix):
+    stamps = [f"2024-01-01T01:30:00.12345678{i}{suffix}" for i in range(3)]
+    offset = {"": 0, "Z": 0, "+01:00": 60, "-01:30": -90}[suffix]
+    expected = np.array(
+        [s.removesuffix(suffix) if suffix else s for s in stamps], dtype="M8[ns]"
+    ) - np.timedelta64(offset, "m")
+    ts = TimeSeries(times=stamps[:2], values=[1.0, 2.0])
+    ts.append(stamps[2], 3.0)
+    np.testing.assert_array_equal(ts.times, expected)
+    assert ts.field_at(stamps[1]).values[0] == 2.0
+    np.testing.assert_array_equal(ts.at(stamps)[:, 0], [1.0, 2.0, 3.0])
+    np.testing.assert_array_equal(ts.between(stamps[1], stamps[2]).values, [[2.0]])
+    ts.times = stamps
+    np.testing.assert_array_equal(ts.times, expected)
+
+
+@pytest.mark.parametrize(
+    "stamp,expected",
+    [
+        ("20240101T010203.123456789", "2024-01-01T01:02:03.123456789"),
+        ("2024-W01-1T01:02:03.123456789", "2024-01-01T01:02:03.123456789"),
+        ("2024-01-01T01:02:03,123456789", "2024-01-01T01:02:03.123456789"),
+        (
+            "2024-01-01T00:00:00.123456789+01:00:00.000000001",
+            "2023-12-31T23:00:00.123456788",
+        ),
+        (
+            "2024-01-01T00:00:00.123456789-01:00:00.000000001",
+            "2024-01-01T01:00:00.123456790",
+        ),
+        ("2024-01-01T00:00:00.123456789+00:00:00.123456789", "2024-01-01T00:00:00"),
+        ("2024", "2024-01-01"),
+        ("2024-01", "2024-01-01"),
+    ],
+)
+def test_iso_time_forms_preserve_fractional_seconds(stamp, expected):
+    assert TimeSeries(times=stamp, values=[1.0]).start == np.datetime64(expected, "ns")
+
+
+@pytest.mark.parametrize(
+    "stamp", ["2024-01-01T00:00:00.123.456", "2024-01-01T00:00:00+01:00:00.123.456"]
+)
+def test_malformed_iso_fractions_are_rejected(stamp):
+    with pytest.raises(ValueError):
+        TimeSeries(times=stamp, values=[1.0])
+
+
+@pytest.mark.parametrize("form", ["NaT", np.datetime64("NaT")])
+def test_scalar_nat_is_rejected(form):
+    with pytest.raises(ValueError, match="NaT"):
+        TimeSeries(times=form, values=[1.0])
+
+
+@pytest.mark.parametrize("stamp", ["1500-01-01", "2500-01-01"])
+@pytest.mark.parametrize("form", ["str", "datetime", "date", "numpy", "array"])
+def test_out_of_range_time_is_rejected(stamp, form):
+    forms = {
+        "str": stamp,
+        "datetime": dt.datetime.fromisoformat(stamp),
+        "date": dt.date.fromisoformat(stamp),
+        "numpy": np.datetime64(stamp, "s"),
+        "array": np.array([stamp], dtype="M8[s]"),
+    }
+    with pytest.raises(ValueError, match="range"):
+        TimeSeries(times=forms[form], values=[1.0])
+
+
+@pytest.mark.parametrize("unit", ["Y", "M", "W", "D", "h", "m", "s", "ms", "us"])
+def test_coarse_numpy_time_range_is_checked_before_conversion(unit):
+    for stamp in ("1500-01-01", "2500-01-01"):
+        with pytest.raises(ValueError, match="range"):
+            TimeSeries(times=np.array([stamp], dtype=f"M8[{unit}]"), values=[1.0])
+    expected = np.array(["1900-01-01", "2024-01-01"], dtype=f"M8[{unit}]")
+    ts = TimeSeries(times=expected, values=[1.0, 2.0])
+    np.testing.assert_array_equal(ts.times, expected.astype("M8[ns]"))
+
+
+@pytest.mark.parametrize(
+    "unit,ticks,expected",
+    [
+        ("ps", -1001, -2),
+        ("fs", 1000001, 1),
+        ("as", 1000000001, 1),
+        ("1234ps", 10**18, 1234 * 10**15),
+        ("1234ps", -(10**18), -1234 * 10**15),
+        ("2ns", 10**9, 2 * 10**9),
+        ("2Y", 1, 63072000000000000),
+    ],
+)
+def test_numpy_time_units_convert_without_intermediate_overflow(unit, ticks, expected):
+    array = np.array([ticks], dtype=np.int64).view(f"M8[{unit}]")
+    for form in (array, array[0], array.reshape(())):
+        assert TimeSeries(times=form, values=[1.0]).start == np.datetime64(
+            expected, "ns"
+        )
+    with pytest.raises(ValueError, match="NaT"):
+        TimeSeries(times=np.array(["NaT"], dtype=f"M8[{unit}]"), values=[1.0])
+
+
+@pytest.mark.parametrize(
+    "unit,first,last,before,after",
+    [
+        ("Y", "1678", "2262", "1677", "2263"),
+        ("M", "1677-10", "2262-04", "1677-09", "2262-05"),
+        (
+            "us",
+            "1677-09-21T00:12:43.145225",
+            "2262-04-11T23:47:16.854775",
+            "1677-09-21T00:12:43.145224",
+            "2262-04-11T23:47:16.854776",
+        ),
+    ],
+)
+def test_coarse_numpy_time_range_endpoints(unit, first, last, before, after):
+    valid = np.array([first, last], dtype=f"M8[{unit}]")
+    np.testing.assert_array_equal(
+        TimeSeries(times=valid, values=[1.0, 2.0]).times, valid.astype("M8[ns]")
+    )
+    for stamp in (before, after):
+        with pytest.raises(ValueError, match="range"):
+            TimeSeries(times=np.datetime64(stamp, unit), values=[1.0])
+
+
+@pytest.mark.parametrize(
+    "stamp",
+    ["1677-09-21T00:12:43.145224193", "2262-04-11T23:47:16.854775807"],
+)
+def test_nanosecond_range_endpoints_are_preserved(stamp):
+    for form in (stamp, stamp + "Z", np.datetime64(stamp, "ns")):
+        assert TimeSeries(times=form, values=[1.0]).start == np.datetime64(stamp, "ns")
+
+
+@pytest.mark.parametrize(
+    "stamp",
+    [
+        "1677-09-21T00:12:43.145224192",
+        "2262-04-11T23:47:16.854775808",
+        "1677-09-21T00:12:43.145224193+00:01",
+        "2262-04-11T23:47:16.854775807-00:01",
+        "10000-01-01T00:00:00.123456789",
+        "0000-01-01T00:00:00.123456789",
+    ],
+)
+def test_times_outside_nanosecond_endpoints_are_rejected(stamp):
+    with pytest.raises(ValueError, match="range"):
+        TimeSeries(times=stamp, values=[1.0])
+
+
+@pytest.mark.parametrize(
+    "stamp,expected",
+    [
+        ("1677-09-21T00:11:43.145224193-00:01", "1677-09-21T00:12:43.145224193"),
+        ("2262-04-11T23:48:16.854775807+00:01", "2262-04-11T23:47:16.854775807"),
+    ],
+)
+def test_range_is_checked_after_timezone_normalization(stamp, expected):
+    assert TimeSeries(times=stamp, values=[1.0]).start == np.datetime64(expected, "ns")
+
+
+def test_out_of_range_time_is_rejected_by_all_time_apis_without_mutation():
+    ts = scalar([1.0, 2.0])
+    original_times, original_values = ts.times.copy(), ts.values.copy()
+    with pytest.raises(ValueError, match="range"):
+        ts.times = ["2500-01-01", "2500-01-02"]
+    with pytest.raises(ValueError, match="range"):
+        ts.append(["2024-01-02", "2500-01-01"], [3.0, 4.0])
+    with pytest.raises(ValueError, match="range"):
+        ts.field_at("2500-01-01")
+    with pytest.raises(ValueError, match="range"):
+        ts.at(["2024-01-01", "2500-01-01"])
+    with pytest.raises(ValueError, match="range"):
+        ts.between(end="2500-01-01")
+    np.testing.assert_array_equal(ts.times, original_times)
+    np.testing.assert_array_equal(ts.values, original_values)
+
+
+@pytest.mark.parametrize("stamp", ["1500-01-01", "2500-01-01"])
+def test_pandas_out_of_range_times_are_rejected(stamp):
+    pd = pytest.importorskip("pandas")
+    value = pd.Timestamp(stamp)
+    index = pd.DatetimeIndex(np.array([stamp], dtype="M8[s]"))
+    for form in (value, index, pd.Series(index), index.tz_localize("UTC")):
+        with pytest.raises(ValueError, match="range"):
+            TimeSeries(times=form, values=[1.0])
+    with pytest.raises(ValueError, match="range"):
+        TimeSeries.from_pandas(pd.Series([1.0], index=index))
+
+
+def test_pandas_nanosecond_times_are_preserved():
+    pd = pytest.importorskip("pandas")
+    stamp = "2024-01-01T01:00:00.123456789+01:00"
+    index = pd.DatetimeIndex([stamp])
+    expected = np.datetime64("2024-01-01T00:00:00.123456789", "ns")
+    for form in (pd.Timestamp(stamp), index, pd.Series(index)):
+        assert TimeSeries(times=form, values=[1.0]).start == expected
+    assert TimeSeries.from_pandas(pd.Series([1.0], index=index)).start == expected
+
+
 def test_pandas_time_input():
     pd = pytest.importorskip("pandas")
     index = pd.date_range("2024-01-01 01:00", periods=2, freq="h", tz="Europe/Paris")
@@ -612,6 +811,23 @@ def test_from_pandas_component_subset_and_incomplete_columns():
     np.testing.assert_array_equal(subset.values, ts.values[:, :, :2])
     with pytest.raises(ValueError, match="exactly once"):
         TimeSeries.from_pandas(frame.iloc[:, :-1])
+
+
+@pytest.mark.parametrize("elements", [1, 3])
+@pytest.mark.parametrize("steps", [0, 2])
+def test_from_pandas_single_component_has_scalar_shape(elements, steps):
+    pytest.importorskip("pandas")
+    values = np.arange(steps * elements * 3, dtype=np.int32).reshape(steps, elements, 3)
+    ts = TimeSeries(times=hours(*range(steps)), values=values, dim=3)
+    frame = ts.to_pandas().loc[:, (slice(None), [1])].iloc[:, ::-1]
+    back = TimeSeries.from_pandas(
+        frame, unit="m/s", association="vertex", role="observed"
+    )
+    assert back.dim == 1 and back.values.shape == (steps, elements)
+    assert (back.unit, back.association, back.role) == ("m/s", "vertex", "observed")
+    assert back.values.dtype == values.dtype
+    np.testing.assert_array_equal(back.values, values[:, :, 1])
+    np.testing.assert_array_equal(back.times, ts.times)
 
 
 def test_pandas_round_trip_of_empty_vector_series():
