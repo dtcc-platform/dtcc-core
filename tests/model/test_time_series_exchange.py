@@ -249,6 +249,23 @@ def test_strict_cityjson_rejects_time_series(tmp_path):
         city.save(tmp_path / "city.json", strict=True)
 
 
+def test_decoding_adopts_the_decoded_arrays(monkeypatch):
+    standalone = series()
+    source = Mesh(vertices=np.zeros((2, 3)), time_series=[series()])
+    copied = []
+    original = TimeSeries._set_data
+
+    def spy(self, times, values, copy=True):
+        if len(times):  # skip the empty series construction starts from
+            copied.append(copy)
+        return original(self, times, values, copy)
+
+    monkeypatch.setattr(TimeSeries, "_set_data", spy)
+    exchange.loads(exchange.dumps(standalone))
+    exchange.loads(exchange.dumps(source))
+    assert copied == [False, False]
+
+
 @pytest.mark.parametrize(
     "corrupt, message",
     [

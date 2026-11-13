@@ -1264,14 +1264,19 @@ def _decode_value(pb, strings, depth=0):
 
 
 def _encode_array(array):
+    pb = wire.Array()
+    _fill_array(array, pb)
+    return pb
+
+
+def _fill_array(array, pb):
+    """Write an array into an existing message, so its bytes are copied once."""
     if array.nbytes > MAX_PROTOBUF_BYTES:
         raise ValueError("Array cannot fit in a Protobuf message smaller than 2 GiB")
     normalized = array.astype(array.dtype.newbyteorder("<"), copy=False)
-    return wire.Array(
-        dtype=normalized.dtype.str,
-        shape=array.shape,
-        data=normalized.tobytes(order="C"),
-    )
+    pb.dtype = normalized.dtype.str
+    pb.shape[:] = array.shape
+    pb.data = normalized.tobytes(order="C")
 
 
 def _decode_array(pb):
@@ -1357,17 +1362,17 @@ def _decode_field(pb, strings):
     )
 
 
-def _encode_time_series(value):
-    return wire.TimeSeries(
-        name=value.name,
-        unit=value.unit,
-        description=value.description,
-        values=_encode_array(value.values),
-        dim=value.dim,
-        association=value.association,
-        times=_encode_array(value.times.view(np.int64)),
-        role=value.role,
-    )
+def _fill_time_series(value, pb):
+    """Write a series into an existing message without an intermediate copy."""
+    pb.SetInParent()
+    pb.name = value.name
+    pb.unit = value.unit
+    pb.description = value.description
+    _fill_array(value.values, pb.values)
+    pb.dim = value.dim
+    pb.association = value.association
+    _fill_array(value.times.view(np.int64), pb.times)
+    pb.role = value.role
 
 
 def _decode_time_series(pb, strings):
@@ -1377,23 +1382,26 @@ def _decode_time_series(pb, strings):
     # Wire shapes are canonical; reject the shorthand accepted by the constructor.
     if values.ndim != (2 if pb.dim == 1 else 3):
         raise ValueError("TimeSeries.values shape must match dim")
-    return TimeSeries(
+    series = TimeSeries(
         name=_decode_text(pb.name, strings),
         unit=_decode_text(pb.unit, strings),
         description=_decode_text(pb.description, strings),
-        values=values,
         dim=pb.dim,
         association=_decode_text(pb.association, strings),
-        times=_decode_array(pb.times).view("datetime64[ns]"),
         role=_decode_text(pb.role, strings),
     )
+    # The decoded arrays are fresh, so the series adopts them without a copy.
+    times = _decode_array(pb.times).view("datetime64[ns]")
+    series._set_data(times, values, copy=False)
+    return series
 
 
 def _encode_geometry(value, pb):
     """Fill the destination message without copying complete geometry subtrees."""
     pb.transform.CopyFrom(_encode_transform(value.transform))
     pb.fields.extend(_encode_field(x) for x in value.fields)
-    pb.time_series.extend(_encode_time_series(x) for x in value.time_series)
+    for series in value.time_series:
+        _fill_time_series(series, pb.time_series.add())
     if type(value) is Mesh:
         for name in ("vertices", "faces", "markers", "normals"):
             getattr(pb.mesh, name).CopyFrom(_encode_array(getattr(value, name)))
@@ -1739,7 +1747,7 @@ def _encode_model(model, *, validate_schema=True):
     elif type(model) in OBJECT_KINDS:
         _encode_object(model, pb.object)
     elif type(model) is TimeSeries:
-        pb.time_series.CopyFrom(_encode_time_series(model))
+        _fill_time_series(model, pb.time_series)
     elif type(model) is Field:
         pb.field.CopyFrom(_encode_field(model))
     elif type(model) is Raster:
