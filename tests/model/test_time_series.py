@@ -981,9 +981,15 @@ def test_to_pandas_scalar_is_named_series():
     assert TimeSeries.from_pandas(obj).name == "temperature"
 
 
-def test_serialization_is_not_supported_yet():
-    with pytest.raises(NotImplementedError):
-        scalar([1.0]).to_proto()
+def test_serialization_round_trip():
+    source = scalar([1.0])
+    restored = TimeSeries()
+    restored.from_proto(source.to_proto())
+    np.testing.assert_array_equal(restored.times, source.times)
+    np.testing.assert_array_equal(restored.values, source.values)
+    assert restored.name == source.name
+    assert restored.unit == source.unit
+    assert restored.association == source.association
 
 
 # Range and validation edge cases
