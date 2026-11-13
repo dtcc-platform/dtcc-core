@@ -6,6 +6,8 @@ Every exported Model subclass must be classified here when the public API grows.
 
 import inspect
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,6 +15,7 @@ from google.protobuf.json_format import Parse
 
 from dtcc_core import model
 from dtcc_core.model.model import Model
+from dtcc_core.model.values import raster_tiles
 
 OBJECTS = (
     "Object",
@@ -42,13 +45,19 @@ GEOMETRIES = (
     "Solid",
 )
 VALUES = ("Bounds", "Transform", "Field", "Raster")
-UNSUPPORTED = (
+# Root-only Dataset wrappers exchanged through a transient Object.
+ROOT_WRAPPERS = (
     "BuildingCollection",
     "CalibrationGrid",
-    "FootprintCollection",
-    "TreeCollection",
     "FieldSlice",
+    "FootprintCollection",
+    "RasterTileCollection",
     "StreamlineCollection",
+    "TreeCollection",
+)
+# Root wrappers that dtcc_core.model does not export; built from their own module.
+UNEXPORTED_WRAPPERS = ("RasterTileCollection",)
+UNSUPPORTED = (
     "DatasetCollection",
     "DatasetValue",
     "PlaceCollection",
@@ -63,7 +72,9 @@ def test_every_public_model_has_a_serialization_classification():
         if inspect.isclass(getattr(model, name))
         and issubclass(getattr(model, name), Model)
     }
-    assert public_models == set(SUPPORTED + UNSUPPORTED + ("Geometry",))
+    assert public_models == set(
+        SUPPORTED + ROOT_WRAPPERS + UNSUPPORTED + ("Geometry",)
+    ) - set(UNEXPORTED_WRAPPERS)
     assert inspect.isabstract(model.Geometry)
 
 
@@ -92,6 +103,85 @@ def test_minimal_model_round_trips_bytes_and_protobuf_json(name):
     json_message = Parse(source.to_json(), type(message)())
     restored.from_proto(json_message.SerializeToString())
     assert json.loads(restored.to_json()) == json.loads(source.to_json())
+
+
+def _populated_wrapper(name):
+    square = np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 4.0, 0.0]])
+    if name == "TreeCollection":
+        moved = model.Tree(id="moved", position=np.array([1.0, 2.0, 0.0]), height=6.0)
+        moved.transform.set_translation(10, 20, 0)
+        return model.TreeCollection(trees=[model.Tree(id="tree"), moved])
+    if name == "BuildingCollection":
+        building = model.Building(id="building", attributes={"height": 12.5})
+        building.add_geometry(model.Surface(vertices=square), "lod0")
+        return model.BuildingCollection(buildings=[building, model.Building(id="b2")])
+    if name == "FootprintCollection":
+        return model.FootprintCollection(
+            footprints=[model.Surface(vertices=square)] * 2,
+            source_ids=["building", None],
+            source_indices=[0, 3],
+        )
+    if name == "FieldSlice":
+        source = model.FieldSlice(
+            points=square,
+            slice_position=0.5,
+            resolution=3,
+            domain_bounds=model.Bounds(xmin=0, ymin=0, xmax=4, ymax=4),
+            metadata_payload={"source": "matrix"},
+        )
+        source.transform.set_translation(10, 20, 30)
+        source.add_field(
+            model.Field(
+                name="speed", unit="m/s", values=np.ones(3), association="sample"
+            )
+        )
+        return source
+    if name == "StreamlineCollection":
+        line = model.LineString(vertices=square)
+        line.add_field(
+            model.Field(
+                name="speed", unit="m/s", values=np.ones(3), association="vertex"
+            )
+        )
+        return model.StreamlineCollection(
+            lines=[line], requested_line_count=1, streamline_steps=2
+        )
+    if name == "RasterTileCollection":
+        tile = raster_tiles.RasterTile(
+            path=Path("cache/tile.tif"),
+            id="tile",
+            collection="orto",
+            datetime=datetime(2025, 5, 31, tzinfo=UTC),
+            extent=model.Bounds(xmin=0, ymin=0, xmax=4, ymax=4),
+            crs="EPSG:3006",
+            spektraltyp="rgb",
+            resolution=0.5,
+            size_bytes=None,
+        )
+        return raster_tiles.RasterTileCollection(tiles=[tile, tile])
+    return model.CalibrationGrid(
+        bounds=model.Bounds(xmin=0, ymin=0, xmax=4, ymax=4),
+        divisions=2,
+        crs="EPSG:3006",
+        features=[{"type": "Feature", "properties": {"index": 0}}],
+        metadata_payload={"divisions": 2},
+    )
+
+
+@pytest.mark.parametrize("name", ROOT_WRAPPERS)
+def test_populated_root_wrapper_round_trips_bytes_and_protobuf_json(name):
+    source = _populated_wrapper(name)
+    message = source.to_proto()
+    restored = type(source)()
+    restored.from_proto(message.SerializeToString())
+    assert type(restored) is type(source)
+    assert json.loads(restored.to_json()) == json.loads(source.to_json())
+    json_message = Parse(source.to_json(), type(message)())
+    restored.from_proto(json_message.SerializeToString())
+    assert json.loads(restored.to_json()) == json.loads(source.to_json())
+    assert restored.to_proto().SerializeToString(
+        deterministic=True
+    ) == message.SerializeToString(deterministic=True)
 
 
 @pytest.mark.parametrize("name", UNSUPPORTED)

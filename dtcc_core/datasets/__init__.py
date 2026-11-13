@@ -56,18 +56,6 @@ from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
 from .orthophoto import OrthophotoDataset
 
-# Remote dataset support (optional, requires httpx)
-try:
-    from .remote import (
-        RemoteDatasetDescriptor,
-        RemoteValidationError,
-        register_remote_service,
-        register_remote_descriptors_from_cache,
-        get_cached_discoveries,
-    )
-except ImportError:
-    pass
-
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
     _register_dataset_class,
@@ -110,7 +98,7 @@ calibration_grid = get_dataset("calibration_grid")
 orthophoto = get_dataset("orthophoto")
 
 
-_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
+_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "unknown")
 
 
 def info(print: bool = True) -> str | None:
@@ -135,7 +123,7 @@ def info(print: bool = True) -> str | None:
         sections.append(
             (
                 f"{_format_category_title(category)} ({len(rows)})",
-                ("Dataset", "Product", "Formats", "Source"),
+                ("Dataset", "Product", "Formats", "Source", "Web export"),
                 rows,
             )
         )
@@ -175,8 +163,8 @@ def __getattr__(name):
 
 def _group_dataset_summary_rows(
     datasets_dict: dict[str, DatasetDescriptor],
-) -> dict[str, list[tuple[str, str, str, str]]]:
-    grouped: dict[str, list[tuple[str, str, str, str]]] = {}
+) -> dict[str, list[tuple[str, str, str, str, str]]]:
+    grouped: dict[str, list[tuple[str, str, str, str, str]]] = {}
     for name, dataset in sorted(datasets_dict.items()):
         meta = dataset.describe()
         category = str(meta.get("data_category") or "unknown")
@@ -186,6 +174,7 @@ def _group_dataset_summary_rows(
                 _format_identifier(str(meta.get("result_kind") or "unknown")),
                 _format_supported_formats(meta.get("supported_formats")),
                 _dataset_source(dataset),
+                _format_web_export(meta.get("export")),
             )
         )
     return {category: grouped[category] for category in _ordered_categories(grouped)}
@@ -201,6 +190,21 @@ def _format_supported_formats(formats) -> str:
     if not formats:
         return "python object"
     return ", ".join(str(fmt) for fmt in formats)
+
+
+def _format_web_export(entries) -> str:
+    products = []
+    for entry in entries or ():
+        constrained = entry["constraints"]
+        formats = (
+            ", ".join(
+                f"{fmt}*" if fmt in constrained else fmt for fmt in entry["web_formats"]
+            )
+            or "none"
+        )
+        product = entry["product"]
+        products.append(formats if product is None else f"{product}: {formats}")
+    return "; ".join(products) or "none"
 
 
 def _dataset_source(dataset: DatasetDescriptor) -> str:

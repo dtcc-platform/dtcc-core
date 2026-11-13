@@ -38,9 +38,9 @@ the current implementation, not whether a requirement is optional.
 
 | Requirement | Status | Evidence or remaining gap |
 | --- | --- | --- |
-| Public types and their existing serialization support are inventoried. | Implemented | The complete native/schema inventory classifies all 36 exported Model subclasses: 27 supported concrete roots, eight unsupported wrappers/results and abstract Geometry. The test matrix checks this public boundary. |
+| Public types and their existing serialization support are inventoried. | Implemented | The complete native/schema inventory classifies all 36 exported Model subclasses: 27 supported concrete roots, six root-only result wrappers, two unsupported results and abstract Geometry. The test matrix checks this public boundary. |
 | Public workflows use native typed DTCC models, including semantic collections, with explicit save/export boundaries. | Implemented | Existing model classes, Dataset results, and `Model.export()` provide this workflow; exchange completeness is assessed separately below. |
-| Every type admitted to canonical Protobuf exchange preserves all facts needed for interpretation and computation. | Partial | The unified codec covers the 27 concrete native types listed in the inventory, including geometry, rasters and semantic collections. Eight wrappers/results are explicitly not admitted; they are not silently downcast. Intrinsic grid domains, including zero-area domains, survive refresh and exchange. Global-frame semantics, undeclared domain concepts and downstream integration remain limited by the documented scope. |
+| Every type admitted to canonical Protobuf exchange preserves all facts needed for interpretation and computation. | Partial | The unified codec covers the 27 concrete native types listed in the inventory, including geometry, rasters and semantic collections. Seven root-only result wrappers (the six exported ones and RasterTileCollection) are admitted through a transient Object that restores the concrete type; two results (DatasetCollection, DatasetValue) are explicitly not admitted; none is silently downcast. Intrinsic grid domains, including zero-area domains, survive refresh and exchange. Global-frame semantics, undeclared domain concepts and downstream integration remain limited by the documented scope. |
 | Canonical artifacts identify their schema version and concrete root type; readers validate compatibility without dataset-name-to-decoder mappings. | Implemented | ModelFile declares format, wire version 6, concrete root and semantic schema. Readers accept only the current wire version and default to schema 0.9.0 for new roots. |
 | Concrete nested types, containment and other required relationships survive exchange. | Partial | All admitted Object kinds, including SensorCollection, VehicleCollection and DeSO, preserve type when nested. IDs, containment and named references are checked. Domain meanings beyond declared schema rules remain open. |
 | Geometry, topology, coordinate precision, CRS, transforms, markers and classifications survive exchange. | Partial | Arrays, Raster georeferencing, Bounds and transforms have explicit native storage. Derived caches are omitted and ordinary Grid domains are preserved. Zero-area intrinsic-grid domains, raw-envelope aggregation edge cases and global transform composition remain qualified in the spatial contract. |
@@ -114,9 +114,11 @@ Unimplemented whole-platform requirements are not silently claimed complete.
   named relationships. Validate references according to their declared meaning,
   including target existence/type, ID uniqueness within the declared scope, and
   prohibited cycles. Not every relationship is containment or must be acyclic.
-  Preserve semantic collections and Landuse classifications without generic-object
-  substitution or dropping values. A temporary unsupported-type error is a clear
-  limitation, not fulfillment of the requirement to represent valid platform data.
+  Preserve semantic collections and Landuse classifications without
+  generic-object substitution or dropping values. A root-only result wrapper
+  restored to its concrete type on decode is not generic-object substitution. A
+  temporary unsupported-type error is a clear limitation, not fulfillment of the
+  requirement to represent valid platform data.
 - **Fields and arrays:** preserve dtype, shape, components, units, missingness and
   association with vertices, edges, faces, cells, objects or samples as applicable.
   Matching array length alone cannot establish association. Preserve Raster pixel

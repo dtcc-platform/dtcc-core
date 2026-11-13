@@ -5,11 +5,15 @@ on:
     branches: [ "develop", "main" ]
   pull_request:
     branches: [ "develop", "main" ]
+    # labeled: adding the full-ci label reruns the workflow on every OS. GitHub
+    # cannot filter this event by label name, so any other label reruns it
+    # unchanged; skipping the jobs instead would report a pass on the commit.
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
 
-# A new push to a pull request cancels the run still going for its last push;
+# A new push or label on a pull request cancels the run still going for it;
 # every other run has a group of its own.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -22,6 +26,7 @@ jobs:
   # native build fails 26 meshing tests. Remove the pin once dtcc-mesher is fixed.
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -44,6 +49,7 @@ jobs:
   # a `paths` filter on the workflow would leave those checks pending instead.
   changes:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
@@ -81,9 +87,15 @@ jobs:
     # Runs unless the changes job said no, so a failed changes job still tests.
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
+      # macOS and Windows run only after merge or with the full-ci label, so a
+      # failure on one must not cancel the other.
+      fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        # Pull requests test on Ubuntu only. The merge commit on develop or
+        # main, and a pull request carrying the full-ci label, test on all three.
+        os: ${{ (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && fromJSON('["ubuntu-24.04", "macos-latest", "windows-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       # 1) Check out repository
       - name: Check out repository
@@ -136,7 +148,8 @@ jobs:
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke_auto_lod_resolution \
             builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \
-            datasets/test_city_volume_mesh_dataset.py
+            datasets/test_city_volume_mesh_dataset.py \
+            'datasets/test_export_matrix.py::test_canonical_only_product_round_trips[city_volume_mesh]'
         shell: bash
 
   python-compatibility:
@@ -147,6 +160,7 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -171,13 +185,14 @@ jobs:
         run: |
           cd tests && uv run --locked pytest
 
-  # One required check for the ruleset in place of the six matrix legs: a
+  # One required check for the ruleset in place of the matrix legs: a
   # skipped matrix job reports under its plain name, so leg names required
   # by the ruleset would stay pending on documentation-only pull requests.
   tests:
     needs: [changes, build-and-test, python-compatibility]
     if: always()
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Fail when a test job failed, was cancelled, or skipped although code changed
         if: >-
@@ -188,15 +203,17 @@ jobs:
   notify:
     needs: [build-and-test, python-compatibility]
     runs-on: ubuntu-24.04
-    if: always()  # always run even if build fails
+    timeout-minutes: 10
+    # Push runs only: pull requests show their checks, and fork pull requests
+    # have no webhook secret.
+    if: ${{ always() && github.event_name == 'push' }}
     steps:
       - name: Slack notification on success
         if: ${{ needs.build-and-test.result == 'success' && needs.python-compatibility.result == 'success' }}
         env:
-          # head_commit exists only on push; pull_request runs use the PR head.
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name || github.event.pull_request.user.login }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           NOTIFICATION_TITLE: "✅ *SUCCESS*"
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_GITHUB }}
         shell: bash
@@ -216,12 +233,11 @@ jobs:
               "$SLACK_WEBHOOK_URL"
 
       - name: Slack notification on failure
-        if: ${{ needs.build-and-test.result == 'failure' || needs.python-compatibility.result == 'failure' }}
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         env:
-          # head_commit exists only on push; pull_request runs use the PR head.
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name || github.event.pull_request.user.login }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           NOTIFICATION_TITLE: "❌ *FAILURE*"
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_DEVELOPMENT }}
         shell: bash

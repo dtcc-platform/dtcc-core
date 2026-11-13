@@ -15,10 +15,13 @@ from ..model import Model
 from ..values import Field
 from .bounds import Bounds
 from .field_slice import (
+    _add_field,
     _axis_names,
-    _bounds_values,
+    _field_rows,
+    _field_value,
     _interactive_plot_overrides,
     _normalize_format,
+    _payload_bounds,
     _plot_smoke_object_with_dataset_modes,
     _raster_options_from_context,
     _raster_options_with_overrides,
@@ -45,6 +48,7 @@ class StreamlineCollection(Model):
     domain_bounds: Bounds | None = None
     metadata_payload: dict[str, Any] = dataclass_field(default_factory=dict)
     default_artifact_format: str = "png"
+    web_geojson = True
 
     def _info_sections(self):
         from .._display import sample_section
@@ -105,43 +109,96 @@ class StreamlineCollection(Model):
 
     def to_geojson(
         self,
-        include_z: bool = True,
+        include_z: bool | None = None,
         crs: str | None = None,
     ) -> dict[str, Any]:
-        """Return a GeoJSON adapter representation for debug/vector workflows."""
-        crs = self.crs if crs is None else crs
+        """Return the streamlines as a GeoJSON FeatureCollection of LineStrings.
+
+        Each line with at least two vertices becomes one feature carrying
+        ``seed_index``, ``num_points`` and every attached Field. A Field with
+        one row per vertex is one entry per vertex under ``<name>`` (numbers,
+        or component lists for a vector Field); a Field associated with the
+        geometry is one value for the line. Each has ``<name>_unit`` and, for
+        vectors, ``<name>_components`` (``c0``, ``c1``, ... beyond three
+        components), and none of these keys may collide with another property.
+        Components stay in the axis frame of the source CRS after
+        reprojection. ``time``, ``period`` and the product parameters are
+        collection-level ``metadata``, which describes the payload's own
+        frame: ``metadata.crs`` names the CRS of the positions and
+        ``metadata.bounds`` is the envelope of the eight corners of the
+        domain bounds, or the bounds of the lines when none are stored, after
+        reprojecting their x and y when reprojected.
+
+        Parameters
+        ----------
+        include_z : bool, optional
+            Whether positions carry z; None uses ``self.include_z``.
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+
+        Raises
+        ------
+        ValueError
+            If the source CRS cannot be resolved, a line has a non-identity
+            transform, a Field does not have one row per vertex (one row
+            for a geometry Field), or a Field would overwrite a
+            feature property.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            positions,
+            resolve_source_crs,
+        )
+
+        include_z = self.include_z if include_z is None else include_z
+        model = exported_coordinates(self)
+        source_crs = resolve_source_crs(model, model.lines)
         features: list[dict[str, Any]] = []
-        for seed_index, line in enumerate(self.lines):
+        for seed_index, line in enumerate(model.lines):
             vertices = np.asarray(line.vertices, dtype=float)
             if len(vertices) < 2:
                 continue
+            count = len(vertices)
+            properties: dict[str, Any] = {
+                "seed_index": seed_index,
+                "num_points": count,
+            }
+            for item in line.fields:
+                values = _field_rows(item, count, "vertex")
+                if item.association == "geometry":
+                    value = _field_value(values[0], item.dim)
+                else:
+                    value = values[:, 0].tolist() if item.dim == 1 else values.tolist()
+                _add_field(properties, item, value)
             features.append(
                 {
                     "type": "Feature",
                     "geometry": {
                         "type": "LineString",
-                        "coordinates": _coordinates(vertices, include_z),
+                        "coordinates": positions(
+                            vertices[:, : 3 if include_z else 2], source_crs, crs
+                        ),
                     },
-                    "properties": {
-                        "seed_index": seed_index,
-                        "num_points": int(len(vertices)),
-                        **_line_field_properties(line),
-                    },
+                    "properties": properties,
                 }
             )
 
-        payload: dict[str, Any] = {
-            "type": "FeatureCollection",
-            "name": self.name,
-            "features": features,
-            "metadata": self._metadata(len(features), include_z=include_z),
-        }
-        if crs is not None:
-            payload["crs"] = {
-                "type": "name",
-                "properties": {"name": crs},
-            }
-            payload["metadata"]["crs"] = crs
+        payload = feature_collection(
+            features,
+            source_crs=source_crs,
+            crs=crs,
+            metadata=model._metadata(
+                len(features), include_z=include_z, source_crs=source_crs, crs=crs
+            ),
+        )
+        payload["name"] = self.name
         return payload
 
     def to_python(self) -> dict[str, Any]:
@@ -269,7 +326,14 @@ class StreamlineCollection(Model):
             f"StreamlineCollection object-first export does not support format {fmt!r}."
         )
 
-    def _metadata(self, line_count: int, *, include_z: bool) -> dict[str, Any]:
+    def _metadata(
+        self,
+        line_count: int,
+        *,
+        include_z: bool,
+        source_crs: str,
+        crs: str | None,
+    ) -> dict[str, Any]:
         return {
             "dataset": "smoke",
             "product": "streamlines",
@@ -277,7 +341,6 @@ class StreamlineCollection(Model):
             "sample_count": line_count,
             "line_count": line_count,
             "point_count": int(sum(len(line.vertices) for line in self.lines)),
-            "bounds": _bounds_values(self.domain_bounds or self.bounds),
             "fields": self.field_names,
             "include_z": include_z,
             "slice_axis": self.seed_axis,
@@ -291,6 +354,10 @@ class StreamlineCollection(Model):
             "time": self.time,
             "time_period": self.period,
             **dict(self.metadata_payload),
+            "bounds": _payload_bounds(
+                self.domain_bounds or self.bounds, source_crs, crs
+            ),
+            "crs": source_crs if crs is None else crs,
         }
 
 
@@ -299,21 +366,3 @@ def _line_field(line: LineString, name: str) -> Field | None:
         if field.name == name:
             return field
     return None
-
-
-def _line_field_properties(line: LineString) -> dict[str, Any]:
-    properties: dict[str, Any] = {}
-    for field in line.fields:
-        values = np.asarray(field.values, dtype=float)
-        if field.dim == 1:
-            properties[field.name] = values.reshape(-1).tolist()
-        else:
-            properties[field.name] = values.reshape((-1, field.dim)).tolist()
-    return properties
-
-
-def _coordinates(points: np.ndarray, include_z: bool) -> list:
-    values = np.asarray(points, dtype=float)
-    if not include_z:
-        values = values[:, :2]
-    return values.tolist()
