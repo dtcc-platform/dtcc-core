@@ -145,6 +145,22 @@ class HttpTransportError(RuntimeError):
         }
 
 
+class HttpLimitError(HttpTransportError):
+    """A resource limit was crossed; counts and resource name are safe diagnostics."""
+
+    def __init__(self, request, resource, limit, observed, **options):
+        self.resource, self.limit, self.observed = resource, limit, observed
+        super().__init__(request, "resource_limit", **options)
+
+    def metadata(self):
+        return dict(
+            super().metadata(),
+            resource=self.resource,
+            limit=self.limit,
+            observed=self.observed,
+        )
+
+
 @dataclass(frozen=True)
 class Timeout:
     """Connect/read inactivity timeouts; total is supported only asynchronously."""
@@ -340,47 +356,54 @@ class Budget:
     """Thread-safe shared limits; reservations occur before sends or delivery."""
 
     def __init__(
-        self, *, max_attempts=None, max_received_bytes=None, max_delivered_bytes=None
+        self,
+        *,
+        max_requests=None,
+        max_attempts=None,
+        max_received_bytes=None,
+        max_delivered_bytes=None,
     ):
         self.limits = dict(
+            logical_requests=max_requests,
             network_attempts=max_attempts,
             received_body_bytes=max_received_bytes,
             delivered_body_bytes=max_delivered_bytes,
         )
         for value in self.limits.values():
-            if value is not None and (not isinstance(value, int) or value < 0):
+            if value is not None and (type(value) is not int or value < 0):
                 raise ValueError("Budget limits must be nonnegative integers")
         self._used = dict.fromkeys(self.limits, 0)
         self._lock = Lock()
-        self._bytes_exhausted = False
+        self._exhausted = None
 
     def before_read(self, request):
         with self._lock:
-            exhausted = self._bytes_exhausted
-        if exhausted:
-            raise HttpTransportError(request, "resource_limit")
+            exhausted = self._exhausted
+        if exhausted is not None:
+            raise HttpLimitError(request, *exhausted)
 
     def consume(self, name, amount, request):
         with self._lock:
-            limit = self.limits[name]
-            if name == "network_attempts" and (
-                self._bytes_exhausted
-                or any(
-                    cap is not None and self._used[key] >= cap
-                    for key, cap in self.limits.items()
-                    if key != "network_attempts"
-                )
-            ):
-                raise HttpTransportError(request, "resource_limit")
-            # Bytes already received count even when the read crosses the limit.
-            if name == "received_body_bytes":
-                self._used[name] += amount
-                exhausted = limit is not None and self._used[name] > limit
-            else:
-                exhausted = limit is not None and self._used[name] + amount > limit
-                if not exhausted:
-                    self._used[name] += amount
-            if exhausted and name != "network_attempts":
-                self._bytes_exhausted = True
-        if exhausted:
-            raise HttpTransportError(request, "resource_limit")
+            exhausted = self._exhausted
+            if name == "network_attempts" and exhausted is None:
+                for key in ("received_body_bytes", "delivered_body_bytes"):
+                    cap = self.limits[key]
+                    if cap is not None and self._used[key] >= cap:
+                        exhausted = (key, cap, self._used[key])
+                        break
+            if name not in {"network_attempts", "received_body_bytes"}:
+                exhausted = None
+            if exhausted is None:
+                limit = self.limits[name]
+                observed = self._used[name] + amount
+                if name == "received_body_bytes":
+                    # Received bytes count even when the chunk crosses the limit.
+                    self._used[name] = observed
+                if limit is not None and observed > limit:
+                    exhausted = (name, limit, observed)
+                    if name in {"received_body_bytes", "delivered_body_bytes"}:
+                        self._exhausted = exhausted
+                elif name != "received_body_bytes":
+                    self._used[name] = observed
+        if exhausted is not None:
+            raise HttpLimitError(request, *exhausted)

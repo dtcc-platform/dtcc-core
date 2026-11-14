@@ -25,6 +25,8 @@ dependencies = [
     "shapely >= 2.0.0, < 3.0.0",
     "tqdm>=4.66.1",
     "requests",
+    "httpx2>=2.16.0,<3",
+    "certifi",
     "platformdirs",
     "aiohttp",
     "folium",
