@@ -384,15 +384,13 @@ class Budget:
 
     def consume(self, name, amount, request):
         with self._lock:
-            exhausted = self._exhausted
+            exhausted = self._exhausted if name == "network_attempts" else None
             if name == "network_attempts" and exhausted is None:
                 for key in ("received_body_bytes", "delivered_body_bytes"):
                     cap = self.limits[key]
                     if cap is not None and self._used[key] >= cap:
                         exhausted = (key, cap, self._used[key])
                         break
-            if name not in {"network_attempts", "received_body_bytes"}:
-                exhausted = None
             if exhausted is None:
                 limit = self.limits[name]
                 observed = self._used[name] + amount

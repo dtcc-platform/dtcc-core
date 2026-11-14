@@ -578,3 +578,16 @@ def test_redirect_location_retains_query(native):
     with client:
         client.json(URL, params={"day": "today"})
     assert str(calls[1].url) == "https://weather.test/next?version=123"
+
+
+def test_shared_budget_counts_inflight_chunks_after_another_read_crosses_limit():
+    from dtcc_core.io.data._http import Budget
+
+    budget = Budget(max_received_bytes=10)
+    request = Request("GET", URL)
+    budget.consume("received_body_bytes", 8, request)
+    for observed in (16, 24):
+        with pytest.raises(HttpLimitError) as caught:
+            budget.consume("received_body_bytes", 8, request)
+        assert caught.value.resource == "received_body_bytes"
+        assert caught.value.observed == observed
