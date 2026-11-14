@@ -19,7 +19,8 @@ def daily_temperature(station_id, day):
 The URL is illustrative. The return value is an ordinary dictionary, list or
 JSON scalar. The client does not interpret provider error fields or add metadata.
 Authors supply URLs, query parameters and provider parsing; the client handles
-connections, HTTP policy, resource accounting and cleanup.
+connections, HTTP policy, resource accounting and cleanup. Historical weather
+uses this interface for SMHI discovery/archives and Open-Meteo queries.
 
 Pass the client to helpers to share one operation's connections and budgets:
 

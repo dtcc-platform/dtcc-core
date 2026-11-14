@@ -17,13 +17,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qsl, urlsplit
 
 import geopandas as gpd
+import httpx2
 import numpy as np
 import pytest
 from affine import Affine
 from rasterio.io import MemoryFile
-from requests import Response
 from requests.structures import CaseInsensitiveDict
 from shapely.geometry import Polygon
 
@@ -150,15 +151,16 @@ def _parameter(url):
     return url.split("/parameter/")[1].split("/")[0]
 
 
-def _history_get(url, params=None, **kwargs):
-    assert url == "https://archive-api.open-meteo.com/v1/archive"
-    response = Response()
-    response.status_code = 200
-    response._content_consumed = True
-    response._content = json.dumps(
+def _history_send(request, **kwargs):
+    url = urlsplit(str(request.url))
+    assert request.method == "GET"
+    assert url.scheme == "https" and url.netloc == "archive-api.open-meteo.com"
+    assert url.path == "/v1/archive"
+    params = dict(parse_qsl(url.query))
+    body = json.dumps(
         {
-            "longitude": params["longitude"],
-            "latitude": params["latitude"],
+            "longitude": float(params["longitude"]),
+            "latitude": float(params["latitude"]),
             "elevation": 10,
             "utc_offset_seconds": 0,
             "hourly_units": {
@@ -175,7 +177,7 @@ def _history_get(url, params=None, **kwargs):
             },
         }
     ).encode()
-    return response
+    return httpx2.Response(200, content=body, request=request)
 
 
 def _weather(url, params=None, timeout_s=10.0):
@@ -491,7 +493,7 @@ CASES = [
             "end": "2020-01-01T01:00",
             "cache_ttl_s": 0,
         },
-        sources={"requests.sessions.Session.get": _history_get},
+        sources={"httpx2.Client.send": _history_send},
     ),
     Case("point_cloud", sources=_site(footprints=False)),
     Case(

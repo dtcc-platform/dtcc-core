@@ -113,8 +113,20 @@ failures do not silently select a different station.
 Requests have `max_days`, `max_requests`, `max_download_bytes` and
 `max_observations` budgets. Date ranges are validated against `max_days`; exceeding
 a transfer or observation budget raises `WeatherHistoryLimitError` rather than
-truncating data. Transport retries transient statuses and has a bounded
-in-memory cache, configurable through `cache_ttl_s`. SMHI downloads are serial
+truncating data. All HTTP calls use the shared [`http_client()`](../io/http-transport.md)
+with its native HTTPX2 backend, one client per build. Weather retains provider
+validation, observation limits, partial-result decisions and health metadata.
+The request cap bounds both logical calls (including cache hits) and network
+attempts (including retries and redirects). The byte cap bounds both received
+bytes (including failed attempts and HTTP error bodies) and delivered bytes
+(including cache hits). `attributes["requests"]` counts logical calls and
+`attributes["download_bytes"]` counts delivered bytes.
+
+Transport retries transient failures up to twice and has a bounded in-memory
+cache, configurable through `cache_ttl_s`. Requests with API keys bypass the
+cache; public responses honor server cache restrictions and freshness. Redirects
+are limited to five hops on the same origin, with no HTTPS downgrade.
+SMHI downloads are serial
 and can fetch a whole archive for a small interval; follow [SMHI's guidance](https://www.smhi.se/data/om-smhis-data/fragor-och-svar).
 
 Individual TimeSeries support canonical serialization. Collection exchange is

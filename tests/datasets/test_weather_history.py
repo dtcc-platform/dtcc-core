@@ -2,10 +2,11 @@
 
 import copy
 import json
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
+import httpx2
 import numpy as np
 import pytest
-import requests
 from pyproj import Geod, Transformer
 
 from dtcc_core import datasets
@@ -16,6 +17,7 @@ from dtcc_core.datasets.weather_history import (
     WeatherHistoryDatasetArgs,
     WeatherHistoryLimitError,
 )
+from dtcc_core.io.data._http._httpx import NativeHttpClient
 from dtcc_core.model import Bounds, Point, TimeSeries, TimeSeriesCollection
 
 SMHI = "https://opendata-download-metobs.smhi.se/api/version/1.0"
@@ -45,20 +47,18 @@ def csv_history(unit, value=10.0, quality="G"):
     return "\n".join(rows)
 
 
-class Response:
-    def __init__(self, body):
+class Response(httpx2.SyncByteStream):
+    def __init__(self, body, status=200, headers=None):
         self.body = body
-        self.headers = {}
+        self.status_code = status
+        self.headers = headers or {}
+        self.closed = False
 
-    def __enter__(self):
-        return self
+    def close(self):
+        self.closed = True
 
-    def __exit__(self, *args):
-        pass
-
-    def raise_for_status(self):
-        if isinstance(self.body, Exception):
-            raise self.body
+    def __iter__(self):
+        yield from self.iter_content(65536)
 
     def iter_content(self, chunk_size):
         body = self.body
@@ -168,12 +168,31 @@ def server(monkeypatch):
                     "G" if period_name == "corrected-archive" else "Y",
                 )
 
-    def get(self, url, params=None, **kwargs):
+    def send(request):
+        assert request.method == "GET"
+        parsed = urlsplit(str(request.url))
+        url = urlunsplit(parsed._replace(query=""))
+        params = dict(parse_qsl(parsed.query)) or None
+        if params:
+            for name in ("latitude", "longitude"):
+                if name in params:
+                    params[name] = float(params[name])
         calls.append((url, copy.deepcopy(params)))
         body = responses[url]
-        return Response(body(params) if callable(body) else body)
+        body = body(params) if callable(body) else body
+        if isinstance(body, Exception):
+            raise body
+        body = body if isinstance(body, Response) else Response(body)
+        return httpx2.Response(body.status_code, headers=body.headers, stream=body)
 
-    monkeypatch.setattr(requests.Session, "get", get)
+    def build_client(self):
+        if self._client is None:
+            self._client = httpx2.Client(
+                transport=httpx2.MockTransport(send), trust_env=False
+            )
+        return self._client
+
+    monkeypatch.setattr(NativeHttpClient, "_build_client", build_client)
     return responses, calls, common_url
 
 
@@ -412,7 +431,7 @@ def test_smhi_duplicate_source_rows_fail_without_losing_other_parameters(server)
 
 
 def test_smhi_discovery_failure_does_not_claim_no_station(server):
-    server[0][server[2]] = requests.ConnectionError("offline")
+    server[0][server[2]] = httpx2.ConnectError("offline")
     result = history("smhi")
     assert not result and result.attributes["selection"]["status"] == "discovery_failed"
     assert result.attributes["upstream_errors"][0]["failure_class"] == "connection"
@@ -423,7 +442,7 @@ def test_smhi_discovery_failure_does_not_claim_no_station(server):
 def test_smhi_fetch_failure_keeps_selected_station_and_other_parameters(server):
     for period in ("corrected-archive", "latest-months"):
         server[0][f"{SMHI}/parameter/1/station/20/period/{period}/data.csv"] = (
-            requests.Timeout("slow")
+            httpx2.ReadTimeout("slow")
         )
     result = history("smhi")
     assert len(result) == 2
@@ -492,13 +511,131 @@ def test_transport_limits_and_cache(server):
 
 def test_api_key_is_excluded_from_context_and_failures(server):
     customer = "https://customer-archive-api.open-meteo.com/v1/archive"
-    result = history(api_key="test-secret")
+    result = history(api_key="test-secret", cache_ttl_s=60)
     assert "api_key" not in result.dataset_context.request.parameters
     assert "test-secret" not in str(result.series_metadata)
-    server[0][customer] = requests.ConnectionError("URL?apikey=test-secret")
+    history(api_key="test-secret", cache_ttl_s=60)
+    assert len(server[1]) == 2
+    server[0][customer] = httpx2.ConnectError("URL?apikey=test-secret")
     result = history(api_key="test-secret")
     assert "test-secret" not in str(result.attributes)
     assert result.attributes["upstream_errors"][0]["failure_class"] == "connection"
+
+
+@pytest.mark.parametrize(
+    "status, failure_class, attempts",
+    [(404, "http_4xx", 1), (429, "http_4xx", 3), (503, "http_5xx", 3)],
+)
+def test_transport_status_errors_keep_dataset_contract(
+    server, status, failure_class, attempts
+):
+    response = Response("provider-secret", status=status)
+    server[0][OPEN] = response
+    result = history()
+    error = result.attributes["upstream_errors"][0]
+    assert not result
+    assert error["failure_class"] == failure_class
+    assert error["status_code"] == status
+    assert "provider-secret" not in str(result.attributes)
+    assert len(server[1]) == attempts and response.closed
+    with pytest.raises(DatasetUpstreamError) as caught:
+        history(strict_live=True)
+    assert caught.value.failure_class == failure_class
+    assert caught.value.status_code == status
+    assert "provider-secret" not in str(caught.value)
+
+
+@pytest.mark.parametrize("body", [b"not JSON: provider-secret", b"\xff"])
+def test_transport_decoding_errors_are_invalid_payloads(server, body):
+    server[0][OPEN] = Response(body)
+    result = history()
+    error = result.attributes["upstream_errors"][0]
+    assert error["failure_class"] == "invalid_payload"
+    assert error["operation"] == "parse"
+    assert "provider-secret" not in str(result.attributes)
+    assert server[0][OPEN].closed
+
+
+def test_transport_retries_successfully_within_request_budget(server):
+    payload = server[0][OPEN]
+    unavailable = Response("busy", status=503)
+    server[0][OPEN] = lambda query: unavailable if len(server[1]) == 1 else payload
+    result = history(max_requests=2)
+    assert result.attributes["coverage_complete"]
+    assert len(server[1]) == 2 and unavailable.closed
+    assert result.attributes["requests"] == 1
+    assert result.attributes["download_bytes"] == len(json.dumps(payload).encode())
+
+
+def test_transport_request_budget_includes_retries(server):
+    response = Response("busy", status=503)
+    server[0][OPEN] = response
+    with pytest.raises(WeatherHistoryLimitError, match="max_requests"):
+        history(max_requests=1)
+    assert len(server[1]) == 1 and response.closed
+
+
+def test_transport_byte_budget_includes_failed_reads(server):
+    class BrokenResponse(Response):
+        def iter_content(self, chunk_size):
+            yield b"12345678"
+            raise httpx2.ReadTimeout("provider-secret")
+
+    response = BrokenResponse(b"")
+    server[0][OPEN] = response
+    with pytest.raises(WeatherHistoryLimitError, match="max_download_bytes"):
+        history(max_download_bytes=12)
+    assert len(server[1]) == 2 and response.closed
+
+
+def test_transport_byte_budget_includes_error_bodies(server):
+    response = Response("provider-secret", status=404)
+    server[0][OPEN] = response
+    with pytest.raises(WeatherHistoryLimitError, match="max_download_bytes"):
+        history(max_download_bytes=10)
+    assert len(server[1]) == 1 and response.closed
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Cache-Control": "NO-STORE"},
+        {"Cache-Control": "private"},
+        {"Cache-Control": "max-age=0"},
+        {"Cache-Control": "max-age=1", "Age": "2"},
+    ],
+)
+def test_transport_cache_honors_provider_restrictions(server, headers):
+    server[0][OPEN] = Response(server[0][OPEN], headers=headers)
+    history(cache_ttl_s=60)
+    history(cache_ttl_s=60)
+    assert len(server[1]) == 2
+
+
+def test_transport_cache_token_and_cached_delivery_budget(server):
+    url = f"{SMHI}/parameter/1/station/20/period/corrected-archive/data.csv"
+    body = server[0][url]
+    size = len(body.encode("utf-8"))
+    args = WeatherHistoryDatasetArgs(
+        source="smhi",
+        location=(18.05, 59.34),
+        crs="EPSG:4326",
+        start="2020-01-01",
+        end="2020-01-02",
+        max_distance_m=50_000,
+        cache_ttl_s=60,
+        max_download_bytes=3 * size,
+    )
+    with common._Client(args) as client:
+        assert client.text(url, cache_token=1) == body.lstrip("\ufeff")
+        client.text(url, cache_token=1)
+        assert len(server[1]) == 1
+        client.text(url, cache_token=2)
+        assert len(server[1]) == 2
+        assert client.requests == 3 and client.bytes == 3 * size
+        with pytest.raises(WeatherHistoryLimitError, match="max_download_bytes"):
+            client.text(url, cache_token=2)
+        assert len(server[1]) == 2
 
 
 @pytest.mark.parametrize(
@@ -577,7 +714,7 @@ def test_partial_open_meteo_chunks_report_missing_coverage(server):
         return (
             original
             if query["start_date"] == "2020-01-01"
-            else requests.Timeout("slow")
+            else httpx2.ReadTimeout("slow")
         )
 
     server[0][OPEN] = fail_second
