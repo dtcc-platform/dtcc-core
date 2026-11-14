@@ -1,8 +1,109 @@
-# Internal HTTP transport
+# HTTP clients
 
-`dtcc_core.io.data._http` provides synchronous `HttpClient` and asynchronous
-`AsyncHttpClient` operations. It is an internal interface, with no re-export from
-Core or I/O. Existing provider clients continue to use their own implementations.
+## JSON and text with sensible defaults
+
+Use `http_client()` for ordinary functions, scripts and dataset providers:
+
+```python
+from dtcc_core.io import http_client
+
+
+def daily_temperature(station_id, day):
+    with http_client() as http:
+        return http.json(
+            f"https://weather.example.org/stations/{station_id}/temperature",
+            params={"date": day},
+        )
+```
+
+The URL is illustrative. The return value is an ordinary dictionary, list or
+JSON scalar. The client does not interpret provider error fields or add metadata.
+Authors supply URLs, query parameters and provider parsing; the client handles
+connections, HTTP policy, resource accounting and cleanup.
+
+Pass the client to helpers to share one operation's connections and budgets:
+
+```python
+def read_archive(http, url, updated):
+    return http.text(url, encoding="utf-8-sig", cache_token=updated)
+
+
+with http_client(cache_ttl=300) as http:
+    metadata = http.json(metadata_url)
+    text = read_archive(http, metadata["archive_url"], metadata["updated"])
+```
+
+`json()` and `text()` accept `params`, `headers`, `credentials`, `public` and
+`cache_token` as keyword arguments. `text()` additionally accepts `encoding`
+(default UTF-8). Query values may be strings, integers or finite floats; omit
+absent values, and use pairs for repeated names.
+
+| Factory option | Default | Meaning |
+| --- | --- | --- |
+| `timeout` | 30 seconds | Connection/read inactivity, not a total deadline |
+| `retries` | 2 | Extra GET attempts for transient status, connection and read failures |
+| `max_requests` | 2,000 | Logical calls, including cache hits |
+| `max_attempts` | 2,000 | Network sends, including retries and redirects |
+| `max_download_bytes` | 100 MiB | Separate decoded received and delivered byte budgets |
+| `cache_ttl` | 0 | Seconds; zero disables caching |
+| `cache` | None | Optional explicit `ResponseCache` shared across clients |
+| `cache_namespace` | Empty string | Additional cache identity boundary |
+| `respect_retry_after` | True | Honor Retry-After, capped at 30 seconds |
+| `ca_bundle` | None | Explicit CA file or OpenSSL CA directory |
+| `proxy` | None | Explicit proxy URL |
+| `trust_env` | False | Opt into environment proxies, including NO_PROXY |
+
+For example, `http_client(timeout=60, max_download_bytes=250_000_000)` changes
+two defaults without constructing policy objects. A new client starts fresh
+budgets. Limit options accept nonnegative integers, or `None` for unlimited.
+Each client is serial and must not be shared between threads. `with` closes
+connections on success and exceptions; `.close()` is also available.
+
+Retries use 0.2/0.4-second backoff, transient statuses 429/500/502/503/504, and
+respect Retry-After when enabled. Decoding, certificate, redirect-policy and
+limit failures are not retried. At most five same-origin redirects are allowed;
+HTTPS downgrade is forbidden. Received bytes include decoded chunks from failed
+reads and error bodies. Delivered bytes include cache hits; each cached call
+consumes a logical request. Limits are checked after each decoded chunk, so
+these budgets do not promise an exact peak-memory bound.
+
+Caching is explicit opt-in. Without an explicit cache, storage belongs to the
+client and is bounded to 32 entries/32 MiB. To reuse public responses across
+client scopes, pass a `ResponseCache` imported from `dtcc_core.io`. TTL, version
+tokens, request identity and origin cache restrictions still apply.
+
+```python
+with http_client(cache_ttl=300) as http:
+    data = http.json(url, params={"date": day}, credentials={"apikey": api_key})
+```
+
+`credentials` is a mapping of query credentials; it disables caching even when
+TTL is enabled. Its names must not also occur in `params`. Authorization and
+cookie headers also disable caching. For other secrets or private data, use
+`public=False`. The client cannot identify credentials hidden in arbitrary URL,
+query or header fields. Do not put secrets in URL paths: diagnostic targets
+retain paths while stripping queries, fragments and user information.
+
+Catch `HttpTransportError` from `dtcc_core.io` for safe transport/decoding
+failures. `HttpLimitError` is its subclass and includes `resource`, `limit` and
+`observed` attributes, also available through `.metadata()`. Resources are
+`logical_requests`, `network_attempts`, `received_body_bytes` or
+`delivered_body_bytes`. Errors do not include query values, headers or body in
+their message/metadata. Raw `.error_body` is bounded to 8 KiB and requires
+caller sanitization. `.counters` exposes logical requests, attempts, cache hits
+and decoded received/delivered bytes; returned data is never mutated.
+
+Native HTTPX2 owns network I/O. Verification uses an explicit `ca_bundle`, then
+REQUESTS_CA_BUNDLE, then CURL_CA_BUNDLE, then certifi. CA directories must use
+OpenSSL's hashed layout. Certificate verification is always enabled. Environment
+proxies are disabled by default, matching the low-level Requests client; use
+`trust_env=True` to opt in. There is no backend-managed retry layer.
+
+## Lower-level operations
+
+`dtcc_core.io.data._http` also provides synchronous Requests `HttpClient` and
+asynchronous aiohttp `AsyncHttpClient` operations for explicit requests, uploads
+and caller-visible streams. This lower-level interface remains internal.
 
 The transport handles HTTP, response lifetime, retries, decoded-body budgets and
 optional public-response caching. Providers retain discovery, schema validation,
@@ -165,7 +266,8 @@ dependency versions; dependency upgrades must retain exact attempt accounting.
 
 ## Limits and diagnostics
 
-`Budget` optionally limits attempts, received bytes and delivered bytes. Counters
+`Budget` optionally limits logical requests (`max_requests`), attempts, received
+bytes and delivered bytes. Counters
 are client-local; shared budgets reserve attempts atomically across async tasks.
 Counters distinguish:
 
@@ -177,7 +279,7 @@ Counters distinguish:
 | received_body_bytes | Decoded chunks returned by the backend, including discarded/failed reads |
 | delivered_body_bytes | Complete buffered bytes or streamed chunks delivered to the caller |
 
-Cache hits consume delivery budgets but do not consume attempts or received-byte
+Cache hits consume logical-request and delivery budgets but do not consume attempts or received-byte
 budgets. Once a byte cap has been reached, new network sends are rejected. Crossing
 or failing a byte budget also blocks further reads by operations sharing it.
 An exact-boundary response may still finish its iteration to establish EOF;

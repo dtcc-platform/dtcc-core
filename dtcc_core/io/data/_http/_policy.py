@@ -12,6 +12,7 @@ from ._contracts import (
     _UNSET,
     Budget,
     Counters,
+    HttpLimitError,
     HttpTransportError,
     RedirectPolicy,
     RetryPolicy,
@@ -142,13 +143,21 @@ class Operation:
         self.attempts = self.retries = self.hops = self.size = 0
         self.local_errors = []
         state.counters.logical_requests += 1
+        self._consume("logical_requests", 1, None)
 
     def _consume(self, name, amount, phase):
         """Charge the shared budget, reporting this operation's attempts on failure."""
         try:
             self.state.budget.consume(name, amount, self.request)
-        except HttpTransportError:
-            raise self.error("resource_limit", phase=phase) from None
+        except HttpLimitError as exc:
+            raise HttpLimitError(
+                self.request,
+                exc.resource,
+                exc.limit,
+                exc.observed,
+                attempts=self.attempts,
+                phase=phase,
+            ) from None
 
     def attempt(self):
         self._consume("network_attempts", 1, "connect")
@@ -159,8 +168,15 @@ class Operation:
     def before_read(self):
         try:
             self.state.budget.before_read(self.request)
-        except HttpTransportError:
-            raise self.error("resource_limit", phase="read") from None
+        except HttpLimitError as exc:
+            raise HttpLimitError(
+                self.request,
+                exc.resource,
+                exc.limit,
+                exc.observed,
+                attempts=self.attempts,
+                phase="read",
+            ) from None
 
     def received(self, chunk, *, limited=True):
         """Account for a chunk; limited=False skips max_body_bytes, not budgets."""
@@ -168,7 +184,14 @@ class Operation:
         self.state.counters.received_body_bytes += len(chunk)
         self._consume("received_body_bytes", len(chunk), "read")
         if limited and self.limit is not None and self.size > self.limit:
-            raise self.error("resource_limit", phase="read")
+            raise HttpLimitError(
+                self.request,
+                "body_bytes",
+                self.limit,
+                self.size,
+                attempts=self.attempts,
+                phase="read",
+            )
 
     def delivered(self, size, *, phase="read"):
         self._consume("delivered_body_bytes", size, phase)
@@ -264,7 +287,9 @@ class State:
             if response.status not in operation.request.expected_status:
                 return None
             if operation.limit is not None and len(response.body) > operation.limit:
-                raise operation.error("resource_limit")
+                raise HttpLimitError(
+                    operation.request, "body_bytes", operation.limit, len(response.body)
+                )
             # A cache hit performs no network I/O, so its errors have no phase.
             operation.delivered(len(response.body), phase=None)
             self.counters.cache_hits += 1
