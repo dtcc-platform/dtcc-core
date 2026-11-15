@@ -149,19 +149,12 @@ def _get_json(url: str, timeout_s: float = 10.0) -> dict:
     RuntimeError
         If the request fails.
     """
-    try:
-        import requests
-    except ImportError:
-        raise RuntimeError(
-            "requests library required for hydrology dataset. "
-            "Install with: pip install requests"
-        )
+    from dtcc_core.io import HttpTransportError, http_client
 
     try:
-        response = requests.get(url, timeout=timeout_s)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
+        with http_client(timeout=timeout_s, retries=0) as http:
+            return http.json(url)
+    except HttpTransportError as e:
         raise DatasetDescriptor.build_upstream_error(
             "hydrology", "fetch_json", url, e
         ) from e

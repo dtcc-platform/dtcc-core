@@ -1025,6 +1025,23 @@ class DatasetDescriptor(ABC):
             elif isinstance(exc, requests.RequestException):
                 failure_class = "request"
 
+        from dtcc_core.io import HttpTransportError
+
+        if isinstance(exc, HttpTransportError):
+            target = exc.target
+            status_code = exc.status
+            failure_class = exc.kind
+            if exc.kind == "http_status":
+                failure_class = (
+                    "http_5xx"
+                    if status_code >= 500
+                    else "http_4xx"
+                    if status_code >= 400
+                    else "http_error"
+                )
+            elif exc.kind == "decoding":
+                failure_class = "invalid_payload"
+
         message = f"{dataset} {operation} failed for {target}: {exc}"
         return DatasetUpstreamError(
             dataset=dataset,

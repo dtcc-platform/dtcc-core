@@ -148,7 +148,15 @@ class Server:
 @pytest.fixture
 def server(monkeypatch, tmp_path):
     fake = Server()
-    monkeypatch.setattr(client.requests, "get", fake)
+
+    def send(http, operation):
+        operation.attempt()
+        try:
+            return fake(operation.request.url)
+        except requests.RequestException as exc:
+            raise operation.error(http._kind(exc)) from None
+
+    monkeypatch.setattr(client.HttpClient, "_send", send)
     monkeypatch.setattr(data_cache, "cache_dir", tmp_path / "cache")
     monkeypatch.delenv("DTCC_ORTHOPHOTO_URL", raising=False)
     return fake
@@ -159,7 +167,7 @@ def no_http(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("no request may be made")
 
-    monkeypatch.setattr(client.requests, "get", forbidden)
+    monkeypatch.setattr(client.HttpClient, "_send", forbidden)
 
 
 def tiff(
@@ -1210,7 +1218,7 @@ def test_canonical_package_keeps_the_calls_context_without_requests(
 ):
     serve_partial(server, tmp_path)
     raster = call()
-    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    monkeypatch.setattr(client.HttpClient, "_send", forbidden_get)
     package = raster.export(tmp_path / target, canonical=True)
     manifest = package.manifest.model_dump(mode="json")
     assert manifest["health"]["status"] == "partial"
@@ -1358,7 +1366,7 @@ def test_tile_collection_export_is_refused_on_every_path(
 ):
     server.add("a", cell(0), tiff(tmp_path, cell(0)))
     tiles = call(product="tiles")
-    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    monkeypatch.setattr(client.HttpClient, "_send", forbidden_get)
     out = tmp_path / "out"
     out.mkdir()
     export, expected, message = TILE_EXPORTS[name]
@@ -1375,7 +1383,7 @@ def test_tile_collection_exports_a_package_that_outlives_the_cache(
 ):
     server.add("a", cell(0), tiff(tmp_path, cell(0)))
     tiles = call(product="tiles")
-    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    monkeypatch.setattr(client.HttpClient, "_send", forbidden_get)
     expected = [tile.load() for tile in tiles]
     package = tiles.export(tmp_path / "out" / target, canonical=True)
     assert str(data_cache.cache_dir) not in package.manifest.model_dump_json()

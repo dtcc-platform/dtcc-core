@@ -130,7 +130,11 @@ interfaces below, without buffering the entire file. Stream retries stop once
 the caller receives the stream. A download workflow may retry into a fresh
 temporary file and atomically publish only a complete validated download.
 Caller-supplied clients remain caller-owned; factory-created clients belong in
-context managers.
+context managers. The upload client scopes its owned client to each upload.
+`DatasetUploadClient(session=...)` now accepts an `HttpClient`, whose timeout
+policy is used as-is. With no supplied client, `timeout=None` selects 30 seconds
+of connect/read inactivity; uploads no longer wait indefinitely by default.
+Tile lookup helpers likewise accept `HttpClient` instead of a Requests session.
 
 ## Lower-level operations
 

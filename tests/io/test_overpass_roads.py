@@ -5,70 +5,38 @@ from dtcc_core.model import Bounds
 
 
 def test_overpass_failover_does_not_warn_when_fallback_succeeds(monkeypatch):
-    warnings = []
+    from dtcc_core.io import HttpTransportError, Response
 
-    class Response:
-        def __init__(self, status_code, payload=None):
-            self.status_code = status_code
-            self._payload = payload or {}
+    warnings, calls = [], []
+    endpoints = ["https://first.test", "https://second.test"]
 
-        def json(self):
-            return self._payload
+    def request(client, req, **options):
+        calls.append(req)
+        if len(calls) == 1:
+            raise HttpTransportError(req, "http_status", status=406)
+        return Response(200, req.target, {}, b'{"elements": []}', req)
 
-    class Session:
-        def __init__(self):
-            self.responses = [
-                Response(406),
-                Response(200, {"elements": []}),
-            ]
-
-        def post(self, endpoint, data, timeout):
-            return self.responses.pop(0)
-
-    session = Session()
-    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1", "endpoint-2"])
-    monkeypatch.setattr(overpass, "create_retry_session", lambda: session)
-    monkeypatch.setattr(overpass, "warning", lambda message: warnings.append(message))
-
+    monkeypatch.setattr(overpass.HttpClient, "request", request)
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", endpoints)
+    monkeypatch.setattr(overpass, "warning", warnings.append)
     data = overpass.query_overpass_with_failover("[out:json];")
-
     assert data["elements"] == []
-    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-2"
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == endpoints[1]
     assert warnings == []
+    assert all(req.idempotent for req in calls)
+    assert dict(calls[0].headers) == {
+        "User-Agent": overpass.OVERPASS_USER_AGENT,
+        "Accept": "application/json",
+    }
+    assert dict(calls[0].form) == {"data": "[out:json];"}
 
 
-def test_overpass_uses_bounded_connect_and_read_timeouts(monkeypatch):
-    timeouts = []
-
-    class Response:
-        status_code = 200
-
-        def json(self):
-            return {"elements": []}
-
-    class Session:
-        def post(self, endpoint, data, timeout):
-            timeouts.append(timeout)
-            return Response()
-
-    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
-    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
-
-    data = overpass.query_overpass_with_failover(
-        "[out:json];",
-        connect_timeout=2.5,
-        read_timeout=7.5,
-    )
-
-    assert data["elements"] == []
-    assert timeouts == [(2.5, 7.5)]
-
-
-def test_overpass_retry_session_sets_user_agent():
-    session = overpass.create_retry_session()
-
-    assert session.headers["User-Agent"] == overpass.OVERPASS_USER_AGENT
-    assert session.headers["Accept"] == "application/json"
+def test_overpass_uses_bounded_connect_and_read_timeouts():
+    with overpass.create_retry_session(connect_timeout=2.5, read_timeout=7.5) as client:
+        assert client._state.timeout.connect == 2.5
+        assert client._state.timeout.read == 7.5
+        assert not client._state.retry.connect
+        assert not client._state.retry.read
 
 
 def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):

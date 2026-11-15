@@ -2,10 +2,11 @@
 
 import gzip
 import importlib.util
-import io
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -40,7 +41,11 @@ def test_live_sources_download_and_reuse_cache(downloader, tmp_path, monkeypatch
         )
     )
     monkeypatch.setattr(
-        downloader, "urlopen", lambda url, timeout: io.BytesIO(responses[url])
+        downloader,
+        "http_client",
+        lambda **options: nullcontext(
+            SimpleNamespace(bytes=lambda url: responses[url])
+        ),
     )
 
     downloader.main()
@@ -51,7 +56,7 @@ def test_live_sources_download_and_reuse_cache(downloader, tmp_path, monkeypatch
     def unexpected_download(*args, **kwargs):
         pytest.fail("Existing cached sources should not be downloaded again")
 
-    monkeypatch.setattr(downloader, "urlopen", unexpected_download)
+    monkeypatch.setattr(downloader, "http_client", unexpected_download)
     downloader.main()
 
 
@@ -66,7 +71,11 @@ def test_malformed_download_is_not_cached(downloader, tmp_path, monkeypatch):
         )
     )
     monkeypatch.setattr(
-        downloader, "urlopen", lambda url, timeout: io.BytesIO(b"<html>Error</html>")
+        downloader,
+        "http_client",
+        lambda **options: nullcontext(
+            SimpleNamespace(bytes=lambda url: b"<html>Error</html>")
+        ),
     )
 
     with pytest.raises(json.JSONDecodeError):

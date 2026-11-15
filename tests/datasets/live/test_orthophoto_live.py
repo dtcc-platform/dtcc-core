@@ -145,12 +145,12 @@ def test_orthophoto_live_mosaic_and_tiles(monkeypatch):
         raster = _strict_call()
         check_mosaic(raster, BOUNDS, cache_root)
         requests_made = []
-        real_get = client.requests.get
+        real_send = client.HttpClient._send
 
-        def recording_get(url, **kwargs):
-            requests_made.append(url)
-            return real_get(url, **kwargs)
+        def recording_send(http, operation):
+            requests_made.append(operation.request.url)
+            return real_send(http, operation)
 
-        monkeypatch.setattr(client.requests, "get", recording_get)
+        monkeypatch.setattr(client.HttpClient, "_send", recording_send)
         tiles = _strict_call(product="tiles")
         check_tiles(tiles, BOUNDS, cache_root, requests_made)

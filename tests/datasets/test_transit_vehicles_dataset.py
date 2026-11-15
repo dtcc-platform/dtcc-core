@@ -450,39 +450,31 @@ def test_missing_vasttrafik_credentials_strict_raises(monkeypatch):
     assert "VASTTRAFIK_AUTHENTICATION_KEY" in exc.value.message
 
 
-def test_vasttrafik_portal_credential_names_are_used():
+def test_vasttrafik_portal_credential_names_are_used(monkeypatch):
+    from dtcc_core.io import Request, Response
+    from dtcc_core.io._http_client import _HttpClient
+
     seen = {}
 
-    def fake_post(url, data=None, headers=None, auth=None, timeout=None):
-        seen["headers"] = headers
-        seen["auth"] = auth
+    def request(client, url, **options):
+        seen.update(options)
+        return Response(200, url, {}, b'{"access_token":"token"}', Request("POST", url))
 
-        class Response:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"access_token": "token"}
-
-        return Response()
-
-    fake_requests = type(
-        "Requests",
-        (),
-        {"post": staticmethod(fake_post)},
-    )
-
+    monkeypatch.setattr(_HttpClient, "request", request)
     module = importlib.import_module("dtcc_core.datasets.transport.vasttrafik")
-    module._fetch_token(
-        fake_requests,
-        authentication_key=module._resolve_authentication_key(
-            "Authorization: Basic copied-from-portal"
-        ),
-        timeout_s=1.0,
+    assert (
+        module._fetch_token(
+            authentication_key=module._resolve_authentication_key(
+                "Authorization: Basic copied-from-portal"
+            ),
+            timeout_s=1,
+        )
+        == "token"
     )
-
     assert seen["headers"] == {"Authorization": "Basic copied-from-portal"}
-    assert seen["auth"] is None
+    assert seen["form"] == {"grant_type": "client_credentials"}
+    assert seen["method"] == "POST"
+    assert seen["public"] is False
 
 
 def test_vasttrafik_v4_positions_are_parsed():
@@ -572,40 +564,22 @@ def test_trafiklab_static_route_metadata_normalizes_modes():
     assert routes["tram-1"]["mode"] == "tram"
 
 
-def test_vasttrafik_positions_403_explains_subscription():
-    class RequestException(Exception):
-        pass
+def test_vasttrafik_positions_403_explains_subscription(monkeypatch):
+    from dtcc_core.io import HttpTransportError, Request
+    from dtcc_core.io._http_client import _HttpClient
 
-    class HTTPError(RequestException):
-        def __init__(self):
-            self.response = type("Response", (), {"status_code": 403})()
+    def request(client, url, **options):
+        raise HttpTransportError(Request("GET", url), "http_status", status=403)
 
-    class Response:
-        def raise_for_status(self):
-            raise HTTPError()
-
-    Requests = type(
-        "Requests",
-        (),
-        {
-            "RequestException": RequestException,
-            "get": staticmethod(
-                lambda url, params=None, headers=None, timeout=None: Response()
-            ),
-        },
-    )
-
+    monkeypatch.setattr(_HttpClient, "request", request)
     module = importlib.import_module("dtcc_core.datasets.transport.vasttrafik")
-
     with pytest.raises(DatasetUpstreamError) as exc:
         module._fetch_positions(
-            Requests,
             token="token",
             bounds_wgs84=(11.9, 57.6, 12.1, 57.8),
             requested_modes=("bus",),
-            timeout_s=1.0,
+            timeout_s=1,
         )
-
     assert exc.value.status_code == 403
     assert "Planera Resa v4" in exc.value.message
     assert "Subscribe" in exc.value.message
@@ -623,3 +597,43 @@ def test_missing_trafiklab_key_strict_raises(monkeypatch):
             modes=("bus",),
             strict_live=True,
         )
+
+
+def test_static_gtfs_streams_archive_and_caches_routes(monkeypatch, tmp_path):
+    import io
+    import zipfile
+    from contextlib import contextmanager
+
+    from dtcc_core.io import HttpClient
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("routes.txt", "route_id,route_short_name,route_type\nr1,7,0\n")
+    payload = archive.getvalue()
+    calls, closed = [], []
+
+    class Stream:
+        def iter_bytes(self):
+            yield payload[:10]
+            yield payload[10:]
+
+    @contextmanager
+    def stream(client, request):
+        calls.append(request)
+        try:
+            yield Stream()
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(HttpClient, "stream", stream)
+    module = importlib.import_module("dtcc_core.datasets.transport.trafiklab_gtfs")
+    monkeypatch.setattr(
+        module, "_cached_routes_path", lambda *args: tmp_path / "routes.csv"
+    )
+    options = dict(operator="sl", feed="regional", api_key="secret", timeout_s=3)
+    first = module._fetch_route_metadata(**options)
+    assert first["r1"]["mode"] == "tram"
+    assert module._fetch_route_metadata(**options) == first
+    assert len(calls) == 1 and closed == [True]
+    assert dict(calls[0].params) == {"key": "secret"}
+    assert not calls[0].public

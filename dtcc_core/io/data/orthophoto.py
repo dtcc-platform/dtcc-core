@@ -11,6 +11,7 @@ import os
 import re
 import tempfile
 from collections.abc import Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
@@ -18,8 +19,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import rasterio
-import requests
 
+from dtcc_core.io import HttpClient, HttpTransportError, Request, Timeout
 from dtcc_core.io.raster_tiles import without_tracebacks
 from dtcc_core.model import Bounds
 from dtcc_core.model.values.raster_tiles import RasterTile, RasterTileCollection
@@ -114,7 +115,7 @@ def fetch_manifest(
     """Fetch and validate the manifest of items covering ``bounds``.
 
     ``bounds`` is ``(xmin, ymin, xmax, ymax)`` in EPSG:3006. An empty
-    ``spektraltyp`` leaves the server default. ``timeout`` is requests'
+    ``spektraltyp`` leaves the server default. ``timeout`` is a
     ``(connect, read)`` pair. Items keep manifest order.
     """
     try:
@@ -149,24 +150,16 @@ def fetch_manifest(
         )
 
     try:
-        response = requests.get(
-            url,
-            params=params,
-            timeout=timeout,
-            headers={"Accept": "application/json"},
-            allow_redirects=False,
-            stream=True,
-        )
-    except requests.RequestException as error:
+        with HttpClient(timeout=Timeout(*timeout)) as http:
+            response = http.get(
+                url,
+                params=params,
+                headers={"Accept": "application/json"},
+                expected_status={200},
+            )
+            body = response.body
+    except HttpTransportError as error:
         _raise_transport_error(error, fail)
-    try:
-        _check_status(response, fail)
-        try:
-            body = response.content
-        except requests.RequestException as error:
-            _raise_transport_error(error, fail, status_code=response.status_code)
-    finally:
-        response.close()
 
     try:
         payload = json.loads(body)
@@ -174,7 +167,7 @@ def fetch_manifest(
         raise fail(
             "Manifest is not valid JSON",
             "invalid_payload",
-            status_code=response.status_code,
+            status_code=response.status,
             detail=_bounded_text(body),
         ) from None
     try:
@@ -183,7 +176,7 @@ def fetch_manifest(
         raise fail(
             f"Invalid manifest: {error}",
             "invalid_payload",
-            status_code=response.status_code,
+            status_code=response.status,
         ) from None
 
 
@@ -206,7 +199,7 @@ def download_tile(
 
     ``progress(written, content_length)``, if given, is called once the
     response is accepted and after each chunk, with the bytes written so far
-    and the ``Content-Length`` (None when absent). An exception it raises
+    and the ``content-length`` (None when absent). An exception it raises
     propagates unchanged; the temporary file is removed.
     """
     base = _normalize_server_url(server_url)
@@ -229,21 +222,29 @@ def download_tile(
             detail=detail,
         )
 
+    stack = ExitStack()
     try:
-        response = requests.get(
-            url,
-            timeout=timeout,
-            headers={"Accept-Encoding": "identity"},
-            allow_redirects=False,
-            stream=True,
+        http = stack.enter_context(HttpClient(timeout=Timeout(*timeout)))
+        response = stack.enter_context(
+            http.stream(
+                Request(
+                    "GET",
+                    url,
+                    headers={"Accept-Encoding": "identity"},
+                    expected_status={200},
+                )
+            )
         )
-    except requests.RequestException as error:
+    except HttpTransportError as error:
+        stack.close()
         _raise_transport_error(error, fail)
+    except BaseException:
+        stack.close()
+        raise
     try:
-        _check_status(response, fail)
-        if "Content-Encoding" in response.headers:
+        if "content-encoding" in response.headers:
             raise fail(
-                f"Unexpected Content-Encoding {response.headers['Content-Encoding']!r}",
+                f"Unexpected content-encoding {response.headers['content-encoding']!r}",
                 "invalid_payload",
                 status_code=200,
             )
@@ -258,13 +259,13 @@ def download_tile(
         try:
             written = 0
             with open(fd, "wb") as output:
-                chunks = response.iter_content(chunk_size=1 << 20)
-                # Only reading the body maps requests errors, so an error from
+                chunks = response.iter_bytes(chunk_size=1 << 20)
+                # Only reading the body maps transport errors, so an error from
                 # the progress callback is never taken for a transport failure.
                 while True:
                     try:
                         chunk = next(chunks, None)
-                    except requests.RequestException as error:
+                    except HttpTransportError as error:
                         _raise_transport_error(error, fail, status_code=200)
                     if chunk is None:
                         break
@@ -280,7 +281,7 @@ def download_tile(
                 )
             if expected is not None and written > expected:
                 raise fail(
-                    f"Body has {written} bytes, Content-Length is {expected}",
+                    f"Body has {written} bytes, content-length is {expected}",
                     "invalid_payload",
                     status_code=200,
                 )
@@ -293,7 +294,7 @@ def download_tile(
                 pass
             raise
     finally:
-        response.close()
+        stack.close()
     return destination
 
 
@@ -423,33 +424,26 @@ def _normalize_server_url(server_url: str) -> str:
 
 def _raise_transport_error(error, fail, status_code=None):
     """Raise a client error for a transport failure, else re-raise ``error``."""
-    if isinstance(error, requests.Timeout):
-        failure_class = "timeout"
-        message = f"Request timed out ({NETWORK_HINT}): {error}"
-    elif isinstance(
-        error, (requests.ConnectionError, requests.exceptions.ChunkedEncodingError)
-    ):
-        failure_class = "connection"
-        message = f"Connection failed ({NETWORK_HINT}): {error}"
-    elif isinstance(error, requests.exceptions.ContentDecodingError):
-        failure_class, message = "invalid_payload", f"Undecodable body: {error}"
-    else:
-        raise error
-    raise fail(message, failure_class, status_code=status_code) from None
+    status = error.status if error.status is not None else status_code
+    if error.kind in {"http_status", "redirect_policy"}:
+        _check_status(status, _bounded_text(error.error_body), fail)
+    failure_class = "invalid_payload" if error.kind == "decoding" else error.kind
+    label = {"timeout": "Request timed out", "connection": "Connection failed"}.get(
+        error.kind, "Request failed"
+    )
+    raise fail(
+        f"{label} ({NETWORK_HINT}): {error}", failure_class, status_code=status
+    ) from None
 
 
-def _check_status(response, fail):
-    status = response.status_code
+def _check_status(status, detail, fail):
     if status == 200:
         return
-    detail = _bounded_text(_read_bounded(response))
-    if 300 <= status < 400:
-        location = response.headers.get("Location", "")
+    if status is not None and 300 <= status < 400:
         raise fail(
-            f"Unexpected redirect (HTTP {status}) to {location!r}",
+            f"Unexpected redirect (HTTP {status})",
             "invalid_payload",
             status_code=status,
-            detail=detail,
         )
     explanation = ""
     if status == 503 and _json_detail(detail) == CREDENTIALS_MISSING_DETAIL:
@@ -473,7 +467,7 @@ def _check_status(response, fail):
 
 
 def _content_length(response, fail) -> int | None:
-    value = response.headers.get("Content-Length")
+    value = response.headers.get("content-length")
     if value is None:
         return None
     try:
@@ -482,7 +476,7 @@ def _content_length(response, fail) -> int | None:
     except ValueError:
         pass
     raise fail(
-        f"Malformed Content-Length {value!r}", "invalid_payload", status_code=200
+        f"Malformed content-length {value!r}", "invalid_payload", status_code=200
     )
 
 
@@ -525,18 +519,6 @@ def _check_geotiff(path: Path, item: OrthophotoItem, fail) -> None:
             "invalid_payload",
             status_code=200,
         )
-
-
-def _read_bounded(response) -> bytes:
-    data = b""
-    try:
-        for chunk in response.iter_content(chunk_size=MAX_DETAIL_CHARS):
-            data += chunk
-            if len(data) >= MAX_DETAIL_CHARS:
-                break
-    except requests.RequestException:
-        pass
-    return data[:MAX_DETAIL_CHARS]
 
 
 def _bounded_text(data: bytes) -> str:
