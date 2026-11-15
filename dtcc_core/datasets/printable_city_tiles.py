@@ -12,7 +12,8 @@ from typing import Literal
 
 import numpy as np
 from pydantic import Field, field_validator
-from pyproj import Transformer
+from pyproj import CRS, Transformer
+from pyproj.exceptions import ProjError
 
 from ..builder.geometry_builders.printable_tiles import (
     BASE_HEIGHT_MM,
@@ -38,6 +39,7 @@ MAX_TILES = 64
 MAX_SPAN_M = 5000
 SOURCE_MARGIN_M = 6
 BASE_FILE = Path(__file__).with_name("data") / "printable_base_200.stl"
+PRINT_BACKUP_NAME = ".dtcc-print-previous"
 
 
 class PrintableCityTilesArgs(DatasetBaseArgs):
@@ -75,6 +77,11 @@ class PrintableCityTilesArgs(DatasetBaseArgs):
     anchor_z: float = Field(
         0, description="Reference elevation for base steps in metres"
     )
+    mounting_elevation_m: float | None = Field(
+        None,
+        allow_inf_nan=False,
+        description="Shared elevation at the bottom of the base stacks in metres",
+    )
 
     @field_validator("bounds")
     @classmethod
@@ -106,8 +113,6 @@ class PrintableCityTilesDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Object"
-    supported_formats = ["stl", "geojson"]
-    multi_file_formats = ("stl",)
     default_crs = WORKING_CRS
     geographic_coverage = "Sweden, subject to terrain and building source coverage"
     update_frequency = "derived on demand from upstream source data"
@@ -124,7 +129,6 @@ class PrintableCityTilesDataset(DatasetDescriptor):
         {
             "name": "DTCC Table ribbed base",
             "role": "base_tile_geometry",
-            "url": "https://github.com/dtcc-platform/dtcc-table/tree/main/base_tiles",
         },
     ]
     derived_from = [
@@ -150,19 +154,22 @@ class PrintableCityTilesDataset(DatasetDescriptor):
     def describe(self):
         """Describe the Dataset and the formats of its assembly exports."""
         descriptor = super().describe()
-        descriptor["serialization"]["bytes_when_format_is_set"] = False
+        descriptor["stl_export"] = {
+            "method": "export_stl",
+            "folder_parameter": "folder",
+        }
         return descriptor
 
     def export(self, path, **kwargs):
         """Direct callers to the multi-file export or canonical assembly package."""
         raise ValueError(
-            "Use export_stls(folder, **selection) for STLs or "
+            "Use export_stls(folder=..., **selection) for STLs or "
             "export(path, canonical=True) on the built assembly for a package"
         )
 
     def export_stls(
         self,
-        directory: str | Path,
+        folder: str | Path,
         *,
         tiles: Object | None = None,
         overwrite: bool = False,
@@ -177,9 +184,9 @@ class PrintableCityTilesDataset(DatasetDescriptor):
         if tiles is not None and kwargs:
             raise ValueError("Pass either built tiles or Dataset arguments")
         if tiles is None:
-            _print_destination(directory, overwrite=overwrite)
+            _print_destination(folder, overwrite=overwrite)
             tiles = self(**kwargs)
-        return tiles.export_stl(folder=directory, overwrite=overwrite)
+        return tiles.export_stl(folder=folder, overwrite=overwrite)
 
     def create_context(self, args):
         """Record the assembly CRS alongside the original area parameters."""
@@ -218,14 +225,34 @@ def _snap_index(value, origin, pitch, rounding):
     return nearest if abs(index - nearest) <= 1e-9 else rounding(index)
 
 
+def _mounting_step(args):
+    if args.mounting_elevation_m is None:
+        return None
+    step_height = BASE_HEIGHT_MM * (args.scale / 1000)
+    steps = (args.mounting_elevation_m - args.anchor_z) / step_height
+    if math.isfinite(steps) and abs(steps - round(steps)) <= 1e-8:
+        return round(steps)
+    raise ValueError(
+        "mounting_elevation_m must be a whole number of base steps from anchor_z "
+        f"({step_height:g} m per step)"
+    )
+
+
 def _layout(args):
+    _mounting_step(args)
     bounds = args.bounds
     if args.crs == "EPSG:4326":
         west, south, east, north = bounds
-        if not (-180 <= west < east <= 180 and -90 < south < north < 90):
-            raise ValueError("WGS84 bounds must be an ordered longitude/latitude area")
+        w, s, e, n = CRS(WORKING_CRS).area_of_use.bounds
+        if not (w <= west < east <= e and s <= south < north <= n):
+            raise ValueError("WGS84 bounds are outside the EPSG:3006 area of use")
         transformer = Transformer.from_crs(args.crs, WORKING_CRS, always_xy=True)
-        bounds = transformer.transform_bounds(*bounds, densify_pts=21, errcheck=True)
+        try:
+            bounds = transformer.transform_bounds(
+                *bounds, densify_pts=21, errcheck=True
+            )
+        except ProjError as exc:
+            raise ValueError("Could not transform WGS84 bounds to EPSG:3006") from exc
     xmin, ymin, xmax, ymax = validate_2d_bounds(bounds)
     pitch = args.tile_size_mm * (args.scale / 1000)
     if pitch > MAX_SPAN_M or max(xmax - xmin, ymax - ymin) > MAX_SPAN_M:
@@ -347,13 +374,22 @@ def _realization(layout, args, surface):
 def _place_tiles(assembly, layout, args, bottoms):
     x0, y0 = layout["bounds"][:2]
     tiles = layout["tiles"]
-    datum = min(bottoms)
+    lowest = min(bottoms)
+    mounting_step = _mounting_step(args)
+    datum = lowest if mounting_step is None else mounting_step + 1
     metres_per_mm = args.scale / 1000
-    z0 = args.anchor_z + datum * BASE_HEIGHT_MM * metres_per_mm
+    step_height = BASE_HEIGHT_MM * metres_per_mm
+    if datum > lowest:
+        max_mounting_elevation = args.anchor_z + (lowest - 1) * step_height
+        raise ValueError(
+            "mounting_elevation_m must be low enough for at least one base "
+            f"under each tile (at most {max_mounting_elevation:g} m for this area)"
+        )
+    z0 = args.anchor_z + datum * step_height
     affine = np.diag([metres_per_mm, metres_per_mm, metres_per_mm, 1.0])
     affine[:3, 3] = [x0, y0, z0]
     assembly.transform = Transform(srs=WORKING_CRS, affine=affine)
-    layout["mounting_elevation_m"] = z0 - BASE_HEIGHT_MM * metres_per_mm
+    layout["mounting_elevation_m"] = args.anchor_z + (datum - 1) * step_height
     layout["base_tile"]["count"] = sum(bottom - datum + 1 for bottom in bottoms)
     for child, tile, bottom in zip(
         assembly.get_children(Object), tiles, bottoms, strict=True
@@ -403,9 +439,20 @@ def _print_destination(folder, *, overwrite):
     path = Path(folder)
     if path.is_symlink() or (path.exists() and not path.is_dir()):
         raise FileExistsError(f"Print output path must be a directory: {path}")
+    backup = path / PRINT_BACKUP_NAME
+    if backup.exists() or backup.is_symlink():
+        raise _print_backup_conflict(backup)
     if path.exists() and not overwrite:
         raise FileExistsError(f"Choose a new print output folder: {path}")
     return path
+
+
+def _print_backup_conflict(backup):
+    return FileExistsError(
+        f"A print export is active or was interrupted: {backup}. "
+        "Once no export is running, restore any files you need from the backup "
+        "and move it aside before retrying."
+    )
 
 
 def _export_stl(assembly, folder, *, overwrite):
@@ -455,8 +502,11 @@ def _publish_print_files(stage, path, *, overwrite):
         created = False
 
     # Exclusive directory creation also serializes writers to the same folder.
-    backup = path / ".dtcc-print-previous"
-    backup.mkdir()
+    backup = path / PRINT_BACKUP_NAME
+    try:
+        backup.mkdir()
+    except FileExistsError as exc:
+        raise _print_backup_conflict(backup) from exc
     moved = []
     published = []
     try:

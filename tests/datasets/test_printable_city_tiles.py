@@ -15,6 +15,7 @@ from dtcc_core.builder.geometry_builders.printable_tiles import (
     _build_printable_tile,
     _validate_solid,
 )
+from dtcc_core.datasets.presentation import _requested_domain_label
 from dtcc_core.model import Mesh, Object
 from tests.datasets.test_export_matrix import SITE, X0, Y0, _site
 
@@ -40,6 +41,24 @@ def test_layout_projects_the_selection_without_acquisition(no_network):
     assert shapely.union_all(tiles).covers(drawn)
     lon, lat = preview["features"][0]["geometry"]["coordinates"][0][0]
     assert transform.transform(lon, lat) == pytest.approx(tiles[0].bounds[:2], abs=1e-7)
+
+
+@pytest.mark.parametrize(
+    "bounds", [(-75.001, -0.001, -74.999, 0.001), (-122.42, 37.77, -122.419, 37.771)]
+)
+def test_layout_rejects_geographic_bounds_outside_projection(bounds, no_network):
+    with pytest.raises(ValueError, match="outside the EPSG:3006 area of use"):
+        datasets.printable_city_tiles.layout(bounds=bounds, crs="EPSG:4326")
+
+
+def test_geographic_request_displays_metric_domain(no_network):
+    dataset = datasets.printable_city_tiles
+    bounds = (11.9628935, 57.6967012, 11.9632135, 57.6968887)
+    args = dataset.validate(dict(bounds=bounds, crs="EPSG:4326"))
+    context = dataset.create_context(args)
+    assert context.request.bounds == list(bounds)
+    assert context.metadata.crs == ["EPSG:3006"]
+    assert _requested_domain_label(context) == "19 m x 21 m"
 
 
 @pytest.mark.parametrize(
@@ -138,6 +157,33 @@ def test_base_changes_pitch_and_retains_the_corner_geometry(monkeypatch, tmp_pat
             assert np.count_nonzero(np.isclose(radius, 5.0, atol=2e-5)) == 32
 
 
+def test_neighboring_jobs_use_the_same_mounting_elevation(monkeypatch, no_network):
+    for target, provider in _site(slope=0.1).items():
+        monkeypatch.setattr(target, provider)
+    dataset = datasets.printable_city_tiles
+    options = dict(scale=100, grid_origin=(X0, Y0), anchor_z=0)
+    west = (X0, Y0, X0 + 20, Y0 + 20)
+    east = (X0 + 20, Y0, X0 + 40, Y0 + 20)
+    joint = (X0, Y0, X0 + 40, Y0 + 20)
+    combined = dataset(bounds=joint, **options).attributes["layout"]
+    elevation = combined["mounting_elevation_m"]
+    assert elevation == pytest.approx(6.0)
+
+    for index, bounds in enumerate((west, east)):
+        separate = dataset(bounds=bounds, mounting_elevation_m=elevation, **options)
+        layout = separate.attributes["layout"]
+        [tile] = layout["tiles"]
+        assert layout["mounting_elevation_m"] == elevation
+        assert tile["base_stack_count"] == index + 1
+        assert tile["base_stack_count"] == combined["tiles"][index]["base_stack_count"]
+        assert tile["base_elevation_m"] == combined["tiles"][index]["base_elevation_m"]
+
+    with pytest.raises(ValueError, match="whole number of base steps"):
+        dataset.layout(bounds=west, mounting_elevation_m=elevation + 0.5, **options)
+    with pytest.raises(ValueError, match="at least one base under each tile"):
+        dataset(bounds=west, mounting_elevation_m=elevation + 2.0, **options)
+
+
 def test_export_stls_writes_the_print_files_directly(monkeypatch, tmp_path, no_network):
     for target, provider in _site().items():
         monkeypatch.setattr(target, provider)
@@ -191,7 +237,7 @@ def test_overwrite_print_export_replaces_the_tile_set(
     unrelated.write_bytes(b"another print")
 
     smaller = dataset(bounds=SITE, scale=300)
-    assert dataset.export_stls(folder, tiles=smaller, overwrite=True) == folder
+    assert dataset.export_stls(folder=folder, tiles=smaller, overwrite=True) == folder
     assert {path.name for path in folder.iterdir()} == {
         "tile_0_0.stl",
         "base_tile.stl",
@@ -230,11 +276,32 @@ def test_fractional_tile_size_preserves_cut_planes():
 def test_print_formats_describe_assembly_exports(tmp_path, no_network):
     dataset = datasets.printable_city_tiles
     described = dataset.describe()
-    assert described["multi_file_formats"] == ["stl"]
+    assert described["supported_formats"] == []
+    assert described["formats"] == []
+    assert described["multi_file_formats"] == []
+    assert described["stl_export"] == {
+        "method": "export_stl",
+        "folder_parameter": "folder",
+    }
+    [capability] = described["export"]
+    assert capability["canonical"]
+    assert capability["web_formats"] == ["geojson"]
     assert not described["serialization"]["bytes_when_format_is_set"]
     assert not described["serialization"]["format_parameter"]
     with pytest.raises(ValueError, match="export_stls"):
         dataset.export(tmp_path / "print.stl", bounds=SITE)
+
+
+@pytest.mark.parametrize("path, fmt", [("assembly.dtccpkg", None), ("out", "geojson")])
+def test_legacy_print_package_fails_before_writing(
+    path, fmt, monkeypatch, tmp_path, no_network
+):
+    for target, provider in _site().items():
+        monkeypatch.setattr(target, provider)
+    tiles = datasets.printable_city_tiles(bounds=SITE, scale=300)
+    with pytest.raises(ValueError, match="canonical=True"):
+        tiles.export(tmp_path / path, format=fmt)
+    assert not (tmp_path / path).exists()
 
 
 def test_print_export_matches_tile_ids(monkeypatch, tmp_path, no_network):
@@ -273,6 +340,21 @@ def test_print_export_preserves_a_destination_created_during_staging(
     with pytest.raises(FileExistsError):
         tiles.export_stl(folder=destination)
     assert list(destination.iterdir()) == []
+
+
+def test_interrupted_print_export_explains_how_to_recover(tmp_path, no_network):
+    folder = tmp_path / "print"
+    backup = folder / ".dtcc-print-previous"
+    backup.mkdir(parents=True)
+    layout = backup / "layout.json"
+    layout.write_bytes(b"old layout")
+
+    with pytest.raises(FileExistsError, match="move it aside before retrying") as exc:
+        datasets.printable_city_tiles.export_stls(
+            folder=folder, bounds=SITE, overwrite=True
+        )
+    assert str(backup) in str(exc.value)
+    assert layout.read_bytes() == b"old layout"
 
 
 @pytest.mark.parametrize("overwrite", [False, True])

@@ -475,6 +475,10 @@ For a generated download:
    GeoJSON), the constraints and options of each format, and the reasons a
    product has no web format.
 
+For printable city tiles, `describe()["stl_export"]` identifies the
+`export_stl(folder=...)` method on the realized assembly. Its canonical
+package includes the printable files and `artifacts/preview.geojson`.
+
 Creating Custom Datasets
 ------------------------
 

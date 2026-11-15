@@ -128,6 +128,9 @@ A package is a directory or a `.dtccpkg` archive with:
   samples. GeoJSON can substantially increase package size, export time and
   parsing cost; the overhead depends on the data. Leave out `format=` when no
   map view is needed.
+- A printable city tiles package always includes multiple artifacts with role
+  `derived`, including `artifacts/preview.geojson`, `artifacts/layout.json`,
+  `artifacts/base_tile.stl` and one STL per city tile.
 - For a `RasterTileCollection`, one artifact with role `tile` and format
   `tif` per tile, under `artifacts/tiles/`. The model refers to the tiles by
   these package-relative paths. The tiles reload after the original cache is
@@ -138,7 +141,9 @@ manifest fields.
 
 ## Consumer steps
 
-Read `manifest.json`, find the artifact with role `derived`, and check its
+Read `manifest.json` and select the `derived` artifact by format. Printable
+city tile packages use `artifacts/preview.geojson` for the map preview and
+list the tile files in `artifacts/layout.json`. Check each selected artifact's
 size and SHA-256 digest before use.
 
 ### GeoJSON

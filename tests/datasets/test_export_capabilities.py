@@ -66,9 +66,7 @@ def _export(model, tmp_path, label, **options):
 
 
 def _derived(package):
-    [artifact] = [
-        a for a in package.artifacts if a.role == "derived" and a.format in WEB_FORMATS
-    ]
+    [artifact] = [a for a in package.artifacts if a.role == "derived"]
     return artifact
 
 
@@ -137,18 +135,24 @@ def test_canonical_matches_the_populated_fixture(name, entry, tmp_path):
     assert type(restored) is type(model)
 
 
-@pytest.mark.parametrize(("name", "entry"), ENTRIES)
+@pytest.mark.parametrize(
+    ("name", "entry"),
+    [param for param in ENTRIES if param.values[0] != "printable_city_tiles"],
+)
 def test_empty_instance_exports_canonically_and_refuses_images(name, entry, tmp_path):
     model = build(name, entry["product"], "empty", tmp_path)
-    if name == "printable_city_tiles":
-        with pytest.raises(ValueError, match="realized print layout"):
-            _export(model, tmp_path, "pkg")
-        return
     if entry["canonical"]:
         load_model_package(_export(model, tmp_path, "pkg").path)
     for fmt in {"png", "tif"} & set(entry["web_formats"]):
         with pytest.raises(ValueError, match="empty|no samples|no valid pixels"):
             _export(model, tmp_path, fmt, format=fmt)
+
+
+def test_empty_print_assembly_requires_a_realized_layout(tmp_path):
+    model = build("printable_city_tiles", None, "empty", tmp_path)
+    with pytest.raises(ValueError, match="realized print layout"):
+        _export(model, tmp_path, "pkg")
+    assert not (tmp_path / "pkg").exists()
 
 
 @pytest.mark.parametrize("name", ["terrain_surface_mesh", "trees"])
@@ -167,7 +171,17 @@ def test_advertised_web_format_succeeds(name, entry, fmt, tmp_path):
     model = build(name, entry["product"], "populated", tmp_path)
     package = _export(model, tmp_path, "pkg", format=fmt)
     load_model_package(package.path)
-    artifact = _derived(package)
+    if name == "printable_city_tiles":
+        artifacts = {a.path: a for a in package.artifacts if a.role == "derived"}
+        assert {path: a.format for path, a in artifacts.items()} == {
+            "artifacts/base_tile.stl": "stl",
+            "artifacts/tile_0_0.stl": "stl",
+            "artifacts/layout.json": "json",
+            "artifacts/preview.geojson": "geojson",
+        }
+        artifact = artifacts["artifacts/preview.geojson"]
+    else:
+        artifact = _derived(package)
     assert artifact.format == fmt
     if fmt == "geojson":
         assert artifact.crs == "EPSG:4326"

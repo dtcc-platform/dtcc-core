@@ -14,6 +14,7 @@ selection = dict(
     min_building_detail=0.5,  # Building footprint conditioning scale in metres.
     grid_origin=None,  # Set to (easting, northing) in EPSG:3006 to align jobs.
     anchor_z=0,  # Reference elevation for base steps, in metres.
+    mounting_elevation_m=None,  # Reuse the table elevation from layout.json.
 )
 
 tiles = dtcc.datasets.printable_city_tiles(**selection)

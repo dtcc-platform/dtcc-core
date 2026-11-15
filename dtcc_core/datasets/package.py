@@ -181,6 +181,11 @@ def export_model_package(
         return _export_canonical_package(
             obj, Path(path), _normalize_format(format), validate_schema, options
         )
+    if context.identity.name == "printable_city_tiles":
+        raise ValueError(
+            "Use export(path, canonical=True) for a printable city tiles package "
+            "or export_stl(folder=...) for STLs"
+        )
 
     if validate_schema is not True:
         raise ValueError(
