@@ -32,6 +32,7 @@ WORKFLOW_DEMOS = (
     "create_cityjson.py",
     "view_cityjson.py",
     "view_pointcloud.py",
+    "weather_history.py",
 )
 
 TABLE_DEMO_MAPPING = {
