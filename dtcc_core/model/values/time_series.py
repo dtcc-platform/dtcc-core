@@ -608,6 +608,49 @@ class TimeSeries(Model):
 
     # Inspection
 
+    def plot(
+        self,
+        ax=None,
+        *,
+        elements=None,
+        component=None,
+        title=None,
+        theme="dark",
+        show=True,
+        **kwargs,
+    ):
+        """Plot values against UTC time and return a Matplotlib 2D axes.
+
+        ``elements`` selects one nonnegative element index or a sequence of
+        indices; None selects all elements. For vectors, ``component=None``
+        draws every component, an integer selects one, and ``"magnitude"``
+        draws the Euclidean norm. Scalars accept None, 0 or ``"magnitude"``.
+
+        At most 20 curves and 1,000,000 plotted values are allowed per call.
+        Select fewer elements/components or use ``between()`` / ``resample()``
+        for larger inputs. No samples are silently dropped or interpolated.
+        Nonfinite values break lines. Empty selections and selections without
+        finite values raise ValueError. Single-timestamp series get markers.
+
+        ``ax`` permits overlays, ``theme`` selects DTCC styling, and
+        ``show=False`` suppresses display. ``title`` overrides the series name.
+        Other keyword arguments are passed to Matplotlib's ``Axes.plot``.
+        Date-axis rendering does not preserve nanosecond visual precision.
+        See docs/model-preview.md for examples and selection limits.
+        """
+        from ...plotting.time_series import _plot_time_series
+
+        return _plot_time_series(
+            self,
+            ax=ax,
+            elements=elements,
+            component=component,
+            title=title,
+            theme=theme,
+            show=show,
+            **kwargs,
+        )
+
     def __len__(self):
         return self._length
 
