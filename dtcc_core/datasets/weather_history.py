@@ -15,7 +15,7 @@ from pydantic import (
 )
 from pyproj import CRS
 
-from ..model import Bounds, Point, TimeSeriesCollection
+from ..model import Bounds, Point, TimeSeries, TimeSeriesCollection
 from ..reproject.reproject import reproject_array
 from ._weather_history import (
     NoMatchingStation,
@@ -32,18 +32,11 @@ from .providers import provider_entry
 from .weather import PARAMETER_NAMES, _resolve_parameter
 
 _NAMES = ("air_temperature", "wind_speed", "wind_direction")
+_UNITS = dict(zip(_NAMES, ("celsius", "m/s", "degrees"), strict=True))
 
 
-class WeatherHistoryDatasetArgs(BaseModel):
-    """Historical-weather arguments; XY locations default to SWEREF99 TM.
-
-    ``location`` accepts a coordinate tuple, Point, or Bounds. Bounds use their
-    horizontal center in the input CRS. A three-coordinate tuple ignores Z.
-    ``start`` is included and ``end`` excluded; naive times mean UTC.
-    SMHI requires ``max_distance_m`` and selects one station for all parameters.
-    Open-Meteo samples ERA5 at the requested location and preserves its returned
-    grid coordinates separately. Neither source interpolates station readings.
-    """
+class _WeatherHistoryQueryArgs(BaseModel):
+    """Point, parameter and transport settings shared by fetching and discovery."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -52,18 +45,13 @@ class WeatherHistoryDatasetArgs(BaseModel):
         description="Coordinate tuple, Point or Bounds center, interpreted in crs (default SWEREF99 TM)"
     )
     crs: str = "EPSG:3006"
-    start: str
-    end: str
-    parameters: list[str] = Field(default_factory=lambda: list(_NAMES))
+    parameters: str | list[str] = Field(default_factory=lambda: list(_NAMES))
     max_distance_m: FiniteFloat | None = Field(None, gt=0)
     model: Literal["era5"] | None = None
     strict_live: bool = False
     timeout_s: FiniteFloat = Field(30.0, gt=0)
-    max_days: int = Field(3660, gt=0)
     max_requests: int = Field(2000, gt=0)
     max_download_bytes: int = Field(100 * 1024 * 1024, gt=0)
-    max_observations: int = Field(2_000_000, gt=0)
-    chunk_days: int = Field(31, ge=1, le=366)
     cache_ttl_s: FiniteFloat = Field(300.0, ge=0)
     api_key: str | None = Field(None, exclude=True, repr=False)
     _wgs84: tuple[float, float] = PrivateAttr()
@@ -99,24 +87,15 @@ class WeatherHistoryDatasetArgs(BaseModel):
             raise ValueError("Use a horizontal projected or geographic CRS")
         return crs.to_string()
 
-    @field_validator("start", "end", mode="before")
-    @classmethod
-    def _time(cls, value):
-        try:
-            stamp = _stamp(value)
-            if np.isnat(stamp):
-                raise ValueError("NaT is not a request boundary")
-            return str(stamp)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Expected a finite UTC-compatible datetime") from exc
-
     @field_validator("parameters", mode="before")
     @classmethod
     def _parameters(cls, value):
-        if not isinstance(value, (list, tuple)) or not value:
-            raise ValueError("parameters must be a non-empty list")
+        scalar = isinstance(value, str)
+        items = [value] if scalar else value
+        if not isinstance(items, (list, tuple)) or not items:
+            raise ValueError("parameters must be a parameter string or non-empty list")
         names = []
-        for item in value:
+        for item in items:
             if isinstance(item, (bool, np.bool_)):
                 raise ValueError("Weather parameter IDs cannot be booleans")
             name = PARAMETER_NAMES.get(_resolve_parameter(item))
@@ -124,15 +103,17 @@ class WeatherHistoryDatasetArgs(BaseModel):
                 raise ValueError(f"Historical weather supports {', '.join(_NAMES)}")
             if name not in names:
                 names.append(name)
-        return names
+        return names[0] if scalar else names
+
+    @property
+    def parameter_names(self):
+        """Normalized parameter names for provider iteration, regardless of return type."""
+        return (
+            [self.parameters] if isinstance(self.parameters, str) else self.parameters
+        )
 
     @model_validator(mode="after")
-    def _request(self):
-        duration = _ns(self.end) - _ns(self.start)
-        if duration <= 0:
-            raise ValueError("Expected start < end")
-        if duration > self.max_days * 86_400_000_000_000:
-            raise WeatherHistoryLimitError("Historical weather exceeded max_days")
+    def _query(self):
         if self.source == "smhi":
             if self.max_distance_m is None:
                 raise ValueError("SMHI requires max_distance_m")
@@ -160,11 +141,47 @@ class WeatherHistoryDatasetArgs(BaseModel):
         return self
 
 
+class WeatherHistoryDatasetArgs(_WeatherHistoryQueryArgs):
+    """Historical weather at a point, with a half-open UTC time range.
+
+    Locations use SWEREF99 TM by default; Bounds use their center and Z is ignored.
+    SMHI selects one station for all parameters within max_distance_m. Open-Meteo
+    samples ERA5. A parameter string selects a TimeSeries; lists/tuples select a
+    collection. Naive times mean UTC and nanosecond precision is retained.
+    """
+
+    start: str
+    end: str
+    max_days: int = Field(3660, gt=0)
+    max_observations: int = Field(2_000_000, gt=0)
+    chunk_days: int = Field(31, ge=1, le=366)
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _time(cls, value):
+        try:
+            stamp = _stamp(value)
+            if np.isnat(stamp):
+                raise ValueError("NaT is not a request boundary")
+            return str(stamp)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Expected a finite UTC-compatible datetime") from exc
+
+    @model_validator(mode="after")
+    def _request(self):
+        duration = _ns(self.end) - _ns(self.start)
+        if duration <= 0:
+            raise ValueError("Expected start < end")
+        if duration > self.max_days * 86_400_000_000_000:
+            raise WeatherHistoryLimitError("Historical weather exceeded max_days")
+        return self
+
+
 class WeatherHistoryDataset(DatasetDescriptor):
     """Historical station observations or ERA5 series at a query location.
 
-    Returns a TimeSeriesCollection with one scalar TimeSeries per parameter.
-    Keys are ("smhi:<station_id>", parameter) or
+    A parameter string returns a TimeSeries; a list returns a TimeSeriesCollection.
+    Collection keys are ("smhi:<station_id>", parameter) or
     ("open_meteo:location", parameter). SMHI selection metadata reports the actual
     station location and maximum geodesic distance over the requested interval.
     """
@@ -177,7 +194,9 @@ class WeatherHistoryDataset(DatasetDescriptor):
     ArgsModel = WeatherHistoryDatasetArgs
     data_category = "raw"
     result_kind = "time_series_collection"
-    python_return_type = "dtcc_core.model.TimeSeriesCollection"
+    python_return_type = (
+        "dtcc_core.model.TimeSeries | dtcc_core.model.TimeSeriesCollection"
+    )
     export_capabilities = [
         {
             "product": None,
@@ -208,7 +227,7 @@ class WeatherHistoryDataset(DatasetDescriptor):
         },
     ]
     license = "CC BY 4.0 data with attribution; Open-Meteo hosted API access has separate usage terms."
-    data_types = ["time_series_collection", "weather_history"]
+    data_types = ["time_series", "time_series_collection", "weather_history"]
     update_frequency = "Provider-specific archive updates; fetched on demand"
     geographic_coverage = (
         "Swedish SMHI stations; global ERA5 grid sampling through Open-Meteo"
@@ -223,6 +242,51 @@ class WeatherHistoryDataset(DatasetDescriptor):
         "Preserve source provenance and quality; filter observations to the requested half-open UTC interval",
         "Return one TimeSeries per parameter with output-CRS location metadata",
     ]
+
+    def availability(
+        self,
+        *,
+        source,
+        location,
+        crs="EPSG:3006",
+        max_distance_m=None,
+        parameters=None,
+        include_historical_locations=False,
+        strict_live=False,
+        timeout_s=30,
+        max_requests=2000,
+        max_download_bytes=100 * 1024 * 1024,
+        cache_ttl_s=300,
+    ):
+        """Discover advertised parameter periods at a point as JSON-safe dictionaries.
+
+        SMHI uses catalogue-position candidates within max_distance_m, then clips
+        archive periods to station position history. include_historical_locations
+        scans every station's history, including stations now outside the radius.
+        Open-Meteo reports documented global ERA5 coverage with an unknown latest
+        endpoint. No observations are downloaded or verified. Transport/parse
+        failures mark results incomplete unless strict_live raises; limits raise.
+        """
+        from ._weather_history_availability import _availability
+
+        if type(include_historical_locations) is not bool:
+            raise ValueError("include_historical_locations must be a boolean")
+        if source != "smhi" and include_historical_locations:
+            raise ValueError("include_historical_locations applies only to SMHI")
+        options = {} if parameters is None else {"parameters": parameters}
+        args = _WeatherHistoryQueryArgs(
+            source=source,
+            location=location,
+            crs=crs,
+            max_distance_m=max_distance_m,
+            strict_live=strict_live,
+            timeout_s=timeout_s,
+            max_requests=max_requests,
+            max_download_bytes=max_download_bytes,
+            cache_ttl_s=cache_ttl_s,
+            **options,
+        )
+        return _availability(args, include_historical_locations)
 
     def describe(self):
         descriptor = super().describe()
@@ -239,6 +303,15 @@ class WeatherHistoryDataset(DatasetDescriptor):
             provider_entry("smhi" if args.source == "smhi" else "open-meteo")
         ]
         context.provenance.sources = [dict(item) for item in selected]
+        scalar = isinstance(args.parameters, str)
+        kind = "time_series" if scalar else "time_series_collection"
+        context.metadata.result_kind = kind
+        context.metadata.python_return_type = (
+            "dtcc_core.model.TimeSeries"
+            if scalar
+            else "dtcc_core.model.TimeSeriesCollection"
+        )
+        context.metadata.data_types = [kind, "weather_history"]
         return context
 
     def build(self, args):
@@ -264,8 +337,39 @@ class WeatherHistoryDataset(DatasetDescriptor):
             builder(args, result, client, *args._wgs84, errors)
             result.attributes["requests"] = client.requests
             result.attributes["download_bytes"] = client.bytes
-        _finish_health(result, errors, args.parameters)
-        return result
+        _finish_health(result, errors, args.parameter_names)
+        return (
+            self._single_series(result, args)
+            if isinstance(args.parameters, str)
+            else result
+        )
+
+    @staticmethod
+    def _single_series(result, args):
+        if len(result) > 1 or len(result.locations) > 1:
+            raise ValueError(
+                "A scalar weather request requires at most one series and location"
+            )
+        location_id, location = next(iter(result.locations.items()), (None, None))
+        key = (location_id, args.parameters)
+        series = result.series.get(key)
+        if series is None:
+            series = TimeSeries(
+                name=args.parameters,
+                unit=_UNITS[args.parameters],
+                association="sample",
+                role="observed" if args.source == "smhi" else "reanalysis",
+                times=[],
+                values=np.empty((0, 1)),
+            )
+        series.attributes = {
+            **result.attributes,
+            "location_id": location_id,
+            "location": location,
+            "series_metadata": result.series_metadata.get(key, {}),
+            "observations": result.observations.get(key, {}),
+        }
+        return series
 
 
 __all__ = [

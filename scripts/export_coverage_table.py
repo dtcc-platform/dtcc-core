@@ -35,7 +35,7 @@ def native_type(name, described, product):
     qualified = per_product.get(product)
     if qualified is None:
         qualified = PRODUCT_TYPES.get((name, product), described["python_return_type"])
-    return qualified.rpartition(".")[2]
+    return " or ".join(part.strip().rpartition(".")[2] for part in qualified.split("|"))
 
 
 def _constraints(entry):

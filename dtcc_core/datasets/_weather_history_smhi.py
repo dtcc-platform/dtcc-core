@@ -103,7 +103,7 @@ def _select(args, client, lon, lat, excluded):
     version = client.json(_ROOT)
     resources = {int(item["key"]): item for item in version["resource"]}
     catalogs, entries = {}, {}
-    for name in args.parameters:
+    for name in args.parameter_names:
         pid, expected_unit, _unit = _PARAMETERS[name]
         catalog = client.json(_link(resources[pid], "parameter", "application/json"))
         if catalog["valueType"] != "SAMPLING" or catalog["unit"] != expected_unit:
@@ -118,7 +118,7 @@ def _select(args, client, lon, lat, excluded):
     ranked = []
     for station_id in sorted(common):
         documents, positions = {}, None
-        for name in args.parameters:
+        for name in args.parameter_names:
             station = client.json(
                 _link(entries[name][station_id], "station", "application/json")
             )
@@ -138,7 +138,7 @@ def _select(args, client, lon, lat, excluded):
             else:
                 positions = current
             documents[name] = station
-        if len(documents) != len(args.parameters):
+        if len(documents) != len(args.parameter_names):
             continue
         distance = max(p["distance_m"] for p in positions)
         if distance <= args.max_distance_m:
@@ -233,12 +233,12 @@ def _build_smhi(args, result, client, lon, lat, errors):
     if selected is None:
         if args.strict_live:
             raise NoMatchingStation(
-                f"No station offers {args.parameters} for [{args.start}, {args.end}) "
+                f"No station offers {args.parameter_names} for [{args.start}, {args.end}) "
                 f"within {args.max_distance_m:g} m"
             )
         return
     station_id, distance, positions, documents, periods, catalogs = selected
-    station = documents[args.parameters[0]]
+    station = documents[args.parameter_names[0]]
     position = positions[0]
     point = _output_point(
         position["longitude"], position["latitude"], position["height"], args.crs
@@ -273,7 +273,7 @@ def _build_smhi(args, result, client, lon, lat, errors):
         "kind": "station",
         "elevation": position["height"],
     }
-    for name in args.parameters:
+    for name in args.parameter_names:
         pid, source_unit, unit = _PARAMETERS[name]
         records, sources = {}, []
         description, measurement_height = catalogs[name]["summary"], None

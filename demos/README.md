@@ -41,3 +41,6 @@ Each comparison starts from the original input.
 All `dataset_*.py` examples follow the same request → inspect → plot pattern.
 See the [complete catalog](../docs/datasets/demo-catalog.md) for other examples,
 data requirements, isolation semantics and the outstanding volume-meshing limitations.
+
+For historical weather, [discover advertised periods near a SWEREF99 TM point](weather_history_availability.py)
+without downloading readings, then [fetch and plot a temperature history](weather_history.py).

@@ -725,3 +725,194 @@ def test_partial_open_meteo_chunks_report_missing_coverage(server):
         and not result.attributes["coverage_complete"]
     )
     assert result.attributes["upstream_error_count"] == 1
+
+
+def _metadata_value(value):
+    if isinstance(value, Point):
+        return (value.x, value.y, value.z, value.transform.srs)
+    if isinstance(value, dict):
+        return {
+            key: _metadata_value(item)
+            for key, item in value.items()
+            if key != "retrieval_time"
+        }
+    if isinstance(value, (list, tuple)):
+        return [_metadata_value(item) for item in value]
+    return value
+
+
+@pytest.mark.parametrize("source", ["open_meteo", "smhi"])
+def test_scalar_parameter_returns_series_with_all_source_metadata(server, source):
+    collection = history(source, parameters=["air_temperature"])
+    result = history(source, parameters="air_temperature")
+    assert isinstance(collection, TimeSeriesCollection) and len(collection) == 1
+    assert isinstance(result, TimeSeries)
+    key = next(iter(collection))
+    original = collection[key]
+    np.testing.assert_array_equal(result.times, original.times)
+    np.testing.assert_array_equal(result.values, original.values)
+    assert result.name == original.name and result.unit == original.unit
+    assert result.role == original.role and result.association == "sample"
+    assert _metadata_value(
+        {name: result.attributes[name] for name in collection.attributes}
+    ) == _metadata_value(collection.attributes)
+    assert result.attributes["location_id"] == key[0]
+    assert _metadata_value(result.attributes["location"]) == _metadata_value(
+        collection.locations[key[0]]
+    )
+    assert result.attributes["series_metadata"] == collection.series_metadata[key]
+    assert result.attributes["observations"] == collection.observations[key]
+    assert result.dataset_context.identity.name == "weather_history"
+    assert result.metadata.result_kind == "time_series"
+    assert result.metadata.python_return_type == "dtcc_core.model.TimeSeries"
+    assert result.metadata.data_types == ["time_series", "weather_history"]
+    assert result.dataset_context.request.parameters["parameters"] == "air_temperature"
+    assert collection.metadata.result_kind == "time_series_collection"
+    assert (
+        collection.metadata.python_return_type == "dtcc_core.model.TimeSeriesCollection"
+    )
+    assert collection.dataset_context.request.parameters["parameters"] == [
+        "air_temperature"
+    ]
+    assert result.provenance == collection.provenance
+    if source == "smhi":
+        assert all(
+            row["quality"] == "G" for row in result.attributes["observations"].values()
+        )
+        assert (
+            result.attributes["selection"]["station_id"]
+            == result.attributes["location"]["station_id"]
+        )
+
+
+@pytest.mark.parametrize("parameters", [["air_temperature"], ("temp",), ["temp", 1]])
+def test_list_and_tuple_selections_keep_collection_shape(server, parameters):
+    result = history(parameters=parameters)
+    assert isinstance(result, TimeSeriesCollection) and len(result) == 1
+    assert result.dataset_context.request.parameters["parameters"] == [
+        "air_temperature"
+    ]
+
+
+@pytest.mark.parametrize(
+    "parameter,expected",
+    [
+        ("temp", "air_temperature"),
+        ("wind", "wind_speed"),
+        ("wind_direction", "wind_direction"),
+    ],
+)
+def test_scalar_alias_is_normalized_without_losing_request_shape(
+    server, parameter, expected
+):
+    result = history(parameters=parameter)
+    assert isinstance(result, TimeSeries) and result.name == expected
+    assert result.dataset_context.request.parameters["parameters"] == expected
+    assert result.attributes["requested_parameters"] == [expected]
+
+
+@pytest.mark.parametrize(
+    "parameters", ["", "air_temperature,wind_speed", 1, True, [], [True]]
+)
+def test_bad_scalar_or_list_parameters_fail_before_network(server, parameters):
+    with pytest.raises(ValueError):
+        history(parameters=parameters)
+    assert not server[1]
+
+
+@pytest.mark.parametrize("source", ["open_meteo", "smhi"])
+def test_failed_scalar_fetch_returns_empty_series_with_health_metadata(server, source):
+    url = OPEN if source == "open_meteo" else server[2]
+    server[0][url] = Response("unavailable", status=404)
+    result = history(source, parameters="air_temperature")
+    assert isinstance(result, TimeSeries) and len(result) == 0
+    assert result.values.shape == (0, 1) and result.unit == "celsius"
+    assert result.name == "air_temperature"
+    assert result.attributes["location"] is None
+    assert result.attributes["observations"] == {}
+    assert result.attributes["partial_result"]
+    assert not result.attributes["coverage_complete"]
+    assert result.attributes["upstream_error_count"] == 1
+    assert result.metadata.result_kind == "time_series"
+    with pytest.raises(DatasetUpstreamError):
+        history(source, parameters="air_temperature", strict_live=True)
+
+
+def test_scalar_no_matching_station_retains_empty_series_and_selection(server):
+    result = history(
+        "smhi", parameters="air_temperature", location=(18.0, 59.0), max_distance_m=1
+    )
+    assert isinstance(result, TimeSeries) and not len(result)
+    assert result.role == "observed" and result.unit == "celsius"
+    assert result.attributes["selection"]["status"] == "no_matching_station"
+    assert result.attributes["location"] is None
+    assert result.attributes["upstream_error_count"] == 0
+    assert not result.attributes["coverage_complete"]
+    with pytest.raises(NoMatchingStation):
+        history(
+            "smhi",
+            parameters="air_temperature",
+            location=(18.0, 59.0),
+            max_distance_m=1,
+            strict_live=True,
+        )
+
+
+def test_scalar_failed_archive_keeps_selected_station_metadata(server):
+    for period in ("corrected-archive", "latest-months"):
+        server[0][f"{SMHI}/parameter/1/station/10/period/{period}/data.csv"] = Response(
+            "unavailable", status=404
+        )
+    result = history("smhi", parameters="air_temperature")
+    assert isinstance(result, TimeSeries) and not len(result)
+    assert result.attributes["location_id"] == "smhi:10"
+    assert result.attributes["location"]["station_id"] == 10
+    assert result.attributes["selection"]["status"] == "matched"
+    assert result.attributes["upstream_error_count"] == 2
+
+
+def test_partial_multiple_parameters_never_unwrap_based_on_returned_count(server):
+    for pid in (3, 4):
+        for period in ("corrected-archive", "latest-months"):
+            server[0][f"{SMHI}/parameter/{pid}/station/20/period/{period}/data.csv"] = (
+                Response("unavailable", status=404)
+            )
+    result = history("smhi")
+    assert isinstance(result, TimeSeriesCollection) and len(result) == 1
+    assert result.attributes["partial_result"]
+    assert result.attributes["upstream_error_count"] == 4
+
+
+def test_partial_scalar_chunks_keep_series_metadata_and_observations(server):
+    original = server[0][OPEN]
+    server[0][OPEN] = lambda query: (
+        original
+        if query["start_date"] == "2020-01-01"
+        else Response("unavailable", status=404)
+    )
+    result = history(parameters="air_temperature", end="2020-01-03", chunk_days=1)
+    assert isinstance(result, TimeSeries) and len(result) == 24
+    assert (
+        result.attributes["partial_result"]
+        and not result.attributes["coverage_complete"]
+    )
+    assert result.attributes["series_metadata"]["expected_hourly_count"] == 48
+    assert result.attributes["series_metadata"]["observation_count"] == 24
+    assert result.attributes["upstream_error_count"] == 1
+
+
+def test_scalar_metadata_excludes_api_key_and_survives_copy(server, tmp_path):
+    result = history(parameters="air_temperature", api_key="test-secret")
+    assert "test-secret" not in str(result.attributes)
+    assert "test-secret" not in result.dataset_context.model_dump_json()
+    cloned = result.copy()
+    assert _metadata_value(cloned.attributes) == _metadata_value(result.attributes)
+    assert cloned.dataset_context == result.dataset_context
+    cloned.attributes["series_metadata"]["source"] = "edited"
+    assert result.attributes["series_metadata"]["source"] == "open_meteo"
+    with pytest.raises(NotImplementedError, match="attributes"):
+        result.to_proto()
+    target = tmp_path / "weather.dtccpkg"
+    with pytest.raises(NotImplementedError, match="attributes"):
+        result.export(target, canonical=True)
+    assert not target.exists()

@@ -8,8 +8,8 @@ weather = dtcc.datasets.weather_history(
     crs="EPSG:3006",
     start="2020-01-01",
     end="2020-01-02",  # Exclusive end; times are UTC.
-    parameters=["air_temperature"],
+    parameters="air_temperature",
     strict_live=True,
 )
 
-print(weather.to_dataframe()[["time", "value", "unit"]].to_string(index=False))
+weather.plot()

@@ -71,3 +71,13 @@ def test_per_product_types_are_used_where_describe_supplies_them(name):
     for product in described["products"]:
         expected = product["python_return_type"].rpartition(".")[2]
         assert table.native_type(name, described, product["name"]) == expected
+
+
+def test_scalar_or_collection_return_types_are_both_reported():
+    from dtcc_core.datasets import registry
+
+    described = registry.list_datasets()["weather_history"].describe()
+    assert (
+        table.native_type("weather_history", described, None)
+        == "TimeSeries or TimeSeriesCollection"
+    )

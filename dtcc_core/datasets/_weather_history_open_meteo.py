@@ -17,7 +17,7 @@ _CUSTOMER = "https://customer-archive-api.open-meteo.com/v1/archive"
 def _build_open_meteo(args, result, client, lon, lat, errors):
     endpoint = _CUSTOMER if args.api_key else _ENDPOINT
     location_id = "open_meteo:location"
-    records = {name: {} for name in args.parameters}
+    records = {name: {} for name in args.parameter_names}
     successful = False
     returned_location = None
     left, end = _ns(args.start), _ns(args.end)
@@ -28,7 +28,7 @@ def _build_open_meteo(args, result, client, lon, lat, errors):
             "longitude": lon,
             "start_date": str(np.datetime64(left, "ns").astype("datetime64[D]")),
             "end_date": str(np.datetime64(right - 1, "ns").astype("datetime64[D]")),
-            "hourly": ",".join(_VARIABLES[name][0] for name in args.parameters),
+            "hourly": ",".join(_VARIABLES[name][0] for name in args.parameter_names),
             "models": "era5",
             "temperature_unit": "celsius",
             "wind_speed_unit": "ms",
@@ -40,7 +40,9 @@ def _build_open_meteo(args, result, client, lon, lat, errors):
         try:
             payload = client.json(endpoint, query)
             with _guard(endpoint):
-                parsed, location = _parse(payload, args.parameters, left, right, client)
+                parsed, location = _parse(
+                    payload, args.parameter_names, left, right, client
+                )
                 if returned_location is not None and returned_location != location:
                     raise ValueError("Open-Meteo changed grid location between chunks")
                 returned_location = location

@@ -241,6 +241,10 @@ def _time_series(value, owner=None):
         raise NotImplementedError(
             f"Canonical TimeSeries subtype {type(value).__name__} is unsupported"
         )
+    if value.attributes:
+        raise NotImplementedError(
+            "TimeSeries attributes have no canonical exchange representation"
+        )
     for key in ("name", "unit", "description", "role"):
         _text(getattr(value, key), f"TimeSeries.{key}")
     if not 1 <= value.dim <= 2**32 - 1:
