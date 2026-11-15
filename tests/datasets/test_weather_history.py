@@ -17,7 +17,7 @@ from dtcc_core.datasets.weather_history import (
     WeatherHistoryDatasetArgs,
     WeatherHistoryLimitError,
 )
-from dtcc_core.io.data._http._httpx import NativeHttpClient
+from dtcc_core.io._http._httpx import NativeHttpClient
 from dtcc_core.model import Bounds, Point, TimeSeries, TimeSeriesCollection
 
 SMHI = "https://opendata-download-metobs.smhi.se/api/version/1.0"
