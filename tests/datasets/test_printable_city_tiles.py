@@ -2,6 +2,7 @@
 
 import json
 from importlib import import_module
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -9,7 +10,7 @@ import shapely
 from pyproj import Transformer
 from shapely.geometry import box
 
-from dtcc_core import datasets, io
+from dtcc_core import builder, datasets, io
 from dtcc_core.builder.geometry_builders.printable_tiles import (
     _build_printable_tile,
     _validate_solid,
@@ -39,6 +40,25 @@ def test_layout_projects_the_selection_without_acquisition(no_network):
     assert shapely.union_all(tiles).covers(drawn)
     lon, lat = preview["features"][0]["geometry"]["coordinates"][0][0]
     assert transform.transform(lon, lat) == pytest.approx(tiles[0].bounds[:2], abs=1e-7)
+
+
+@pytest.mark.parametrize(
+    ("options", "mesh_size", "building_detail"),
+    [({}, 3.0, 0.5), ({"max_mesh_size": 4, "min_building_detail": 0.375}, 4, 0.375)],
+)
+def test_print_resolution_controls_surface_mesh(
+    options, mesh_size, building_detail, monkeypatch, no_network
+):
+    for target, provider in _site().items():
+        monkeypatch.setattr(target, provider)
+    with patch.object(
+        builder, "build_city_surface_mesh", wraps=builder.build_city_surface_mesh
+    ) as build:
+        tiles = datasets.printable_city_tiles(bounds=SITE, scale=300, **options)
+    assert build.call_args.kwargs["max_mesh_size"] == mesh_size
+    assert build.call_args.kwargs["min_building_detail"] == building_detail
+    assert tiles.attributes["layout"]["max_mesh_size"] == mesh_size
+    assert tiles.attributes["layout"]["min_building_detail"] == building_detail
 
 
 @pytest.mark.parametrize("lod", ["lod1", "lod2"])

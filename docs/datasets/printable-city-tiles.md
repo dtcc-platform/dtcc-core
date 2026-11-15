@@ -18,7 +18,8 @@ on the root. The root stores the geographic placement and the
 `tiles.attributes["layout"]` dictionary with print dimensions and base counts.
 
 The [demo](../../demos/dataset_printable_city_tiles.py) puts the editable area,
-scale, tile size, LOD and alignment settings at the top of the script.
+scale, tile size, LOD, mesh resolution and alignment settings at the top of the
+script.
 Choose a new output folder for each print job. `export_stl()` uses the meshes
 already in the assembly, including when the assembly was loaded from a
 canonical package.
@@ -38,6 +39,17 @@ when selecting a size. The matching ribbed base keeps the same magnet
 and connector dimensions while the central span changes with tile size.
 The default base is 20 mm tall. Each request supports up to 64 tiles
 and 5 km per axis.
+
+`max_mesh_size=3.0` sets the target maximum terrain triangle edge length in
+metres, equivalent to 2.4 mm on the default 1:1250 model. The terrain raster
+uses a 2 m cell size. Try `2.0` to preserve more relief in steep terrain or
+`5.0` to reduce meshing time and STL size on larger jobs.
+
+`min_building_detail=0.5` controls how aggressively the mesher simplifies
+small footprint features and closes gaps. It corresponds to 0.4 mm at 1:1250,
+close to a single extrusion line for a 0.4 mm nozzle. To choose the setting at
+another scale, multiply the desired printed width in millimetres by `scale`
+and divide by 1000. The building footprint area filter remains 15 m².
 
 The print folder contains these files.
 

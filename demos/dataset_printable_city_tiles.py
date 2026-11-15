@@ -9,7 +9,9 @@ selection = dict(
     crs="EPSG:3006",  # Metres, or "EPSG:4326" for longitude and latitude.
     scale=1250,  # Denominator of the print scale.
     tile_size_mm=200,  # Square tile width, from 140 to 250 mm.
-    lod="lod2",  # Use "lod2" for reconstructed roofs.
+    lod="lod2",  # Reconstruct roofs. Use "lod1" for flat roof extrusions.
+    max_mesh_size=3.0,  # Target terrain triangle size in metres.
+    min_building_detail=0.5,  # Building footprint conditioning scale in metres.
     grid_origin=None,  # Set to (easting, northing) in EPSG:3006 to align jobs.
     anchor_z=0,  # Reference elevation for base steps, in metres.
 )

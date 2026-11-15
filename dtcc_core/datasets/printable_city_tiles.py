@@ -56,6 +56,18 @@ class PrintableCityTilesArgs(DatasetBaseArgs):
         description="Square tile width and grid pitch in millimetres",
     )
     lod: Literal["lod1", "lod2"] = Field("lod1", description="Building level of detail")
+    max_mesh_size: float = Field(
+        3.0,
+        gt=0,
+        allow_inf_nan=False,
+        description="Target maximum terrain triangle edge length in metres",
+    )
+    min_building_detail: float = Field(
+        0.5,
+        ge=0,
+        allow_inf_nan=False,
+        description="Building footprint conditioning scale in metres",
+    )
     grid_origin: tuple[float, float] | None = Field(
         None, description="Optional fixed grid origin in EPSG:3006 metres"
     )
@@ -183,6 +195,8 @@ class PrintableCityTilesDataset(DatasetDescriptor):
                 surface = CitySurfaceMeshDataset()(
                     bounds=source_bounds,
                     lod=args.lod,
+                    max_mesh_size=args.max_mesh_size,
+                    min_building_detail=args.min_building_detail,
                     strict_live=args.strict_live,
                     report_mesh_quality=False,
                     stage_audit_enabled=args.lod == "lod2",
@@ -260,6 +274,8 @@ def _layout(args):
         "axes": ["east", "grid north", "up"],
         "scale": args.scale,
         "lod": args.lod,
+        "max_mesh_size": args.max_mesh_size,
+        "min_building_detail": args.min_building_detail,
         "tile_size_mm": args.tile_size_mm,
         "width_mm": columns * args.tile_size_mm,
         "height_mm": rows * args.tile_size_mm,
