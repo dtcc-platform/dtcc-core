@@ -475,6 +475,7 @@ def _save_meshio_volume_mesh(mesh, path):
 
 def _save_xdmf_mesh(mesh, path):
     """Save a surface Mesh to XDMF/HDF5 in a FEniCSx-compatible layout."""
+    _reject_time_series(mesh, path)
     base, ext = splitext(path)
     h5_path = base + ".h5"
     with h5py.File(h5_path, "w") as h5_file:
@@ -548,6 +549,7 @@ def _save_xdmf_volume_mesh(mesh, path):
 
 
 def _save_gltf_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     triangles_binary_blob = mesh.faces.flatten().tobytes()
     points_binary_blob = mesh.vertices.flatten().tobytes()
     data = triangles_binary_blob + points_binary_blob
@@ -634,6 +636,7 @@ def _load_assimp_mesh(path):
 
 
 def _save_assimp_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     error("Not implemented, please FIXME")
 
 

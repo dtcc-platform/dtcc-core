@@ -73,7 +73,7 @@ def test_verbose_tree_lists_attached_time_series(capsys):
     assert "time series 'temperature' (C, observed): hourly mean" in out
 
 
-# Exporters that write fields refuse time series instead of dropping them
+# Exporters without a time series mapping refuse them instead of dropping them
 
 
 def _sensors():
@@ -168,3 +168,28 @@ def test_mesh_files_refuse_time_series(tmp_path, make, suffix):
     mesh.time_series = []
     mesh.save(path)
     assert path.exists()
+
+
+@pytest.mark.parametrize("suffix", [".xdmf", ".gltf", ".gltf2", ".glb", ".dae", ".fbx"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_surface_mesh_time_series_rejection_leaves_files_untouched(
+    tmp_path, monkeypatch, suffix, existing
+):
+    from dtcc_core.io import meshes
+
+    if suffix in (".dae", ".fbx"):
+        monkeypatch.setitem(
+            meshes._save_formats[Mesh], suffix, meshes._save_assimp_mesh
+        )
+    path = tmp_path / f"mesh{suffix}"
+    if existing:
+        for output in (path, path.with_suffix(".h5"), path.with_suffix(".bin")):
+            output.write_bytes(b"existing data")
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+
+    with pytest.raises(
+        NotImplementedError, match=f"Time series .* {suffix[1:].upper()} mapping"
+    ):
+        _mesh().save(path)
+
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before

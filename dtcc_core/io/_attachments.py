@@ -4,9 +4,8 @@
 def reject_time_series(geometries, target):
     """Raise ``NotImplementedError`` if any geometry carries time series.
 
-    Exporters that write the fields of a geometry call this before writing, so
-    time series attached to the same geometry are refused instead of being
-    left out of the output.
+    Exporters without a time series mapping call this before writing, so
+    attached time series are refused instead of being left out of the output.
     """
     for geometry in geometries:
         if getattr(geometry, "time_series", None):
