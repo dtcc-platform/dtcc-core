@@ -34,14 +34,15 @@ with http_client(cache_ttl=300) as http:
     text = read_archive(http, metadata["archive_url"], metadata["updated"])
 ```
 
-`json()` and `text()` accept `params`, `headers`, `credentials`, `public` and
+`json()`, `text()` and `bytes()` accept `params`, `headers`, `credentials`, `public` and
 `cache_token` as keyword arguments. `text()` additionally accepts `encoding`
 (default UTF-8). Query values may be strings, integers or finite floats; omit
 absent values, and use pairs for repeated names.
 
 | Factory option | Default | Meaning |
 | --- | --- | --- |
-| `timeout` | 30 seconds | Connection/read inactivity, not a total deadline |
+| `timeout` | 30 seconds | Scalar or `Timeout(connect=..., read=...)`; no synchronous total deadline |
+| `redirects` | Five same-origin hops | Optional `RedirectPolicy` for explicit origins/hop limits |
 | `retries` | 2 | Extra GET attempts for transient status, connection and read failures |
 | `max_requests` | 2,000 | Logical calls, including cache hits |
 | `max_attempts` | 2,000 | Network sends, including retries and redirects |
@@ -100,11 +101,43 @@ OpenSSL's hashed layout. Certificate verification is always enabled. Environment
 proxies are disabled by default, matching the low-level Requests client; use
 `trust_env=True` to opt in. There is no backend-managed retry layer.
 
+## Binary data and POST requests
+
+Import supported HTTP contracts from `dtcc_core.io`; underscore modules are
+implementation details. `http.bytes(url)` returns a bounded binary body.
+`http.request(url, method="POST", ...)` returns a `Response` with `status`,
+lowercase `headers`, `body`, `.json()` and `.text(encoding)`.
+The decoded convenience methods accept the same request options:
+
+```python
+from dtcc_core.io import http_client
+
+with http_client(timeout=60) as http:
+    result = http.json(query_url, method="POST", json={"region": "west"},
+                       idempotent=True)
+    token = http.json(token_url, method="POST",
+                      form={"grant_type": "client_credentials"},
+                      headers={"Authorization": authorization}, public=False)
+```
+
+Bodies are mutually exclusive: `json`, `form`, `body` (bytes), or `multipart`
+(a sequence of `MultipartPart`). Repeated form/query names use pairs.
+POSTs do not retry unless explicitly marked `idempotent=True`; borrowed file
+streams cannot be replayed. Leave token creation and uploads non-idempotent.
+`expected_status` can narrow accepted responses (for example `{200}`).
+
+Large tile downloads use the public `HttpClient`/`AsyncHttpClient` streaming
+interfaces below, without buffering the entire file. Stream retries stop once
+the caller receives the stream. A download workflow may retry into a fresh
+temporary file and atomically publish only a complete validated download.
+Caller-supplied clients remain caller-owned; factory-created clients belong in
+context managers.
+
 ## Lower-level operations
 
-`dtcc_core.io.data._http` also provides synchronous Requests `HttpClient` and
+`dtcc_core.io` also provides synchronous Requests `HttpClient` and
 asynchronous aiohttp `AsyncHttpClient` operations for explicit requests, uploads
-and caller-visible streams. This lower-level interface remains internal.
+and caller-visible streams. These contracts are public; their backend implementation modules are private.
 
 The transport handles HTTP, response lifetime, retries, decoded-body budgets and
 optional public-response caching. Providers retain discovery, schema validation,
@@ -115,7 +148,7 @@ content validation and atomic publication.
 ## Buffered requests
 
 ```python
-from dtcc_core.io.data._http import HttpClient, Request, RetryPolicy, Timeout
+from dtcc_core.io import HttpClient, Request, RetryPolicy, Timeout
 
 with HttpClient(timeout=Timeout(connect=8, read=30),
                 retry=RetryPolicy(retries=2)) as client:
@@ -168,7 +201,7 @@ bounded upload memory or enforce upload-byte budgets.
 ## Async streams
 
 ```python
-from dtcc_core.io.data._http import AsyncHttpClient, Request, Budget
+from dtcc_core.io import AsyncHttpClient, Request, Budget
 
 async def read_tile(url, consume_chunk):
     budget = Budget(max_attempts=10, max_received_bytes=100 * 1024 * 1024)
@@ -335,7 +368,7 @@ import asyncio
 import os
 import tempfile
 from pathlib import Path
-from dtcc_core.io.data._http import AsyncHttpClient, HttpTransportError, Request
+from dtcc_core.io import AsyncHttpClient, HttpTransportError, Request
 
 async def download_file(client, url, destination):
     destination = Path(destination)

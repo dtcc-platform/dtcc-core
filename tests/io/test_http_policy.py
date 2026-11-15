@@ -12,7 +12,7 @@ import pytest
 import requests
 from requests.adapters import HTTPAdapter
 
-from dtcc_core.io.data._http import (
+from dtcc_core.io._http import (
     AsyncHttpClient,
     Budget,
     HttpClient,
@@ -25,7 +25,7 @@ from dtcc_core.io.data._http import (
     RetryPolicy,
     Timeout,
 )
-from dtcc_core.io.data._http._policy import (
+from dtcc_core.io._http._policy import (
     Operation,
     State,
     parse_retry_after,

@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 import httpx2
 from certifi import where
 
-from ._contracts import HttpLimitError, HttpTransportError, Response
+from ._contracts import _UNSET, HttpLimitError, HttpTransportError, Response
 from ._policy import Operation, State, headers_lower, parse_retry_after
 
 
@@ -103,6 +103,26 @@ class NativeHttpClient:
             "http_status", status=response.status_code, body=bytes(body), phase="read"
         )
 
+    def _body_options(self, request):
+        headers = dict(request.headers)
+        options = {}
+        if request.json is not _UNSET:
+            options["content"] = request._json_body
+            if "content-type" not in headers_lower(headers):
+                headers["Content-Type"] = "application/json"
+        elif request.form is not None:
+            options["content"] = urlencode(request.form).encode("utf-8")
+            if "content-type" not in headers_lower(headers):
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+        elif request.multipart is not None:
+            options["files"] = [
+                (part.name, (part.filename, part.value, part.content_type))
+                for part in request.multipart
+            ]
+        elif request.body is not None:
+            options["content"] = request.body
+        return headers, options
+
     def _attempt(self, operation):
         request = operation.request
         client = self._build_client()
@@ -117,7 +137,10 @@ class NativeHttpClient:
                     filter(None, (parsed.query, urlencode(request.params)))
                 )
                 url = urlunsplit(parsed._replace(query=query))
-            with client.stream("GET", url, headers=request.headers) as response:
+            headers, options = self._body_options(request)
+            with client.stream(
+                request.method, url, headers=headers, **options
+            ) as response:
                 headers, status = headers_lower(response.headers), response.status_code
                 if status in {301, 302, 303, 307, 308}:
                     location = headers.get("location")

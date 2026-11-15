@@ -132,7 +132,7 @@ class AsyncHttpClient:
     def _ssl_context(self):
         """Trust ca_bundle alone when given, as requests does for the sync client."""
         if self._ca_bundle is None:
-            from ..tls import download_ssl_context
+            from ..data.tls import download_ssl_context
 
             return download_ssl_context()
         if os.path.isdir(self._ca_bundle):
