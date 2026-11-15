@@ -155,6 +155,14 @@ def test_empty_print_assembly_requires_a_realized_layout(tmp_path):
     assert not (tmp_path / "pkg").exists()
 
 
+@pytest.mark.parametrize("fmt", ["png", "tif"])
+def test_empty_print_assembly_refuses_image_exports(fmt, tmp_path):
+    model = build("printable_city_tiles", None, "empty", tmp_path)
+    with pytest.raises(ValueError, match="packages include STL and GeoJSON artifacts"):
+        _export(model, tmp_path, fmt, format=fmt)
+    assert not (tmp_path / fmt).exists()
+
+
 @pytest.mark.parametrize("name", ["terrain_surface_mesh", "trees"])
 def test_all_invalid_raster_exports_canonically_and_refuses_png(name, tmp_path):
     model = build(name, "raster", "all_invalid", tmp_path)

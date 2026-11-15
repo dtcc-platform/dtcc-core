@@ -202,6 +202,8 @@ def test_export_stls_writes_the_print_files_directly(monkeypatch, tmp_path, no_n
 
     tiles = dataset(**selection)
     assert type(tiles) is Object
+    stl_export = dataset.describe()["stl_export"]
+    assert stl_export["target"] == "result"
     assert isinstance(tiles.get_geometry(id="base_tile"), Mesh)
     [tile] = tiles.get_children(Object)
     assert isinstance(tile.get_geometry(id="print_mesh"), Mesh)
@@ -209,7 +211,9 @@ def test_export_stls_writes_the_print_files_directly(monkeypatch, tmp_path, no_n
     restored = datasets.load_model_package(package.path)
     with monkeypatch.context() as offline:
         offline.setattr(type(dataset), "build", None)
-        direct = tiles.export_stl(folder=tmp_path / "from-model")
+        direct = getattr(tiles, stl_export["method"])(
+            **{stl_export["folder_parameter"]: tmp_path / "from-model"}
+        )
         reexport = restored.export_stl(folder=tmp_path / "from-package")
         for output in (direct, reexport):
             for path in folder.iterdir():
@@ -280,6 +284,7 @@ def test_print_formats_describe_assembly_exports(tmp_path, no_network):
     assert described["formats"] == []
     assert described["multi_file_formats"] == []
     assert described["stl_export"] == {
+        "target": "result",
         "method": "export_stl",
         "folder_parameter": "folder",
     }

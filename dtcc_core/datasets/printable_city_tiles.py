@@ -155,6 +155,7 @@ class PrintableCityTilesDataset(DatasetDescriptor):
         """Describe the Dataset and the formats of its assembly exports."""
         descriptor = super().describe()
         descriptor["stl_export"] = {
+            "target": "result",
             "method": "export_stl",
             "folder_parameter": "folder",
         }
