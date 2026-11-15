@@ -37,6 +37,16 @@ def _kind(exc):
     return "request"
 
 
+class _BorrowedStream:
+    """Expose only reads so HTTPX2 cannot rewind a caller-owned stream."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def read(self, size=-1):
+        return self._stream.read(size)
+
+
 class NativeHttpClient:
     """Serial, owned HTTPX2 connection pool; no backend retries or cookie reuse."""
 
@@ -116,7 +126,16 @@ class NativeHttpClient:
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
         elif request.multipart is not None:
             options["files"] = [
-                (part.name, (part.filename, part.value, part.content_type))
+                (
+                    part.name,
+                    (
+                        part.filename,
+                        part.value
+                        if isinstance(part.value, bytes)
+                        else _BorrowedStream(part.value),
+                        part.content_type,
+                    ),
+                )
                 for part in request.multipart
             ]
         elif request.body is not None:

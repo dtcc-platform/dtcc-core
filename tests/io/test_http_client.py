@@ -1,6 +1,7 @@
 """Standalone author interface and native HTTPX2 failure-path contracts."""
 
 import gzip
+import io
 import json
 import pickle
 import ssl
@@ -662,3 +663,58 @@ def test_multipart_borrows_file_and_does_not_retry(native, tmp_path):
     assert len(calls) == 1
     assert b'filename="upload.bin"' in calls[0].content
     assert b"file payload" in calls[0].content
+
+
+@pytest.mark.parametrize("source_kind", ["memory", "file"])
+@pytest.mark.parametrize("offset", [0, 15, 27])
+def test_multipart_reads_from_current_position(server, tmp_path, source_kind, offset):
+    from email.parser import BytesParser
+    from email.policy import default
+
+    from dtcc_core.io import MultipartPart
+
+    url, _, received = server
+    contents = b"private prefix:file payload"
+    if source_kind == "file":
+        path = tmp_path / "upload.bin"
+        path.write_bytes(contents)
+        source = path.open("rb")
+    else:
+        source = io.BytesIO(contents)
+    with source, http_client() as client:
+        source.seek(offset)
+        client.request(
+            url, method="POST", multipart=[MultipartPart("file", source, "upload.bin")]
+        )
+        assert not source.closed
+        assert source.tell() == len(contents)
+    headers, body = received[0]
+    message = BytesParser(policy=default).parsebytes(
+        f"Content-Type: {headers['Content-Type']}\r\n\r\n".encode() + body
+    )
+    part = next(message.iter_parts())
+    assert part.get_filename() == "upload.bin"
+    assert part.get_payload(decode=True) == contents[offset:]
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_mutating_json_during_send_preserves_redirect_error(native, status, method):
+    payload = {"value": [1]}
+
+    def events():
+        payload["value"].append(object())
+        yield reply(status=status, headers={"Location": "/next?token=private"})
+
+    client, calls, _ = native(events())
+    with client, pytest.raises(HttpTransportError) as caught:
+        client.request(URL, method=method, json=payload)
+    error = caught.value
+    assert (error.kind, error.status, error.phase) == (
+        "redirect_policy",
+        status,
+        "read",
+    )
+    assert error.redirect_target == "https://weather.test/next"
+    assert error.attempts == len(calls) == 1
+    assert calls[0].content == b'{"value": [1]}'

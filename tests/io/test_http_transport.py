@@ -108,6 +108,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self._read_body()
         self.server.received.append((dict(self.headers), body))
+        if urlsplit(self.path).path == "/redirect":
+            self.do_GET()
+            return
         self.send_response(200)
         result = json.dumps(
             {
@@ -946,5 +949,35 @@ def test_stream_cannot_be_read_after_its_block_exits(backend, server):
         with pytest.raises(ValueError, match="closed"):
             async for _ in api.chunks(response):
                 pass
+
+    run(backend, scenario)
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("mode", ["buffered", "stream"])
+def test_mutated_json_payload_preserves_redirect_error(backend, server, method, mode):
+    url, calls, received = server
+
+    async def scenario(api):
+        payload = {"value": [1]}
+        request = Request(method, url + "/redirect?to=/json", json=payload)
+        payload["value"].append(object())
+        with pytest.raises(HttpTransportError) as caught:
+            if mode == "stream":
+                async with api.stream(request):
+                    pytest.fail("Body-bearing redirects must be rejected")
+            else:
+                await api.request(request)
+        error = caught.value
+        assert (error.kind, error.status, error.phase) == (
+            "redirect_policy",
+            302,
+            "read",
+        )
+        assert error.redirect_target == url + "/json"
+        assert error.attempts == calls["/redirect"] == 1
+        assert calls["/json"] == 0
+        if method == "POST":
+            assert received[0][1] == b'{"value": [1]}'
 
     run(backend, scenario)

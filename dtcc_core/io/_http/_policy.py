@@ -39,6 +39,8 @@ def redirect(request, location, policy, hops):
         and request.form is None
         and request.multipart is None
     )
+    if not allowed:
+        raise HttpTransportError(request, "redirect_policy")
     # Request validates schemes, user information and malformed ports.
     try:
         target = urljoin(request.url, location)

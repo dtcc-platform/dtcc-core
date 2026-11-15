@@ -193,8 +193,10 @@ repeat when supplied as pairs, such as `params=(("parameter", "temperature"),
 duplicates are rejected before network or cache access. Set exactly one of `body` (bytes), `json` (including
 None), `form`, or `multipart`. Multipart is a tuple of `MultipartPart(name, value,
 filename, content_type)`, with bytes or caller-owned binary streams as values.
+Streams are read from their current position and remain open after the request.
 Repeated field names support multiple uploaded files. Requests may buffer multipart
-uploads in memory; aiohttp streams file parts. This interface does not guarantee
+uploads in memory; aiohttp and HTTPX2 stream file parts. HTTPX2 uses chunked
+transfer encoding for borrowed streams. This interface does not guarantee
 bounded upload memory or enforce upload-byte budgets.
 
 ## Async streams
