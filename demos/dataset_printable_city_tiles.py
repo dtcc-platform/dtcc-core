@@ -2,7 +2,7 @@
 
 import dtcc_core as dtcc
 
-output_dir = "output/gothenburg-stls"  # Use a new folder for each print job.
+output_dir = "output/gothenburg-stls"
 
 selection = dict(
     bounds=(319720, 6397660, 320220, 6398160),  # West, south, east, north.
@@ -17,5 +17,5 @@ selection = dict(
 )
 
 tiles = dtcc.datasets.printable_city_tiles(**selection)
-folder = tiles.export_stl(folder=output_dir)
+folder = tiles.export_stl(folder=output_dir, overwrite=True)
 print(f"STLs and base copy counts (layout.json): {folder.resolve()}")

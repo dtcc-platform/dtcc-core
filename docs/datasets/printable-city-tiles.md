@@ -9,7 +9,7 @@ from dtcc_core import datasets
 
 selection = dict(bounds=(319720, 6397660, 320220, 6398160))
 tiles = datasets.printable_city_tiles(**selection)
-folder = tiles.export_stl(folder="output/gothenburg-stls")
+folder = tiles.export_stl(folder="output/gothenburg-stls", overwrite=True)
 ```
 
 `tiles` is a `dtcc_core.model.Object` representing the whole assembly. It has
@@ -19,10 +19,10 @@ on the root. The root stores the geographic placement and the
 
 The [demo](../../demos/dataset_printable_city_tiles.py) puts the editable area,
 scale, tile size, LOD, mesh resolution and alignment settings at the top of the
-script.
-Choose a new output folder for each print job. `export_stl()` uses the meshes
-already in the assembly, including when the assembly was loaded from a
-canonical package.
+script. With `overwrite=True`, the export replaces the STLs and `layout.json`
+and removes obsolete tiles listed in the previous layout. Other files in the
+folder are kept. `export_stl()` uses the meshes already in the assembly,
+including when the assembly was loaded from a canonical package.
 
 `layout()` returns the tile grid as WGS84 GeoJSON without acquiring data.
 Provide EPSG:3006 bounds in metres or pass `crs="EPSG:4326"` with bounds in

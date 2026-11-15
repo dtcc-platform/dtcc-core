@@ -413,11 +413,11 @@ class Object(Model):
         for child in children:
             self.add_child(child)
 
-    def export_stl(self, *, folder: str | Path) -> Path:
-        """Write a printable city tile assembly's STLs and layout to a new folder."""
+    def export_stl(self, *, folder: str | Path, overwrite: bool = False) -> Path:
+        """Write the print STLs and layout, optionally replacing an earlier export."""
         from ...datasets.printable_city_tiles import _export_stl
 
-        return _export_stl(self, folder)
+        return _export_stl(self, folder, overwrite=overwrite)
 
     def add_geometry(
         self, geometry, geometry_type=None, *, id=None, lod=None, role=None

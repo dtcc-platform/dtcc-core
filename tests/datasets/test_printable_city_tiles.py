@@ -178,6 +178,31 @@ def test_export_stls_writes_the_print_files_directly(monkeypatch, tmp_path, no_n
     assert json.loads((folder / "layout.json").read_text()) == layout
 
 
+def test_overwrite_print_export_replaces_the_tile_set(
+    monkeypatch, tmp_path, no_network
+):
+    for target, provider in _site().items():
+        monkeypatch.setattr(target, provider)
+    dataset = datasets.printable_city_tiles
+    folder = dataset.export_stls(tmp_path / "print", bounds=SITE, scale=150)
+    assert len(list(folder.glob("tile_*.stl"))) > 1
+    old_tile = (folder / "tile_0_0.stl").read_bytes()
+    unrelated = folder / "tile_9_9.stl"
+    unrelated.write_bytes(b"another print")
+
+    smaller = dataset(bounds=SITE, scale=300)
+    assert dataset.export_stls(folder, tiles=smaller, overwrite=True) == folder
+    assert {path.name for path in folder.iterdir()} == {
+        "tile_0_0.stl",
+        "base_tile.stl",
+        "layout.json",
+        unrelated.name,
+    }
+    assert (folder / "tile_0_0.stl").read_bytes() != old_tile
+    assert json.loads((folder / "layout.json").read_text())["scale"] == 300
+    assert unrelated.read_bytes() == b"another print"
+
+
 def test_invalid_layout_is_rejected_before_fetch(no_network):
     with pytest.raises(ValueError, match="64 tiles"):
         datasets.printable_city_tiles(bounds=SITE, scale=10)
@@ -250,13 +275,18 @@ def test_print_export_preserves_a_destination_created_during_staging(
     assert list(destination.iterdir()) == []
 
 
-def test_interrupted_print_export_removes_partial_files(
-    monkeypatch, tmp_path, no_network
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_interrupted_print_export_restores_output(
+    overwrite, monkeypatch, tmp_path, no_network
 ):
     for target, provider in _site().items():
         monkeypatch.setattr(target, provider)
     tiles = datasets.printable_city_tiles(bounds=SITE, scale=300)
     destination = tmp_path / "print"
+    if overwrite:
+        previous = datasets.printable_city_tiles(bounds=SITE, scale=150)
+        previous.export_stl(folder=destination)
+        before = {path.name: path.read_bytes() for path in destination.iterdir()}
 
     def interrupted_copy(source, target):
         target.write(source.read(1))
@@ -264,5 +294,10 @@ def test_interrupted_print_export_removes_partial_files(
 
     monkeypatch.setattr("shutil.copyfileobj", interrupted_copy)
     with pytest.raises(KeyboardInterrupt):
-        tiles.export_stl(folder=destination)
-    assert not destination.exists()
+        tiles.export_stl(folder=destination, overwrite=overwrite)
+    if overwrite:
+        assert {
+            path.name: path.read_bytes() for path in destination.iterdir()
+        } == before
+    else:
+        assert not destination.exists()

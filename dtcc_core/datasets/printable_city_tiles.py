@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import shutil
 from collections.abc import Sequence
 from contextlib import suppress
@@ -160,19 +161,25 @@ class PrintableCityTilesDataset(DatasetDescriptor):
         )
 
     def export_stls(
-        self, directory: str | Path, *, tiles: Object | None = None, **kwargs
+        self,
+        directory: str | Path,
+        *,
+        tiles: Object | None = None,
+        overwrite: bool = False,
+        **kwargs,
     ) -> Path:
-        """Write the tile and base STLs with layout.json to a new directory.
+        """Write the tile and base STLs with layout.json to a directory.
 
         Pass a realized tile assembly as `tiles`, or supply the Dataset
-        arguments to build it before export. The output directory must be new.
+        arguments to build it before export. Set `overwrite=True` to replace
+        an earlier print export in the same directory.
         """
         if tiles is not None and kwargs:
             raise ValueError("Pass either built tiles or Dataset arguments")
         if tiles is None:
-            _print_destination(directory)
+            _print_destination(directory, overwrite=overwrite)
             tiles = self(**kwargs)
-        return tiles.export_stl(folder=directory)
+        return tiles.export_stl(folder=directory, overwrite=overwrite)
 
     def create_context(self, args):
         """Record the assembly CRS alongside the original area parameters."""
@@ -392,38 +399,94 @@ def _preview(layout, children):
     return feature_collection(features, source_crs=WORKING_CRS, crs="EPSG:4326")
 
 
-def _print_destination(folder):
+def _print_destination(folder, *, overwrite):
     path = Path(folder)
-    if path.exists() or path.is_symlink():
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        raise FileExistsError(f"Print output path must be a directory: {path}")
+    if path.exists() and not overwrite:
         raise FileExistsError(f"Choose a new print output folder: {path}")
     return path
 
 
-def _export_stl(assembly, folder):
-    path = _print_destination(folder)
+def _export_stl(assembly, folder, *, overwrite):
+    path = _print_destination(folder, overwrite=overwrite)
     _print_layout(assembly)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(dir=path.parent, prefix=".dtcc-print-") as temporary:
+    staging_parent = path if path.is_dir() else path.parent
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=staging_parent, prefix=".dtcc-print-") as temporary:
         stage = Path(temporary) / "tiles"
         stage.mkdir()
         _write_print_files(assembly, stage)
-        files = sorted(stage.iterdir(), key=lambda file: file.suffix != ".stl")
-        published = []
-        path.mkdir(exist_ok=False)
-        try:
-            for file in files:
-                destination = path / file.name
-                with file.open("rb") as source, destination.open("xb") as target:
-                    published.append(destination)
-                    shutil.copyfileobj(source, target)
-        except BaseException:
-            for file in published:
-                with suppress(OSError):
-                    file.unlink()
+        _publish_print_files(stage, path, overwrite=overwrite)
+    return path
+
+
+def _previous_print_tiles(path):
+    manifest = path / "layout.json"
+    if not manifest.is_file() or manifest.is_symlink():
+        return set()
+    try:
+        layout = json.loads(manifest.read_text(encoding="utf-8"))
+    except ValueError:
+        return set()
+    tiles = layout.get("tiles") if isinstance(layout, dict) else None
+    if not isinstance(tiles, list):
+        return set()
+    return {
+        name
+        for tile in tiles
+        if isinstance(tile, dict)
+        and isinstance(name := tile.get("stl"), str)
+        and re.fullmatch(r"tile_-?[0-9]+_-?[0-9]+\.stl", name)
+        and (path / name).is_file()
+        and not (path / name).is_symlink()
+    }
+
+
+def _publish_print_files(stage, path, *, overwrite):
+    files = sorted(
+        stage.iterdir(), key=lambda file: (file.name == "layout.json", file.name)
+    )
+    try:
+        path.mkdir()
+        created = True
+    except FileExistsError:
+        _print_destination(path, overwrite=overwrite)
+        created = False
+
+    # Exclusive directory creation also serializes writers to the same folder.
+    backup = path / ".dtcc-print-previous"
+    backup.mkdir()
+    moved = []
+    published = []
+    try:
+        if not created:
+            names = _previous_print_tiles(path) | {file.name for file in files}
+            for name in sorted(names, key=lambda name: (name != "layout.json", name)):
+                target = path / name
+                if target.is_dir() and not target.is_symlink():
+                    raise IsADirectoryError(
+                        f"Print output file is a directory: {target}"
+                    )
+                if target.exists() or target.is_symlink():
+                    target.rename(backup / name)
+                    moved.append(target)
+        for file in files:
+            destination = path / file.name
+            with file.open("rb") as source, destination.open("xb") as target:
+                published.append(destination)
+                shutil.copyfileobj(source, target)
+    except BaseException:
+        for file in reversed(published):
+            file.unlink()
+        for file in reversed(moved):
+            (backup / file.name).rename(file)
+        backup.rmdir()
+        if created:
             with suppress(OSError):
                 path.rmdir()
-            raise
-    return path
+        raise
+    shutil.rmtree(backup)
 
 
 def _write_print_files(assembly, directory):
