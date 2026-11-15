@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from dtcc_core.io.data._http import (
+from dtcc_core.io._http import (
     AsyncHttpClient,
     Budget,
     HttpClient,
@@ -825,7 +825,7 @@ def test_upload_reader_exception_is_preserved(backend, server, exception_type):
 
 @pytest.mark.parametrize("mode", ["buffered", "stream", "error_status"])
 def test_async_reader_error_after_response_headers(mode, monkeypatch):
-    from dtcc_core.io.data._http._async import _BorrowedStream
+    from dtcc_core.io._http._async import _BorrowedStream
 
     release_reader = threading.Event()
     recorded_failure = threading.Event()

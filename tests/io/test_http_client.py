@@ -11,7 +11,7 @@ import httpx2
 import pytest
 
 from dtcc_core.io import HttpLimitError, HttpTransportError, ResponseCache, http_client
-from dtcc_core.io.data._http import HttpClient, Request
+from dtcc_core.io._http import HttpClient, Request
 
 from . import test_http_transport
 
@@ -454,7 +454,7 @@ def test_local_exception_closes_everything_and_propagates(native):
     ],
 )
 def test_native_ca_configuration(monkeypatch, env, explicit, directory, expected):
-    from dtcc_core.io.data._http import _httpx
+    from dtcc_core.io._http import _httpx
 
     for name in ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
         monkeypatch.delenv(name, raising=False)
@@ -512,8 +512,8 @@ def test_native_decoded_gzip_limit(native):
 
 
 def test_low_level_logical_budget_uses_structured_error():
-    from dtcc_core.io.data._http import Budget
-    from dtcc_core.io.data._http._policy import Operation, State
+    from dtcc_core.io._http import Budget
+    from dtcc_core.io._http._policy import Operation, State
 
     state = State(budget=Budget(max_requests=0))
     with pytest.raises(HttpLimitError) as caught:
@@ -581,7 +581,7 @@ def test_redirect_location_retains_query(native):
 
 
 def test_shared_budget_counts_inflight_chunks_after_another_read_crosses_limit():
-    from dtcc_core.io.data._http import Budget
+    from dtcc_core.io._http import Budget
 
     budget = Budget(max_received_bytes=10)
     request = Request("GET", URL)
@@ -591,3 +591,74 @@ def test_shared_budget_counts_inflight_chunks_after_another_read_crosses_limit()
             budget.consume("received_body_bytes", 8, request)
         assert caught.value.resource == "received_body_bytes"
         assert caught.value.observed == observed
+
+
+@pytest.mark.parametrize(
+    "body, content_type, expected",
+    [
+        ({"json": {"region": "west"}}, "application/json", b'{"region": "west"}'),
+        (
+            {"form": [("mode", "bus"), ("mode", "tram")]},
+            "application/x-www-form-urlencoded",
+            b"mode=bus&mode=tram",
+        ),
+        ({"body": b"binary"}, None, b"binary"),
+    ],
+)
+def test_buffered_post_serializes_body(native, body, content_type, expected):
+    client, calls, _ = native([reply()])
+    with client:
+        assert client.json(URL, method="POST", **body) == {"temperature": 12}
+    assert calls[0].method == "POST"
+    assert calls[0].content == expected
+    if content_type:
+        assert calls[0].headers["content-type"] == content_type
+
+
+@pytest.mark.parametrize("idempotent, attempts", [(False, 1), (True, 2)])
+def test_post_replay_is_explicit(native, idempotent, attempts):
+    client, calls, _ = native([reply(status=503), reply()], retries=1)
+    with client:
+        if idempotent:
+            assert client.json(URL, method="POST", json={}, idempotent=True)
+        else:
+            with pytest.raises(HttpTransportError):
+                client.json(URL, method="POST", json={})
+    assert len(calls) == attempts
+
+
+def test_binary_and_custom_timeout_and_redirect_policy(native):
+    from dtcc_core.io import RedirectPolicy, Timeout
+
+    client, calls, _ = native(
+        [reply(b"\x00\xff")],
+        timeout=Timeout(2, 7),
+        redirects=RedirectPolicy(max_hops=0),
+    )
+    with client:
+        assert client.bytes(URL) == b"\x00\xff"
+        assert client._backend._state.timeout == Timeout(2, 7)
+    assert len(calls) == 1
+    with pytest.raises(ValueError, match="total"):
+        http_client(timeout=Timeout(total=5))
+    with pytest.raises(ValueError, match="redirects"):
+        http_client(redirects=True)
+
+
+def test_multipart_borrows_file_and_does_not_retry(native, tmp_path):
+    from dtcc_core.io import MultipartPart
+
+    path = tmp_path / "upload.bin"
+    path.write_bytes(b"file payload")
+    client, calls, _ = native([reply(status=503)], retries=2)
+    with path.open("rb") as source, client:
+        with pytest.raises(HttpTransportError):
+            client.request(
+                URL,
+                method="POST",
+                multipart=[MultipartPart("files", source, "upload.bin")],
+            )
+        assert not source.closed
+    assert len(calls) == 1
+    assert b'filename="upload.bin"' in calls[0].content
+    assert b"file payload" in calls[0].content

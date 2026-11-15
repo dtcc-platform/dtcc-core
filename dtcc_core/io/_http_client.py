@@ -1,8 +1,8 @@
-"""Small synchronous JSON/text interface with owned connections and budgets."""
+"""Synchronous buffered HTTP interface with owned connections and budgets."""
 
 from collections.abc import Mapping
 
-from .data._http import (
+from ._http import (
     Budget,
     RedirectPolicy,
     Request,
@@ -10,11 +10,11 @@ from .data._http import (
     RetryPolicy,
     Timeout,
 )
-from .data._http._contracts import _pairs, _positive
+from ._http._contracts import _pairs, _positive
 
 
 class _HttpClient:
-    """Serial JSON/text GETs; pass this client to helpers sharing an operation."""
+    """Serial buffered requests; pass this client to helpers sharing an operation."""
 
     def __init__(self, backend, *, cache_ttl, cache_namespace):
         self._backend = backend
@@ -37,16 +37,22 @@ class _HttpClient:
         """Close owned connections; repeated calls are harmless."""
         self._backend.close()
 
-    def _get(
+    def request(
         self,
         url,
         *,
+        method="GET",
         params=None,
         headers=None,
         credentials=None,
         public=True,
         cache_token=None,
+        **options,
     ):
+        """Return a Response; body options and expected_status follow Request.
+
+        POST replay requires idempotent=True and a replayable body.
+        """
         query = _pairs(params or (), "params")
         if credentials is not None:
             if not isinstance(credentials, Mapping):
@@ -59,7 +65,7 @@ class _HttpClient:
             public = False
         return self._backend.request(
             Request(
-                "GET",
+                method,
                 url,
                 params=query,
                 headers=headers,
@@ -67,8 +73,13 @@ class _HttpClient:
                 cache_ttl=self._cache_ttl,
                 cache_namespace=self._cache_namespace,
                 cache_token="" if cache_token is None else str(cache_token),
+                **options,
             )
         )
+
+    def bytes(self, url, **options):
+        """Return a bounded binary response body."""
+        return self.request(url, **options).body
 
     def json(
         self,
@@ -79,15 +90,17 @@ class _HttpClient:
         credentials=None,
         public=True,
         cache_token=None,
+        **options,
     ):
         """Return a decoded JSON value; provider-specific validation is the caller's."""
-        return self._get(
+        return self.request(
             url,
             params=params,
             headers=headers,
             credentials=credentials,
             public=public,
             cache_token=cache_token,
+            **options,
         ).json()
 
     def text(
@@ -100,15 +113,17 @@ class _HttpClient:
         public=True,
         cache_token=None,
         encoding="utf-8",
+        **options,
     ):
         """Return decoded text, using UTF-8 unless an encoding is supplied."""
-        return self._get(
+        return self.request(
             url,
             params=params,
             headers=headers,
             credentials=credentials,
             public=public,
             cache_token=cache_token,
+            **options,
         ).text(encoding)
 
 
@@ -116,6 +131,7 @@ def http_client(
     *,
     timeout=30,
     retries=2,
+    redirects=None,
     max_requests=2000,
     max_attempts=2000,
     max_download_bytes=100 * 1024 * 1024,
@@ -127,7 +143,7 @@ def http_client(
     proxy=None,
     trust_env=False,
 ):
-    """Create a serial context-managed JSON/text GET client using native HTTPX2.
+    """Create a serial context-managed buffered HTTP client using native HTTPX2.
 
     Requests, attempts and decoded byte budgets are shared across helper calls.
     Retries and redirects consume attempts; cache hits consume requests and
@@ -141,11 +157,19 @@ def http_client(
     Connections close on leaving the with block. Timeout is connect/read
     inactivity, not a total deadline. Environment proxies are opt-in (trust_env).
     """
-    from .data._http._httpx import NativeHttpClient
+    from ._http._httpx import NativeHttpClient
 
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+    if isinstance(timeout, Timeout):
+        timeout_policy = timeout
+    elif isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
         raise ValueError("timeout must be a positive number")
-    _positive(timeout, "timeout")
+    else:
+        _positive(timeout, "timeout")
+        timeout_policy = Timeout(connect=timeout, read=timeout)
+    if timeout_policy.total is not None:
+        raise ValueError("Synchronous total deadlines are not supported")
+    if redirects is not None and not isinstance(redirects, RedirectPolicy):
+        raise ValueError("redirects must be a RedirectPolicy")
     if type(retries) is not int:
         raise ValueError("retries must be a nonnegative integer")
     if isinstance(cache_ttl, bool) or not isinstance(cache_ttl, (int, float)):
@@ -165,9 +189,11 @@ def http_client(
     )
     return _HttpClient(
         NativeHttpClient(
-            timeout=Timeout(connect=timeout, read=timeout),
+            timeout=timeout_policy,
             retry=RetryPolicy(retries=retries, respect_retry_after=respect_retry_after),
-            redirects=RedirectPolicy(max_hops=5),
+            redirects=redirects
+            if redirects is not None
+            else RedirectPolicy(max_hops=5),
             budget=budget,
             cache=cache
             if cache is not None
