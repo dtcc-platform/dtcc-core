@@ -45,8 +45,9 @@ The defaults are `scale=1250`, `tile_size_mm=200` and `lod="lod1"`.
 `lod="lod2"` reconstructs roofs where the source supports them. The
 layout records the count of source roofs with a full LOD1 fallback.
 Tile size can range from 140 to 250 mm. Check the printer's build area
-when selecting a size. The matching ribbed base keeps the same magnet
-and connector dimensions while the central span changes with tile size.
+when selecting a size. The ribbed base keeps the magnet pockets, connector
+seats and central tube at their original dimensions. The spans between the
+connectors and tube change with tile size.
 The default base is 20 mm tall. Each request supports up to 64 tiles
 and 5 km per axis.
 

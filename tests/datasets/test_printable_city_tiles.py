@@ -142,19 +142,29 @@ def test_adjacent_print_stls_match_the_layout_and_reference_pockets(
     np.testing.assert_allclose(*seam_profiles, atol=3e-5, rtol=0)
 
 
-def test_base_changes_pitch_and_retains_the_corner_geometry(monkeypatch, tmp_path):
+@pytest.mark.parametrize("size", [140, 160, 250])
+def test_base_changes_pitch_and_retains_the_corners_and_tube(
+    size, monkeypatch, tmp_path
+):
     for target, provider in _site().items():
         monkeypatch.setattr(target, provider)
-    result = datasets.printable_city_tiles(bounds=SITE, tile_size_mm=160, scale=375)
+    result = datasets.printable_city_tiles(
+        bounds=SITE, tile_size_mm=size, scale=60_000 / size
+    )
     package = result.export(tmp_path / "resized", canonical=True)
     base = io.load_mesh(package.path / "artifacts" / "base_tile.stl")
     _validate_solid(base)
-    assert base.vertices.max(axis=0) == pytest.approx((160, 160, 20))
+    assert base.vertices.max(axis=0) == pytest.approx((size, size, 20))
     ring = base.vertices[np.isclose(base.vertices[:, 2], 20.0)]
-    for x in (8, 152):
-        for y in (8, 152):
+    for x in (8, size - 8):
+        for y in (8, size - 8):
             radius = np.linalg.norm(ring[:, :2] - (x, y), axis=1)
             assert np.count_nonzero(np.isclose(radius, 5.0, atol=2e-5)) == 32
+    for z in (0, 20):
+        plane = base.vertices[np.isclose(base.vertices[:, 2], z), :2]
+        radius = np.linalg.norm(plane - size / 2, axis=1)
+        assert np.count_nonzero(np.isclose(radius, 7.0, atol=2e-5, rtol=0)) == 32
+        assert np.count_nonzero(np.isclose(radius, 10.0, atol=2e-5, rtol=0)) >= 32
 
 
 def test_neighboring_jobs_use_the_same_mounting_elevation(monkeypatch, no_network):

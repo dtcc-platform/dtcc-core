@@ -208,20 +208,23 @@ def _validate_solid(mesh):
 
 
 def _resize_base(mesh, size):
-    """Resize the central span while preserving the corner and connector dimensions."""
+    """Resize the spans between the connectors and the central tube."""
     if size == BASE_SIZE_MM:
         return mesh
     triangles = np.asarray(mesh.vertices, dtype=float)[mesh.faces]
     triangles[np.abs(triangles) <= XY_PRECISION] = 0
+    half_delta = (size - BASE_SIZE_MM) / 2
     for axis in (0, 1):
-        triangles = _stretch_span(triangles, axis, size - BASE_SIZE_MM)
+        triangles = _stretch_span(triangles, axis, 50.0, 88.0, half_delta)
+        triangles = _stretch_span(
+            triangles, axis, 112.0 + half_delta, 150.0 + half_delta, half_delta
+        )
     result = _indexed(np.round(triangles, 8).astype(np.float32).astype(float))
     _validate_solid(result)
     return result
 
 
-def _stretch_span(triangles, axis, extra):
-    start, stop = 60.0, 140.0
+def _stretch_span(triangles, axis, start, stop, extra):
     intervals = (
         (triangles[:, :, axis].min(axis=1) < start, [(axis, start, -1)]),
         (np.ones(len(triangles), dtype=bool), [(axis, start, 1), (axis, stop, -1)]),
