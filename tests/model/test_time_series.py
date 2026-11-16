@@ -1246,3 +1246,23 @@ def test_resample_does_not_copy_its_result_twice(monkeypatch):
     ts.resample("2h")
     ts.resample("2h", how="count")
     assert copied == [False, False]
+
+
+def test_source_attributes_are_independent_and_preserved_by_copies():
+    source = TimeSeries(
+        times=["2020-01-01"], values=[1], attributes={"source": {"quality": "G"}}
+    )
+    assert TimeSeries().attributes == {}
+    for clone in (
+        source.copy(),
+        copy.deepcopy(source),
+        pickle.loads(pickle.dumps(source)),
+    ):
+        assert clone.attributes == source.attributes
+        clone.attributes["source"]["quality"] = "changed"
+        assert source.attributes["source"]["quality"] == "G"
+    renamed = dataclasses.replace(source, name="renamed")
+    assert renamed.attributes == source.attributes
+    renamed.attributes["other"] = True
+    assert "other" not in source.attributes
+    assert source.between().attributes == {}

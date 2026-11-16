@@ -4,6 +4,7 @@
 import datetime as _dt
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -441,6 +442,10 @@ class TimeSeries(Model):
     role: str
         Free label such as ``"observed"`` or ``"predicted"``; empty means
         unspecified.
+    attributes: dict
+        Ancillary source metadata. Copies preserve it; numerical transformations
+        return core series without these attributes, which may describe raw
+        observations. Nonempty attributes have no canonical exchange representation.
     """
 
     # times and values are dataclass fields whose defaults are the properties
@@ -453,6 +458,7 @@ class TimeSeries(Model):
     dim: int = 1
     association: str | None = field(default=None, kw_only=True)
     role: str = field(default="", kw_only=True)
+    attributes: dict[str, Any] = field(default_factory=dict, kw_only=True)
 
     __eq__ = object.__eq__
     __hash__ = object.__hash__
@@ -468,6 +474,7 @@ class TimeSeries(Model):
         *,
         association=None,
         role="",
+        attributes=None,
     ):
         self.name = name
         self.unit = unit
@@ -475,6 +482,7 @@ class TimeSeries(Model):
         self.dim = dim
         self.association = association
         self.role = role
+        self.attributes = {} if attributes is None else dict(attributes)
         if times is None:
             if values is not None:
                 raise ValueError("TimeSeries values were given without times.")

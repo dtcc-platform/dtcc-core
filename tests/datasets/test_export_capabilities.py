@@ -39,6 +39,7 @@ REASON_3D = "3D-only product: no map-placed or RFC 7946 web form"
 REASON_TILES = (
     "tile collections have no web artifact; use the raster product for imagery"
 )
+REASON_HISTORY = "Temporal collection location and observation metadata have no exchange representation"
 
 BUILTINS = {
     name: dataset
@@ -71,7 +72,7 @@ def _derived(package):
 
 
 def test_every_builtin_dataset_declares_each_product():
-    assert len(BUILTINS) == 25
+    assert len(BUILTINS) == 26
     for name, dataset in BUILTINS.items():
         product = dataset.describe()["args_schema"]["properties"].get("product")
         expected = product["enum"] if product else [None]
@@ -85,6 +86,8 @@ def test_every_builtin_dataset_declares_each_product():
             if (name, entry["product"]) == ("orthophoto", "tiles")
             else REASON_3D
         )
+        if name == "weather_history":
+            reason = REASON_HISTORY
         assert [e["reason"] for e in entry["exclusions"]] in ([], [reason]), name
 
 

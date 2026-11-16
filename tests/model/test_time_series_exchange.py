@@ -285,3 +285,17 @@ def test_save_checks_the_time_series_invariants(corrupt, message):
     corrupt(source)
     with pytest.raises(ValueError, match=message):
         exchange.dumps(source, validate_schema=False)
+
+
+@pytest.mark.parametrize("attached", [False, True])
+def test_source_attributes_are_rejected_instead_of_silently_lost(tmp_path, attached):
+    source = series()
+    source.attributes["station"] = {"id": 20}
+    root = Mesh(vertices=np.zeros((2, 3)), time_series=[source]) if attached else source
+    with pytest.raises(NotImplementedError, match="TimeSeries attributes"):
+        root.to_proto()
+    path = tmp_path / "series.dtcc"
+    path.write_bytes(b"existing file")
+    with pytest.raises(NotImplementedError, match="TimeSeries attributes"):
+        save_model(root, path)
+    assert path.read_bytes() == b"existing file"
