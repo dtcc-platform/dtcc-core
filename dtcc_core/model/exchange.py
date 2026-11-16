@@ -7,7 +7,9 @@ domain profiles are separate. This module performs no file I/O.
 
 import math
 import re
+from datetime import datetime
 from numbers import Integral, Real
+from pathlib import Path
 
 import numpy as np
 from affine import Affine
@@ -17,6 +19,7 @@ from google.protobuf.unknown_fields import UnknownFieldSet
 from . import dtcc_pb2 as wire
 from .geometry import (
     Bounds,
+    FieldSlice,
     Grid,
     LineString,
     Mesh,
@@ -26,6 +29,7 @@ from .geometry import (
     PointCloud,
     SemanticRegion,
     Solid,
+    StreamlineCollection,
     Surface,
     Transform,
     VolumeGrid,
@@ -33,10 +37,13 @@ from .geometry import (
 )
 from .object import (
     Building,
+    BuildingCollection,
     BuildingPart,
+    CalibrationGrid,
     City,
     CityObject,
     DeSO,
+    FootprintCollection,
     GeometryRepresentation,
     Landuse,
     Object,
@@ -44,14 +51,20 @@ from .object import (
     SensorCollection,
     Terrain,
     Tree,
+    TreeCollection,
     VehicleCollection,
+)
+from .object.dataset_collections import (
+    _check_calibration_divisions,
+    _check_footprint_lists,
 )
 from .object.landuse import LanduseClasses
 from .object.object import _validate_attributes
-from .values import Field, Raster
+from .values import Field, Raster, TimeSeries
+from .values.raster_tiles import RasterTile, RasterTileCollection
 
 FORMAT = "dtcc-model"
-VERSION = 6
+VERSION = 7
 READ_VERSIONS = {VERSION}
 # Protobuf's cross-implementation ceiling applies to one serialized message.
 # https://protobuf.dev/programming-guides/proto-limits/#total-size-of-the-message
@@ -73,6 +86,16 @@ OBJECT_KINDS = {
     DeSO: wire.Object.DESO,
 }
 KINDS_OBJECT = {value: key for key, value in OBJECT_KINDS.items()}
+# Root-only Dataset wrappers, exchanged as a transient Object with id "collection".
+COLLECTION_KINDS = {
+    TreeCollection: wire.Object.TREE_COLLECTION,
+    BuildingCollection: wire.Object.BUILDING_COLLECTION,
+    FootprintCollection: wire.Object.FOOTPRINT_COLLECTION,
+    CalibrationGrid: wire.Object.CALIBRATION_GRID,
+    FieldSlice: wire.Object.FIELD_SLICE,
+    StreamlineCollection: wire.Object.STREAMLINE_COLLECTION,
+    RasterTileCollection: wire.Object.RASTER_TILE_COLLECTION,
+}
 GEOMETRIES = (
     Mesh,
     Point,
@@ -86,7 +109,16 @@ GEOMETRIES = (
     Grid,
     VolumeGrid,
 )
-SUPPORTED_ROOTS = (*OBJECT_KINDS, *GEOMETRIES, Field, Raster, Bounds, Transform)
+SUPPORTED_ROOTS = (
+    *OBJECT_KINDS,
+    *COLLECTION_KINDS,
+    *GEOMETRIES,
+    Field,
+    TimeSeries,
+    Raster,
+    Bounds,
+    Transform,
+)
 DTYPES = {"|b1", "|i1", "|u1", "<i2", "<i4", "<i8", "<u2", "<u4", "<u8", "<f4", "<f8"}
 URI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:[^\s]+\Z")
 
@@ -201,6 +233,24 @@ def _field(value, owner=None):
     _array(value.values, "Field.values")
     for key in ("name", "unit", "description"):
         _text(getattr(value, key), f"Field.{key}")
+    _value_association(value, owner, len(value.values))
+
+
+def _time_series(value, owner=None):
+    if type(value) is not TimeSeries:
+        raise NotImplementedError(
+            f"Canonical TimeSeries subtype {type(value).__name__} is unsupported"
+        )
+    for key in ("name", "unit", "description", "role"):
+        _text(getattr(value, key), f"TimeSeries.{key}")
+    if not 1 <= value.dim <= 2**32 - 1:
+        raise ValueError("TimeSeries.dim must be a positive uint32")
+    _array(value.values, "TimeSeries.values", dimensions=3)
+    value._check_data(value.times, value.values)
+    _value_association(value, owner, value.values.shape[1])
+
+
+def _value_association(value, owner, count):
     if value.association not in {
         "vertex",
         "edge",
@@ -210,7 +260,7 @@ def _field(value, owner=None):
         "geometry",
     }:
         raise ValueError(
-            f"Field {value.name!r} requires an explicit vertex/edge/face/cell/sample/geometry association"
+            f"{type(value).__name__} {value.name!r} requires an explicit vertex/edge/face/cell/sample/geometry association"
         )
     if owner is not None:
         if value.dataset_context is not None:
@@ -243,12 +293,9 @@ def _field(value, owner=None):
         else:
             counts = {"sample": 1}
         counts["geometry"] = 1
-        if (
-            value.association not in counts
-            or len(value.values) != counts[value.association]
-        ):
+        if value.association not in counts or count != counts[value.association]:
             raise ValueError(
-                f"Field {value.name!r} association/count does not match {type(owner).__name__}"
+                f"{type(value).__name__} {value.name!r} association/count does not match {type(owner).__name__}"
             )
 
 
@@ -420,6 +467,10 @@ def _geometry(value, *, root=False, depth=0):
         raise ValueError("Geometry.fields must be a list")
     for attached in value.fields:
         _field(attached, value)
+    if not isinstance(value.time_series, list):
+        raise ValueError("Geometry.time_series must be a list")
+    for attached in value.time_series:
+        _time_series(attached, value)
 
 
 def _ring(ring, *, empty=False):
@@ -508,8 +559,521 @@ def _regions(geometry):
                 done[index] = 2
 
 
+def _identity(transform):
+    return transform.srs == "" and np.array_equal(transform.affine, np.eye(4))
+
+
+def _collection_shape(obj, cls, member, representations, attributes, optional=None):
+    """Require exactly the transient root slots that a wrapper class can restore.
+
+    ``optional`` maps representation IDs that may be absent to their types.
+    """
+    name = cls.__name__
+    if type(obj) is not Object or obj.id != "collection":
+        raise ValueError(f"{name} root must be a transient Object 'collection'")
+    if not _identity(obj.transform):
+        raise ValueError(f"{name} root transform must be identity with empty srs")
+    if (obj.semantic_type, obj.profile_id, obj.profile_version) != (None, None, None):
+        raise ValueError(f"{name} root must have no semantic type or profile")
+    if obj.relations:
+        raise ValueError(f"{name} root must have no relations")
+    for group in obj.children.values():
+        if not isinstance(group, list):
+            raise ValueError(f"{name} members must be a list")
+        for child in group:
+            if member is None or type(child) is not member:
+                raise ValueError(
+                    f"{name} children must be {member.__name__} objects"
+                    if member
+                    else f"{name} root must have no children"
+                )
+            if child.id == "collection":
+                raise ValueError(f"{name} member id must not be 'collection'")
+    stack, seen = [obj], {id(obj)}
+    while stack:
+        for group in stack.pop().children.values():
+            for child in group:
+                if isinstance(child, Object) and id(child) not in seen:
+                    seen.add(id(child))
+                    if any(
+                        isinstance(targets, list) and "collection" in targets
+                        for targets in child.relations.values()
+                    ):
+                        raise ValueError(
+                            f"{name} member relations must not target 'collection'"
+                        )
+                    stack.append(child)
+    allowed = {**representations, **(optional or {})}
+    if not representations.keys() <= obj.geometry.keys() <= allowed.keys() or any(
+        type(record.geometry) is not allowed[key]
+        or record.lod is not None
+        or record.role is not None
+        for key, record in obj.geometry.items()
+    ):
+        raise ValueError(
+            f"{name} root requires exactly the representations {sorted(representations)}"
+            + (f" and optionally {sorted(optional)}" if optional else "")
+        )
+    if obj.attributes.keys() != set(attributes):
+        raise ValueError(
+            f"{name} root requires exactly the attributes {sorted(attributes)}"
+        )
+
+
+def _tree_collection(obj):
+    """Check a TREE_COLLECTION transient root and return its TreeCollection."""
+    _collection_shape(obj, TreeCollection, Tree, {}, ())
+    return TreeCollection(trees=obj.children.get(Tree, []))
+
+
+def _building_collection(obj):
+    """Check a BUILDING_COLLECTION transient root and return its BuildingCollection."""
+    _collection_shape(obj, BuildingCollection, Building, {}, ())
+    return BuildingCollection(buildings=obj.children.get(Building, []))
+
+
+def _footprint_collection(obj):
+    """Check a FOOTPRINT_COLLECTION transient root and return its FootprintCollection."""
+    _collection_shape(
+        obj,
+        FootprintCollection,
+        None,
+        {"footprints": MultiSurface},
+        ("source_ids", "source_indices"),
+    )
+    carrier = obj.geometry["footprints"].geometry
+    if (
+        not _identity(carrier.transform)
+        or carrier.fields
+        or carrier.time_series
+        or carrier.regions
+    ):
+        raise ValueError(
+            "FootprintCollection carrier MultiSurface must have an identity "
+            "transform, no fields, time series or regions"
+        )
+    source_ids = obj.attributes["source_ids"]
+    source_indices = obj.attributes["source_indices"]
+    _check_footprint_lists(carrier.surfaces, source_ids, source_indices)
+    return FootprintCollection(
+        footprints=carrier.surfaces,
+        source_ids=source_ids,
+        source_indices=source_indices,
+    )
+
+
+def _calibration_grid(obj):
+    """Check a CALIBRATION_GRID transient root and return its CalibrationGrid."""
+    _collection_shape(
+        obj,
+        CalibrationGrid,
+        None,
+        {"bounds": Bounds},
+        ("divisions", "crs", "features", "name", "metadata"),
+    )
+    attributes = obj.attributes
+    features = attributes["features"]
+    if (
+        type(attributes["divisions"]) is not int
+        or not isinstance(attributes["crs"], (str, type(None)))
+        or not isinstance(features, list)
+        or any(not isinstance(feature, dict) for feature in features)
+        or not isinstance(attributes["name"], str)
+        or not isinstance(attributes["metadata"], dict)
+    ):
+        raise ValueError(
+            "CalibrationGrid requires int divisions, str or None crs, a list of "
+            "feature dictionaries, a str name and a metadata dictionary"
+        )
+    _check_calibration_divisions(attributes["divisions"], attributes["metadata"])
+    return CalibrationGrid(
+        bounds=obj.geometry["bounds"].geometry,
+        divisions=attributes["divisions"],
+        crs=attributes["crs"],
+        features=features,
+        name=attributes["name"],
+        metadata_payload=attributes["metadata"],
+    )
+
+
+def _real(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _simulation_attributes(name, attributes, axis, position):
+    """Check the attribute types shared by FieldSlice and StreamlineCollection."""
+    axes = attributes["axes"]
+    if (
+        not isinstance(attributes[axis], str)
+        or not _real(attributes[position])
+        or not _real(attributes["time"])
+        or not _real(attributes["period"])
+        or not isinstance(attributes["crs"], (str, type(None)))
+        or type(attributes["include_z"]) is not bool
+        or not isinstance(axes, list)
+        or len(axes) != 2
+        or any(type(index) is not int or not 0 <= index <= 2 for index in axes)
+        or not isinstance(attributes["name"], str)
+        or not isinstance(attributes["metadata"], dict)
+    ):
+        raise ValueError(
+            f"{name} requires a str {axis}, numeric {position}, time and period, "
+            "str or None crs, bool include_z, two int axes in 0..2, a str name and "
+            "a metadata dictionary"
+        )
+
+
+def _field_slice(obj):
+    """Check a FIELD_SLICE transient root and return its FieldSlice."""
+    _collection_shape(
+        obj,
+        FieldSlice,
+        None,
+        {"samples": PointCloud},
+        (
+            "slice_axis",
+            "slice_position",
+            "resolution",
+            "axes",
+            "name",
+            "time",
+            "period",
+            "crs",
+            "include_z",
+            "metadata",
+        ),
+        {"domain": Bounds},
+    )
+    attributes = obj.attributes
+    _simulation_attributes("FieldSlice", attributes, "slice_axis", "slice_position")
+    if type(attributes["resolution"]) is not int:
+        raise ValueError("FieldSlice requires an int resolution")
+    if attributes["resolution"] < 0:
+        raise ValueError(
+            f"FieldSlice requires an int resolution >= 0, not {attributes['resolution']}"
+        )
+    samples = obj.geometry["samples"].geometry
+    domain = obj.geometry.get("domain")
+    return FieldSlice(
+        points=samples.points,
+        classification=samples.classification,
+        intensity=samples.intensity,
+        return_number=samples.return_number,
+        num_returns=samples.num_returns,
+        transform=samples.transform,
+        fields=samples.fields,
+        time_series=samples.time_series,
+        regions=samples.regions,
+        slice_axis=attributes["slice_axis"],
+        slice_position=attributes["slice_position"],
+        resolution=attributes["resolution"],
+        axes=tuple(attributes["axes"]),
+        name=attributes["name"],
+        time=attributes["time"],
+        period=attributes["period"],
+        crs=attributes["crs"],
+        include_z=attributes["include_z"],
+        domain_bounds=domain and domain.geometry,
+        metadata_payload=attributes["metadata"],
+    )
+
+
+def _streamline_collection(obj):
+    """Check a STREAMLINE_COLLECTION transient root and return its collection."""
+    _collection_shape(
+        obj,
+        StreamlineCollection,
+        None,
+        {"lines": MultiLineString},
+        (
+            "seed_axis",
+            "seed_position",
+            "requested_line_count",
+            "streamline_steps",
+            "streamline_step_size",
+            "time",
+            "period",
+            "crs",
+            "include_z",
+            "axes",
+            "name",
+            "metadata",
+        ),
+        {"domain": Bounds},
+    )
+    carrier = obj.geometry["lines"].geometry
+    if (
+        not _identity(carrier.transform)
+        or carrier.fields
+        or carrier.time_series
+        or carrier.regions
+    ):
+        raise ValueError(
+            "StreamlineCollection carrier MultiLineString must have an identity "
+            "transform, no fields, time series or regions"
+        )
+    attributes = obj.attributes
+    _simulation_attributes(
+        "StreamlineCollection", attributes, "seed_axis", "seed_position"
+    )
+    if (
+        type(attributes["requested_line_count"]) is not int
+        or type(attributes["streamline_steps"]) is not int
+        or not _real(attributes["streamline_step_size"])
+    ):
+        raise ValueError(
+            "StreamlineCollection requires int requested_line_count and "
+            "streamline_steps and a numeric streamline_step_size"
+        )
+    for key in ("requested_line_count", "streamline_steps", "streamline_step_size"):
+        if attributes[key] < 0:
+            raise ValueError(
+                f"StreamlineCollection requires {key} >= 0, not {attributes[key]}"
+            )
+    domain = obj.geometry.get("domain")
+    return StreamlineCollection(
+        lines=carrier.linestrings,
+        seed_axis=attributes["seed_axis"],
+        seed_position=attributes["seed_position"],
+        requested_line_count=attributes["requested_line_count"],
+        streamline_steps=attributes["streamline_steps"],
+        streamline_step_size=attributes["streamline_step_size"],
+        time=attributes["time"],
+        period=attributes["period"],
+        crs=attributes["crs"],
+        include_z=attributes["include_z"],
+        axes=tuple(attributes["axes"]),
+        name=attributes["name"],
+        domain_bounds=domain and domain.geometry,
+        metadata_payload=attributes["metadata"],
+    )
+
+
+TILE_RECORD = (
+    "id",
+    "collection",
+    "datetime",
+    "extent",
+    "crs",
+    "spektraltyp",
+    "resolution",
+    "size_bytes",
+    "artifact",
+)
+_TILE_NAME_DROP = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _tile_reference(index, collection, id):
+    """Return the package-relative reference of the tile at index in the list."""
+    return (
+        f"artifacts/tiles/{_TILE_NAME_DROP.sub('', collection)}/"
+        f"{index}-{_TILE_NAME_DROP.sub('', id)}.tif"
+    )
+
+
+def _raster_tile_collection(obj):
+    """Check a RASTER_TILE_COLLECTION transient root and return its collection.
+
+    Restored tiles carry their reference as path and are marked unbound.
+    """
+    from ..datasets.publish import DatasetPackageError, _validate_package_path
+
+    _collection_shape(obj, RasterTileCollection, None, {}, ("tiles",))
+    records = obj.attributes["tiles"]
+    if not isinstance(records, list) or any(
+        not isinstance(record, dict) or record.keys() != set(TILE_RECORD)
+        for record in records
+    ):
+        raise ValueError(
+            "RasterTileCollection.tiles must be a list of records with exactly "
+            f"the keys {sorted(TILE_RECORD)}"
+        )
+    tiles = []
+    for index, record in enumerate(records):
+        extent = record["extent"]
+        if (
+            any(
+                not isinstance(record[key], str)
+                for key in ("id", "collection", "datetime", "crs", "spektraltyp")
+            )
+            or not isinstance(record["artifact"], str)
+            or not isinstance(extent, list)
+            or len(extent) != 6
+            or not all(_real(value) for value in extent)
+            or not (record["resolution"] is None or _real(record["resolution"]))
+            or not (record["size_bytes"] is None or type(record["size_bytes"]) is int)
+        ):
+            raise ValueError(
+                "RasterTileCollection tile records require str id, collection, "
+                "datetime, crs, spektraltyp and artifact, six numeric extent "
+                "values, numeric or None resolution and int or None size_bytes"
+            )
+        if record["resolution"] is not None and not record["resolution"] > 0:
+            raise ValueError(
+                "RasterTileCollection tile resolution must be positive when given, "
+                f"not {record['resolution']}"
+            )
+        if record["size_bytes"] is not None and record["size_bytes"] < 0:
+            raise ValueError(
+                "RasterTileCollection tile size_bytes must be >= 0 when given, "
+                f"not {record['size_bytes']}"
+            )
+        try:
+            moment = datetime.fromisoformat(record["datetime"])
+        except ValueError:
+            moment = None
+        if moment is None or moment.isoformat() != record["datetime"]:
+            raise ValueError(
+                "RasterTileCollection tile datetime must be a canonical ISO 8601 "
+                f"string, not {record['datetime']!r}"
+            )
+        reference = record["artifact"]
+        try:
+            _validate_package_path(reference)
+        except DatasetPackageError as exc:
+            raise ValueError(
+                f"RasterTileCollection tile reference {reference!r} is not a "
+                "portable package path"
+            ) from exc
+        expected = _tile_reference(index, record["collection"], record["id"])
+        if reference != expected:
+            raise ValueError(
+                f"RasterTileCollection tile reference {reference!r} must be "
+                f"{expected!r}"
+            )
+        tiles.append(
+            RasterTile(
+                path=Path(reference),
+                id=record["id"],
+                collection=record["collection"],
+                datetime=moment,
+                extent=Bounds(*extent),
+                crs=record["crs"],
+                spektraltyp=record["spektraltyp"],
+                resolution=record["resolution"],
+                size_bytes=record["size_bytes"],
+                _unbound=True,
+            )
+        )
+    return RasterTileCollection(tiles=tiles)
+
+
+COLLECTION_SHAPES = {
+    wire.Object.TREE_COLLECTION: _tree_collection,
+    wire.Object.BUILDING_COLLECTION: _building_collection,
+    wire.Object.FOOTPRINT_COLLECTION: _footprint_collection,
+    wire.Object.CALIBRATION_GRID: _calibration_grid,
+    wire.Object.FIELD_SLICE: _field_slice,
+    wire.Object.STREAMLINE_COLLECTION: _streamline_collection,
+    wire.Object.RASTER_TILE_COLLECTION: _raster_tile_collection,
+}
+
+
+def _transient(model):
+    """Return a wrapper's shape-checked transient Object; other models unchanged."""
+    if type(model) not in COLLECTION_KINDS:
+        return model
+    obj = Object(id="collection")
+    if type(model) is TreeCollection:
+        obj.children[Tree] = model.trees
+    elif type(model) is BuildingCollection:
+        obj.children[Building] = model.buildings
+    elif type(model) is FootprintCollection:
+        obj.attributes = {
+            "source_ids": model.source_ids,
+            "source_indices": model.source_indices,
+        }
+        obj.geometry["footprints"] = GeometryRepresentation(
+            MultiSurface(surfaces=model.footprints)
+        )
+    elif type(model) in (FieldSlice, StreamlineCollection):
+        if type(model) is FieldSlice:
+            obj.attributes = {
+                "slice_axis": model.slice_axis,
+                "slice_position": model.slice_position,
+                "resolution": model.resolution,
+            }
+            obj.geometry["samples"] = GeometryRepresentation(
+                PointCloud(
+                    points=model.points,
+                    classification=model.classification,
+                    intensity=model.intensity,
+                    return_number=model.return_number,
+                    num_returns=model.num_returns,
+                    transform=model.transform,
+                    fields=model.fields,
+                    time_series=model.time_series,
+                    regions=model.regions,
+                )
+            )
+        else:
+            obj.attributes = {
+                "seed_axis": model.seed_axis,
+                "seed_position": model.seed_position,
+                "requested_line_count": model.requested_line_count,
+                "streamline_steps": model.streamline_steps,
+                "streamline_step_size": model.streamline_step_size,
+            }
+            obj.geometry["lines"] = GeometryRepresentation(
+                MultiLineString(linestrings=model.lines)
+            )
+        obj.attributes |= {
+            "axes": list(model.axes) if type(model.axes) is tuple else model.axes,
+            "name": model.name,
+            "time": model.time,
+            "period": model.period,
+            "crs": model.crs,
+            "include_z": model.include_z,
+            "metadata": model.metadata_payload,
+        }
+        if model.domain_bounds is not None:
+            obj.geometry["domain"] = GeometryRepresentation(model.domain_bounds)
+    elif type(model) is RasterTileCollection:
+        obj.attributes = {
+            "tiles": [
+                {
+                    "id": tile.id,
+                    "collection": tile.collection,
+                    "datetime": tile.datetime.isoformat(),
+                    "extent": [
+                        tile.extent.xmin,
+                        tile.extent.ymin,
+                        tile.extent.xmax,
+                        tile.extent.ymax,
+                        tile.extent.zmin,
+                        tile.extent.zmax,
+                    ],
+                    "crs": tile.crs,
+                    "spektraltyp": tile.spektraltyp,
+                    "resolution": tile.resolution,
+                    "size_bytes": tile.size_bytes,
+                    "artifact": _tile_reference(index, tile.collection, tile.id),
+                }
+                for index, tile in enumerate(model.tiles)
+            ]
+        }
+    else:
+        obj.attributes = {
+            "divisions": model.divisions,
+            "crs": model.crs,
+            "features": model.features,
+            "name": model.name,
+            "metadata": model.metadata_payload,
+        }
+        obj.geometry["bounds"] = GeometryRepresentation(model.bounds)
+    COLLECTION_SHAPES[COLLECTION_KINDS[type(model)]](obj)
+    return obj
+
+
 def validate(model):
-    """Validate the supported subset once at each native or decoded exchange boundary."""
+    """Validate the supported subset once at each native or decoded exchange boundary.
+
+    A root-only Dataset wrapper is validated as its transient Object.
+    """
+    model = _transient(model)
+    if type(model) is TimeSeries:
+        _time_series(model)
+        return
     if type(model) is Field:
         _field(model)
         return
@@ -700,14 +1264,19 @@ def _decode_value(pb, strings, depth=0):
 
 
 def _encode_array(array):
+    pb = wire.Array()
+    _fill_array(array, pb)
+    return pb
+
+
+def _fill_array(array, pb):
+    """Write an array into an existing message, so its bytes are copied once."""
     if array.nbytes > MAX_PROTOBUF_BYTES:
         raise ValueError("Array cannot fit in a Protobuf message smaller than 2 GiB")
     normalized = array.astype(array.dtype.newbyteorder("<"), copy=False)
-    return wire.Array(
-        dtype=normalized.dtype.str,
-        shape=array.shape,
-        data=normalized.tobytes(order="C"),
-    )
+    pb.dtype = normalized.dtype.str
+    pb.shape[:] = array.shape
+    pb.data = normalized.tobytes(order="C")
 
 
 def _decode_array(pb):
@@ -793,10 +1362,46 @@ def _decode_field(pb, strings):
     )
 
 
+def _fill_time_series(value, pb):
+    """Write a series into an existing message without an intermediate copy."""
+    pb.SetInParent()
+    pb.name = value.name
+    pb.unit = value.unit
+    pb.description = value.description
+    _fill_array(value.values, pb.values)
+    pb.dim = value.dim
+    pb.association = value.association
+    _fill_array(value.times.view(np.int64), pb.times)
+    pb.role = value.role
+
+
+def _decode_time_series(pb, strings):
+    if pb.times.dtype != "<i8" or len(pb.times.shape) != 1:
+        raise ValueError("TimeSeries.times must be a 1D <i8 nanosecond array")
+    values = _decode_array(pb.values)
+    # Wire shapes are canonical; reject the shorthand accepted by the constructor.
+    if values.ndim != (2 if pb.dim == 1 else 3):
+        raise ValueError("TimeSeries.values shape must match dim")
+    series = TimeSeries(
+        name=_decode_text(pb.name, strings),
+        unit=_decode_text(pb.unit, strings),
+        description=_decode_text(pb.description, strings),
+        dim=pb.dim,
+        association=_decode_text(pb.association, strings),
+        role=_decode_text(pb.role, strings),
+    )
+    # The decoded arrays are fresh, so the series adopts them without a copy.
+    times = _decode_array(pb.times).view("datetime64[ns]")
+    series._set_data(times, values, copy=False)
+    return series
+
+
 def _encode_geometry(value, pb):
     """Fill the destination message without copying complete geometry subtrees."""
     pb.transform.CopyFrom(_encode_transform(value.transform))
     pb.fields.extend(_encode_field(x) for x in value.fields)
+    for series in value.time_series:
+        _fill_time_series(series, pb.time_series.add())
     if type(value) is Mesh:
         for name in ("vertices", "faces", "markers", "normals"):
             getattr(pb.mesh, name).CopyFrom(_encode_array(getattr(value, name)))
@@ -880,6 +1485,7 @@ def _decode_geometry(pb, strings, depth=0):
     metadata = dict(
         transform=_decode_transform(pb.transform, strings),
         fields=[_decode_field(x, strings) for x in pb.fields],
+        time_series=[_decode_time_series(x, strings) for x in pb.time_series],
         regions=[
             SemanticRegion(
                 semantic_type=_decode_text(r.semantic_type, strings),
@@ -1015,8 +1621,9 @@ def _encode_object(value, pb):
         pb.relations[key].CopyFrom(wire.IdList(ids=targets))
 
 
-def _decode_object(pb, strings, depth=0):
-    if pb.kind not in KINDS_OBJECT:
+def _decode_object(pb, strings, depth=0, cls=None):
+    """Decode one object; cls decodes a root wrapper kind as its transient Object."""
+    if cls is None and pb.kind not in KINDS_OBJECT:
         raise NotImplementedError(f"Unsupported canonical object kind {pb.kind}")
     if depth > MAX_DEPTH:
         raise ValueError("Containment exceeds canonical depth limit")
@@ -1047,7 +1654,7 @@ def _decode_object(pb, strings, depth=0):
             )
         except KeyError as exc:
             raise ValueError("Unknown canonical Landuse code") from exc
-    value = KINDS_OBJECT[pb.kind](
+    value = (cls or KINDS_OBJECT[pb.kind])(
         id=_decode_text(pb.id, strings),
         semantic_type=_decode_text(pb.semantic_type, strings) or None,
         profile_id=_decode_text(pb.profile_id, strings) or None,
@@ -1121,20 +1728,26 @@ def dumps(model, *, validate_schema=True):
 def _encode_model(model, *, validate_schema=True):
     """Encode native data; False bypasses semantic evaluation, never admission."""
     _schema_flag(validate_schema)
-    validate(model)
+    native = _transient(model)
+    validate(native)
     from ._standard_schema import validate_admitted
 
     schema_id, schema_version = _schema_for_model(model)
     if validate_schema:
-        validate_admitted(model, schema_id, schema_version)
+        validate_admitted(native, schema_id, schema_version)
     pb = wire.ModelFile(
         format=FORMAT,
         version=VERSION,
         schema_id=schema_id,
         schema_version=schema_version,
     )
-    if type(model) in OBJECT_KINDS:
+    if type(model) in COLLECTION_KINDS:
+        _encode_object(native, pb.object)
+        pb.object.kind = COLLECTION_KINDS[type(model)]
+    elif type(model) in OBJECT_KINDS:
         _encode_object(model, pb.object)
+    elif type(model) is TimeSeries:
+        _fill_time_series(model, pb.time_series)
     elif type(model) is Field:
         pb.field.CopyFrom(_encode_field(model))
     elif type(model) is Raster:
@@ -1196,10 +1809,16 @@ def _decode_model(data, *, validate_schema=True):
                 messages.append(value)
     strings = {}  # Released after this decode; no process-global intern table.
     root = pb.WhichOneof("root")
-    if root == "object":
+    if root == "object" and pb.object.kind in COLLECTION_SHAPES:
+        model = COLLECTION_SHAPES[pb.object.kind](
+            _decode_object(pb.object, strings, cls=Object)
+        )
+    elif root == "object":
         model = _decode_object(pb.object, strings)
     elif root == "geometry":
         model = _decode_geometry(pb.geometry, strings)
+    elif root == "time_series":
+        model = _decode_time_series(pb.time_series, strings)
     elif root == "field":
         model = _decode_field(pb.field, strings)
     elif root == "raster":
@@ -1210,8 +1829,9 @@ def _decode_model(data, *, validate_schema=True):
         model = _decode_transform(pb.transform, strings)
     else:
         raise NotImplementedError("Canonical payload has no supported root type")
-    validate(model)
+    native = _transient(model)
+    validate(native)
     if validate_schema:
-        validate_admitted(model, schema_id, schema_version)
+        validate_admitted(native, schema_id, schema_version)
     model.schema_id, model.schema_version = schema_id, schema_version
     return model, version

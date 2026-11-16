@@ -4,17 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import tempfile
 import warnings
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from inspect import signature
 from pathlib import Path
 
 from dtcc_core.datasets.dataset import DatasetDescriptor
-from dtcc_core.datasets.schema import DatasetArtifact, DatasetContext, DatasetManifest
+from dtcc_core.datasets.schema import (
+    DatasetArtifact,
+    DatasetContext,
+    DatasetManifest,
+    RasterPlacement,
+    RasterRendering,
+)
 
 CANONICAL_MANIFEST_VERSION = "dtcc-dataset-manifest-v3"
 CANONICAL_ARTIFACT = "artifacts/model.dtcc"
@@ -40,7 +47,19 @@ class DatasetPackage:
         token: str | None = None,
         idempotency_key: str | None = None,
     ):
-        """Publish an artifact or canonical model package through dtcc-upload."""
+        """Publish an artifact or canonical model package through dtcc-upload.
+
+        A RasterTileCollection package, empty or not, is refused before any
+        upload configuration is read or an uploader is used.
+        """
+        if any(
+            artifact.role == "canonical_model"
+            and artifact.model_type == "RasterTileCollection"
+            for artifact in self.artifacts
+        ):
+            raise NotImplementedError(
+                "Publishing a RasterTileCollection package is not supported."
+            )
         from dtcc_core.datasets.publish import DatasetUploadClient
 
         resolved_uploader = uploader or DatasetUploadClient.from_config(
@@ -129,6 +148,11 @@ def export_model_package(
     format: str | None = None,
     canonical: bool = False,
     validate_schema: bool = True,
+    field: str | None = None,
+    band: int | None = None,
+    colormap: str | None = None,
+    value_range=None,
+    unit: str | None = None,
 ) -> DatasetPackage:
     """Export a dataset realization; canonical=True opts into the v3 contract.
 
@@ -137,7 +161,17 @@ def export_model_package(
     default until its producers and consumers have migrated.
     Canonical exports validate the standard semantic schema by default. Set
     validate_schema=False to bypass semantics while retaining native admission.
+
+    Canonical format="png" or "tif" writes a map-placed image or GeoTIFF of a
+    Raster, or of the Raster returned by the model's to_raster(field=None)
+    hook. field selects what the hook renders; band, colormap and value_range
+    (two finite ordered numbers) control the PNG colours; unit overrides the
+    recorded unit. An option that does not apply raises before anything is
+    written.
     """
+    options = dict(
+        field=field, band=band, colormap=colormap, value_range=value_range, unit=unit
+    )
     context = getattr(obj, "dataset_context", None)
     if context is None:
         raise ValueError(
@@ -145,12 +179,18 @@ def export_model_package(
         )
     if canonical:
         return _export_canonical_package(
-            obj, Path(path), _normalize_format(format), validate_schema
+            obj, Path(path), _normalize_format(format), validate_schema, options
         )
 
     if validate_schema is not True:
         raise ValueError(
             "validate_schema applies to canonical packages; pass canonical=True"
+        )
+    given = [name for name, value in options.items() if value is not None]
+    if given:
+        raise ValueError(
+            f"{', '.join(given)} applies to canonical PNG/GeoTIFF packages; "
+            "pass canonical=True"
         )
 
     target_path = Path(path)
@@ -226,6 +266,8 @@ def _write_directory_package(
     package_path: Path,
     package_format: str,
     canonical_data: bytes | None = None,
+    raster_artifact: tuple | None = None,
+    tiles: list | None = None,
 ) -> DatasetPackage:
     artifact_dir = package_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -235,6 +277,7 @@ def _write_directory_package(
     if canonical_data is not None:
         canonical_path.write_bytes(canonical_data)
     artifact_path = canonical_path
+    web_bounds = placement = None
     if artifact_format is not None:
         extension = DatasetDescriptor.format_extension(artifact_format)
         artifact_stem = _artifact_stem(obj, context)
@@ -243,9 +286,23 @@ def _write_directory_package(
             raise ValueError(
                 "Supplemental artifact collides with the canonical model path"
             )
-        _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
+        if canonical_data is not None and artifact_format == "geojson":
+            web_bounds = _write_web_geojson(obj, artifact_path)
+        elif raster_artifact is not None:
+            placement = _write_raster_artifact(
+                artifact_path, artifact_format, *raster_artifact
+            )
+        else:
+            _write_artifact(obj, artifact_path, artifact_format, crs=_crs_value(obj))
 
-    artifact_files = _artifact_files(artifact_dir, artifact_path)
+    tile_files = []
+    if tiles is not None:
+        from ..model.exchange import _tile_reference
+
+        for index, tile in enumerate(tiles):
+            reference = _tile_reference(index, tile.collection, tile.id)
+            tile_files.append(_copy_tile(tile, package_dir / reference))
+    artifact_files = (*_artifact_files(artifact_dir, artifact_path), *tile_files)
     artifacts = tuple(
         _artifact_metadata(
             file_path,
@@ -276,11 +333,18 @@ def _write_directory_package(
                 # Object/geometry transforms may differ; do not invent aggregate
                 # global bounds from the request or from local cached bounds.
                 artifact.bounds = None
+            elif package_dir / artifact.path in tile_files:
+                artifact.role = "tile"
+                artifact.crs = artifact.bounds = None
             else:
                 artifact.role = "derived"
                 artifact.derived_from = CANONICAL_ARTIFACT
-                artifact.bounds = None
-                artifact.crs = None
+                web = artifact.format == "geojson"
+                artifact.bounds = web_bounds if web else None
+                artifact.crs = "EPSG:4326" if web else None
+                if placement is not None:
+                    artifact.placement = RasterPlacement(**placement)
+                    artifact.rendering = raster_artifact[1]
     manifest_path = package_dir / "manifest.json"
     manifest_path.write_text(
         manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
@@ -293,6 +357,189 @@ def _write_directory_package(
         artifacts=artifacts,
         files=(manifest_path, *artifact_files),
         package_format=package_format,
+    )
+
+
+def _write_web_geojson(obj, path: Path) -> list[float] | None:
+    """Write RFC 7946 GeoJSON and return its WGS84 bounds, None when empty."""
+    payload = obj.to_geojson(crs="EPSG:4326")
+    path.write_text(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True, allow_nan=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    found = []
+
+    def collect(coordinates):
+        if coordinates and isinstance(coordinates[0], (int, float)):
+            found.append(coordinates)
+        else:
+            for item in coordinates:
+                collect(item)
+
+    for feature in payload["features"]:
+        collect((feature.get("geometry") or {}).get("coordinates") or [])
+    if not found:
+        return None
+    lon = [float(p[0]) for p in found]
+    lat = [float(p[1]) for p in found]
+    z = [float(p[2]) for p in found if len(p) > 2]
+    if not z:
+        return [min(lon), min(lat), max(lon), max(lat)]
+    return [min(lon), min(lat), min(z), max(lon), max(lat), max(z)]
+
+
+def _write_raster_artifact(path: Path, fmt: str, raster, rendering: RasterRendering):
+    from ..io.raster import write_georeferenced_tif, write_placed_png
+
+    if fmt == "png":
+        return write_placed_png(
+            raster,
+            path,
+            band=rendering.band,
+            value_range=rendering.value_range,
+            colormap=rendering.colormap,
+        )
+    return write_georeferenced_tif(
+        raster, path, unit=rendering.unit, description=rendering.field
+    )
+
+
+def _prepare_raster_artifact(obj, fmt, field, band, colormap, value_range, unit):
+    """Return the Raster and rendering of a canonical PNG/GeoTIFF artifact.
+
+    Every option is checked against what it applies to, so a bad option
+    raises before anything is written.
+    """
+    import numbers
+
+    import matplotlib
+    import numpy as np
+
+    from ..io.raster import valid_pixels
+    from ..model import Raster
+
+    if fmt == "tif":
+        renderer = (
+            ("band", band),
+            ("colormap", colormap),
+            ("value_range", value_range),
+        )
+        for name, value in renderer:
+            if value is not None:
+                raise ValueError(f'{name} applies to format="png", not "tif"')
+    if isinstance(obj, Raster):
+        if field is not None:
+            raise ValueError(
+                "field applies to models with a to_raster hook, not to a Raster"
+            )
+        raster, rendering = obj, {}
+    elif callable(getattr(obj, "to_raster", None)):
+        if band is not None:
+            raise ValueError(
+                "band applies to a plain multi-band Raster, not to a raster "
+                "produced by to_raster"
+            )
+        result = obj.to_raster(field=field)
+        if (
+            not isinstance(result, tuple)
+            or len(result) != 2
+            or not isinstance(result[0], Raster)
+            or not isinstance(result[1], dict)
+        ):
+            raise ValueError("to_raster must return a (Raster, rendering) pair")
+        raster, rendering = result[0], dict(result[1])
+    else:
+        raise ValueError(
+            f"Canonical {fmt.upper()} export is not available for "
+            f"{type(obj).__name__}: it is not a Raster and has no "
+            'to_raster(field=None) hook; use the Dataset-level format="png" '
+            "path for a presentation image"
+        )
+    if raster.height == 0 or raster.width == 0:
+        raise ValueError(f"Cannot write an empty Raster as a canonical {fmt.upper()}")
+    if not raster.crs or raster.crs == "None":
+        raise ValueError(f"Canonical {fmt.upper()} export requires a Raster with a CRS")
+
+    hints = obj.dataset_context.presentation.view_hints or {}
+    if unit is None:
+        unit = rendering.get("unit")
+    if unit is None:
+        unit = hints.get("value_units")
+    rendering["unit"] = unit
+    rendering["transparent_nodata"] = fmt == "png"
+    channels = raster.channels
+    rgb = raster.data.dtype == np.uint8 and channels in (3, 4)
+    if fmt == "tif":
+        if isinstance(obj, Raster):
+            rendering["bands"] = list(range(channels))
+        return raster, RasterRendering(**rendering)
+
+    if band is not None:
+        if channels < 2 or rgb:
+            raise ValueError(
+                "band applies to a multi-band Raster that is not uint8 RGB(A)"
+            )
+        if (
+            isinstance(band, bool)
+            or not isinstance(band, int | np.integer)
+            or not 0 <= band < channels
+        ):
+            raise ValueError(f"band must be an integer in 0..{channels - 1}")
+    if rgb:
+        if colormap is not None or value_range is not None:
+            raise ValueError(
+                "colormap and value_range apply to single-band data, not to "
+                "uint8 RGB(A)"
+            )
+        data = raster.data
+        rendering["bands"] = list(range(channels))
+    else:
+        rendering["band"] = 0 if band is None else int(band)
+        data = raster.data
+        if data.ndim == 3:
+            data = data[..., rendering["band"]]
+        colormap = "viridis" if colormap is None else colormap
+        if not isinstance(colormap, str) or colormap not in matplotlib.colormaps:
+            raise ValueError(f"colormap must name a matplotlib colormap: {colormap!r}")
+        rendering["colormap"] = colormap
+    valid = valid_pixels(data, raster.nodata)
+    if not valid.any():
+        raise ValueError("Cannot render a Raster with no valid pixels as a PNG")
+    if not rgb:
+        low, high = data[valid].min(), data[valid].max()
+        if data.dtype.kind in "iu" and not (
+            -(2**53) <= int(low) and int(high) <= 2**53
+        ):
+            raise ValueError(
+                "PNG rendering needs integer values within [-2**53, 2**53], "
+                "the range float64 holds exactly"
+            )
+        if value_range is None:
+            value_range = [float(low), float(high)]
+        else:
+            if (
+                not isinstance(value_range, list | tuple)
+                or len(value_range) != 2
+                or not all(
+                    isinstance(value, numbers.Real) and not isinstance(value, bool)
+                    for value in value_range
+                )
+                or not all(math.isfinite(value) for value in value_range)
+                or value_range[0] > value_range[1]
+            ):
+                raise ValueError("value_range must be two finite ordered numbers")
+            value_range = [float(value) for value in value_range]
+        rendering["value_range"] = value_range
+    return raster, RasterRendering(**rendering)
+
+
+def _valid_bounds(bounds: list[float]) -> bool:
+    half = len(bounds) // 2
+    return (
+        len(bounds) in (4, 6)
+        and all(math.isfinite(value) for value in bounds)
+        and all(bounds[i] <= bounds[i + half] for i in range(half))
     )
 
 
@@ -482,9 +729,52 @@ def _extract_zip_member(archive: zipfile.ZipFile, member: str, target: Path) -> 
         shutil.copyfileobj(source, destination)
 
 
-def _export_canonical_package(obj, path, supplemental_format, validate_schema):
-    """Stage the existing package writer and publish the local snapshot atomically."""
+def _copy_tile(tile, target: Path) -> Path:
+    """Copy a tile's file to target; archive members are read through zipfile."""
+    from ..io.raster_tiles import _tile_location
+
+    archive, name = _tile_location(tile)
+    if archive is not None:
+        with zipfile.ZipFile(archive) as source:
+            _extract_zip_member(source, name, target)
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(name, target)
+    return target
+
+
+def _export_canonical_package(obj, path, supplemental_format, validate_schema, options):
+    """Stage the existing package writer and publish the local snapshot atomically.
+
+    A RasterTileCollection package carries each tile file as an artifact with
+    role "tile" at its reference; archive tile members are stored uncompressed.
+    """
     from ..model import exchange
+    from ..model.values.raster_tiles import RasterTileCollection
+
+    tiles = obj.tiles if isinstance(obj, RasterTileCollection) else None
+    if tiles is not None and supplemental_format is not None:
+        raise ValueError(
+            "A RasterTileCollection package carries its tile files; "
+            f"format={supplemental_format!r} is not supported"
+        )
+    if supplemental_format == "tiff":
+        supplemental_format = "tif"
+    if supplemental_format not in (None, "png", "tif") and (
+        DatasetDescriptor.format_kind(supplemental_format) == "raster"
+    ):
+        raise ValueError(
+            'Canonical packages place raster formats only as format="png" or '
+            f'format="tif", not {supplemental_format!r}'
+        )
+    if (
+        supplemental_format == "geojson"
+        and getattr(type(obj), "web_geojson", False) is not True
+    ):
+        raise ValueError(
+            f"Canonical GeoJSON export is not available for {type(obj).__name__}: "
+            "its GeoJSON writer does not produce RFC 7946 WGS84 coordinates"
+        )
 
     if not isinstance(obj.dataset_context, DatasetContext):
         raise ValueError("Canonical package export requires a DatasetContext")
@@ -493,6 +783,14 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
     _validate_attributes(
         obj.dataset_context.model_dump(mode="python"), max_depth=exchange.MAX_DEPTH
     )
+    raster_artifact = None
+    if supplemental_format in ("png", "tif"):
+        raster_artifact = _prepare_raster_artifact(obj, supplemental_format, **options)
+    elif any(value is not None for value in options.values()):
+        given = ", ".join(name for name, value in options.items() if value is not None)
+        raise ValueError(
+            f'{given} applies to canonical format="png" or format="tif" only'
+        )
     data = exchange.dumps(
         obj, validate_schema=validate_schema
     )  # Fail before touching the destination.
@@ -513,6 +811,8 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
             package_path=stage,
             package_format="directory",
             canonical_data=data,
+            raster_artifact=raster_artifact,
+            tiles=tiles,
         )
         if (
             len(package.artifacts) > 9999
@@ -524,8 +824,14 @@ def _export_canonical_package(obj, path, supplemental_format, validate_schema):
             with zipfile.ZipFile(
                 staged_archive, "w", compression=zipfile.ZIP_DEFLATED
             ) as zf:
+                stored = {a.path for a in package.artifacts if a.role == "tile"}
                 for file in package.files:
-                    zf.write(file, file.relative_to(stage).as_posix())
+                    name = file.relative_to(stage).as_posix()
+                    zf.write(
+                        file,
+                        name,
+                        compress_type=zipfile.ZIP_STORED if name in stored else None,
+                    )
             os.replace(staged_archive, path)
             return DatasetPackage(
                 path,
@@ -547,7 +853,11 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
     """Read a canonical v3 directory/archive and restore its model and Context.
 
     All declared artifacts are integrity-checked. No archive extraction or network
-    access occurs. Legacy v2 packages require their existing consumers.
+    access occurs. Each tile reference of a RasterTileCollection is bound to its
+    verified manifest artifact with role "tile": in a directory the tile path is
+    the artifact file; in an archive it is the member name, and the tile's
+    archive is the package path. Legacy v2 packages require their existing
+    consumers.
     validate_schema=False bypasses semantic evaluation, not integrity/admission.
     max_bytes optionally bounds the total uncompressed artifact bytes before
     reading artifacts. The default has no package byte cap; the native model
@@ -557,6 +867,7 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
     from contextlib import ExitStack
 
     from ..model import exchange
+    from ..model.values.raster_tiles import RasterTileCollection
     from .publish import _validate_package_path
 
     if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
@@ -566,11 +877,14 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
         if path.is_dir():
             root = path.resolve()
 
-            def open_member(name):
+            def member_path(name):
                 member = (root / _validate_package_path(name)).resolve()
                 if not member.is_relative_to(root):
                     raise ValueError("Package artifact resolves outside its directory")
-                return member.open("rb")
+                return member
+
+            def open_member(name):
+                return member_path(name).open("rb")
 
             archive_names = None
         else:
@@ -637,6 +951,25 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
         for artifact in manifest.artifacts:
             if artifact.size is None or artifact.size < 0 or artifact.sha256 is None:
                 raise ValueError("Canonical packages require artifact size and sha256")
+            if artifact.role == "tile" and (
+                artifact.format != "tif"
+                or any(
+                    getattr(artifact, name) is not None
+                    for name in (
+                        "crs",
+                        "bounds",
+                        "derived_from",
+                        "model_type",
+                        "model_schema_version",
+                        "placement",
+                        "rendering",
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Tile artifact must be a tif with no crs, bounds, derived_from, "
+                    "model, placement or rendering metadata"
+                )
             total += artifact.size
             if (
                 archive_names is not None
@@ -649,16 +982,26 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
             raise ValueError("Canonical Protobuf message must be smaller than 2 GiB")
         data = None
         for artifact in manifest.artifacts:
-            if artifact is not canonical and (
-                artifact.role != "derived"
-                or artifact.derived_from != canonical.path
-                or artifact.bounds is not None
-                or artifact.crs is not None
-                or artifact.model_type is not None
-                or artifact.model_schema_version is not None
+            if (
+                artifact is not canonical
+                and artifact.role != "tile"
+                and (
+                    artifact.role != "derived"
+                    or artifact.derived_from != canonical.path
+                    or artifact.model_type is not None
+                    or artifact.model_schema_version is not None
+                )
             ):
                 raise ValueError(
                     "Supplemental artifact must identify its canonical source"
+                )
+            if artifact is not canonical and (
+                (artifact.crs is not None and not artifact.crs.strip())
+                or (artifact.bounds is not None and not _valid_bounds(artifact.bounds))
+            ):
+                raise ValueError(
+                    "Derived artifact crs must be nonempty and bounds four or six "
+                    "finite ordered numbers"
                 )
             digest, size, chunks = hashlib.sha256(), 0, []
             with open_member(artifact.path) as stream:
@@ -690,6 +1033,46 @@ def load_model_package(path, *, validate_schema=True, max_bytes=None):
             raise ValueError(
                 "Canonical spatial metadata does not match payload contract"
             )
+        references = (
+            [tile.path.as_posix() for tile in model.tiles]
+            if isinstance(model, RasterTileCollection)
+            else []
+        )
+        tile_paths = {x.path for x in manifest.artifacts if x.role == "tile"}
+        if unmanifested := set(references) - tile_paths:
+            raise ValueError(
+                f"Tile reference {min(unmanifested)!r} has no manifest artifact "
+                "with role 'tile'"
+            )
+        if unreferenced := tile_paths - set(references):
+            raise ValueError(
+                f"Manifest tile artifact {min(unreferenced)!r} is not referenced "
+                "by the canonical model"
+            )
+        archive_path = path.resolve() if archive_names is not None else None
+        # GDAL's braced /vsizip/{archive}/member form cannot hold a brace.
+        if (
+            archive_path is not None
+            and references
+            and any(brace in str(archive_path) for brace in "{}")
+        ):
+            raise ValueError(
+                f"Raster tile archive {str(archive_path)!r} must be a local "
+                "file path without braces."
+            )
+        if references:
+            # Every manifest artifact passed its size and sha256 checks above.
+            model.tiles = [
+                replace(
+                    tile,
+                    path=Path(reference)
+                    if archive_names is not None
+                    else member_path(reference),
+                    archive=archive_path,
+                    _unbound=False,
+                )
+                for tile, reference in zip(model.tiles, references, strict=True)
+            ]
         model.dataset_context = DatasetContext(
             identity=manifest.identity,
             metadata=manifest.metadata,

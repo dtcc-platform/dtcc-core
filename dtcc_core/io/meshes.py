@@ -26,6 +26,7 @@ from ..model import (
     VolumeMesh,
 )
 from . import generic
+from ._attachments import reject_time_series
 from .logging import error, warning
 from .model import load_model, save_model
 from .xdmf import XDMF_SURFACE_TEMPLATE, XDMF_VOLUME_TEMPLATE
@@ -437,7 +438,12 @@ def _load_native_xdmf_fields(h5_file):
     return fields
 
 
+def _reject_time_series(mesh, path):
+    reject_time_series([mesh], Path(path).suffix.lstrip(".").upper())
+
+
 def _save_meshio_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     point_data, cell_data = _meshio_data_from_fields(mesh, len(mesh.faces))
     if mesh.markers is not None and len(mesh.markers) > 0:
         cell_data["markers"] = [mesh.markers]
@@ -454,6 +460,7 @@ def _save_meshio_mesh(mesh, path):
 
 
 def _save_meshio_volume_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     point_data, cell_data = _meshio_data_from_fields(mesh, len(mesh.cells))
     if mesh.markers is not None and len(mesh.markers) > 0:
         cell_data["markers"] = [mesh.markers]
@@ -468,6 +475,7 @@ def _save_meshio_volume_mesh(mesh, path):
 
 def _save_xdmf_mesh(mesh, path):
     """Save a surface Mesh to XDMF/HDF5 in a FEniCSx-compatible layout."""
+    _reject_time_series(mesh, path)
     base, ext = splitext(path)
     h5_path = base + ".h5"
     with h5py.File(h5_path, "w") as h5_file:
@@ -491,6 +499,7 @@ def _save_xdmf_mesh(mesh, path):
 
 
 def _save_xdmf_volume_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     path = Path(path)
     base, ext = splitext(path)
     h5_path = base + ".h5"
@@ -540,6 +549,7 @@ def _save_xdmf_volume_mesh(mesh, path):
 
 
 def _save_gltf_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     triangles_binary_blob = mesh.faces.flatten().tobytes()
     points_binary_blob = mesh.vertices.flatten().tobytes()
     data = triangles_binary_blob + points_binary_blob
@@ -626,6 +636,7 @@ def _load_assimp_mesh(path):
 
 
 def _save_assimp_mesh(mesh, path):
+    _reject_time_series(mesh, path)
     error("Not implemented, please FIXME")
 
 

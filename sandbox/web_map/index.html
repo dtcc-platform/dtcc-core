@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DTCC canonical packages on a map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  html, body, #map { height: 100%; margin: 0; background: #e8e8e8; }
+  .legend { background: #fff; padding: 6px 10px; font: 12px sans-serif; line-height: 1.4; }
+  .popup td { padding: 0 6px 0 0; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// Everything is drawn from the packages' own manifests; there is no basemap.
+const map = L.map('map').setView([57.6875, 11.98], 15);
+const layers = {};
+const overlays = {};
+window.webMap = { map, layers, overlays };
+
+const colors = { LineString: '#d62728', Point: '#1f77b4', Polygon: '#2ca02c' };
+
+function popup(properties) {
+  const table = document.createElement('table');
+  table.className = 'popup';
+  for (const [key, value] of Object.entries(properties)) {
+    const row = table.insertRow();
+    row.insertCell().textContent = key;
+    row.insertCell().textContent = String(value);
+  }
+  return table;
+}
+
+function addGeoJSON(name, data) {
+  const kind = data.features.length ? data.features[0].geometry.type.replace('Multi', '') : '';
+  const color = colors[kind] || '#444';
+  layers[name] = L.geoJSON(data, {
+    style: { color, weight: 2, fillOpacity: 0.3 },
+    pointToLayer: (feature, latlng) =>
+      L.circleMarker(latlng, { radius: 7, color, fillOpacity: 0.8 }),
+    onEachFeature: (feature, layer) => layer.bindPopup(popup(feature.properties)),
+  }).addTo(map);
+}
+
+function addPNG(name, url, artifact) {
+  const [west, south, east, north] = artifact.placement.bounds_wgs84;
+  overlays[name] = L.imageOverlay(url, [[south, west], [north, east]]).addTo(map);
+  const { colormap, value_range: range, unit } = artifact.rendering;
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create('div', 'legend');
+    div.textContent = `${name}: ${colormap}, ${range[0]} to ${range[1]}` +
+      (unit ? ` ${unit}` : '');
+    return div;
+  };
+  legend.addTo(map);
+}
+
+async function load(name) {
+  const base = `out/${name}/`;
+  const manifest = await (await fetch(base + 'manifest.json')).json();
+  const adders = [];
+  for (const artifact of manifest.artifacts) {
+    if (artifact.format === 'geojson') {
+      const data = await (await fetch(base + artifact.path)).json();
+      adders.push({ raster: false, add: () => addGeoJSON(name, data) });
+    } else if (artifact.format === 'png') {
+      adders.push({ raster: true, add: () => addPNG(name, base + artifact.path, artifact) });
+    }
+  }
+  return adders;
+}
+
+(async () => {
+  const names = await (await fetch('out/index.json')).json();
+  const adders = (await Promise.all(names.map(load))).flat();
+  // Rasters first, so the vector layers draw above them.
+  adders.sort((a, b) => b.raster - a.raster).forEach((entry) => entry.add());
+})();
+</script>
+</body>
+</html>

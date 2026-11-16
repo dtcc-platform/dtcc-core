@@ -59,6 +59,16 @@ class CityDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "city_model"
     python_return_type = "dtcc_core.model.City"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
         provider_entry("openstreetmap", role="source_provider"),
