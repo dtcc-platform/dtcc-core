@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -141,3 +142,137 @@ def test_invalid_later_representation_fails_instead_of_omitting_the_building():
     geometries[-1]["boundaries"][0][0][0] = len(document["vertices"])
     with pytest.raises(ValueError, match="valid vertex indices"):
         load(document)
+
+
+def test_previous_writer_footprint_loads_only_permissively(tmp_path):
+    path = Path(__file__).parent / "fixtures" / "legacy-footprint.city.json"
+    document = json.loads(path.read_text())
+    before = deepcopy(document)
+    city = load(document)
+    assert document == before
+    assert len(city.buildings[0].lod0.surfaces) == 1
+    assert len(city.buildings[0].lod1.surfaces) == 6
+    target = tmp_path / "legacy.city.json"
+    city.save(target)
+    assert load(target).buildings[0].lod0 is not None
+    strict_document = deepcopy(document)
+    for geometry in strict_document["CityObjects"]["building"]["geometry"]:
+        geometry["lod"] = format(geometry["lod"], "g")
+    with pytest.raises(ValueError, match="semantic index"):
+        load(strict_document, strict=True)
+
+
+@pytest.mark.parametrize("kind", ["child", "semantics", "geometry", "missing_child"])
+def test_permissive_unsupported_content_warns_and_keeps_supported_geometry(
+    kind, caplog
+):
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    building = document["CityObjects"]["b"]
+    if kind == "child":
+        building["children"] = ["installation"]
+        document["CityObjects"]["installation"] = {
+            "type": "BuildingInstallation",
+            "parents": ["b"],
+        }
+        message = "unsupported child 'installation'"
+    elif kind == "missing_child":
+        building["children"] = ["missing"]
+        message = "child 'missing' not found"
+    elif kind == "semantics":
+        building["geometry"][1]["semantics"]["surfaces"][0]["type"] = "+Foo"
+        message = "ignoring unsupported semantics"
+    else:
+        extra = deepcopy(building["geometry"][1])
+        extra.pop("semantics")
+        extra.update(type="CompositeSolid", lod="2", boundaries=[extra["boundaries"]])
+        building["geometry"].append(extra)
+        message = "skipping unsupported geometry"
+    before = deepcopy(document)
+    restored = load(document).buildings[0]
+    assert document == before
+    assert restored.id == "b"
+    assert len(restored.lod1.surfaces) == 6
+    assert message in caplog.text and "Building 'b'" in caplog.text
+    if kind == "semantics":
+        assert restored.lod1.regions == []
+    with pytest.raises((ValueError, NotImplementedError)):
+        load(document, strict=True)
+
+
+@pytest.mark.parametrize("kind", ["index", "semantics", "legacy_shape"])
+def test_permissive_compatibility_does_not_hide_malformed_supported_content(kind):
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometry = document["CityObjects"]["b"]["geometry"][1]
+    if kind == "index":
+        geometry["semantics"]["surfaces"][0]["type"] = "+Foo"
+        geometry["boundaries"][0][0][0] = len(document["vertices"])
+    elif kind == "semantics":
+        geometry["semantics"]["values"][0] = 999
+    else:
+        geometry["semantics"]["values"] = [[0]]
+    with pytest.raises(ValueError):
+        load(document)
+
+
+@pytest.mark.parametrize("label", ["1.2", "1.0", "2.2"])
+@pytest.mark.parametrize("strict", [False, True])
+def test_exact_lod_labels_and_ambiguity_survive_default_and_strict_saving(
+    label, strict, tmp_path
+):
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometries = document["CityObjects"]["b"]["geometry"]
+    geometries[:] = [deepcopy(geometries[1]), deepcopy(geometries[1])]
+    for geometry in geometries:
+        geometry["lod"] = label
+    city = load(document)
+    path = tmp_path / "fractional.city.json"
+    city.save(path, strict=strict)
+    encoded = json.loads(path.read_text())["CityObjects"]["b"]["geometry"]
+    assert [geometry["lod"] for geometry in encoded] == [label, label]
+    restored = load(path, strict=strict).buildings[0]
+    assert len(restored.get_geometries(lod=label)) == 2
+    assert restored.lod1 is None
+    with pytest.raises(ValueError, match="Ambiguous"):
+        restored.get_geometry(lod=label)
+
+
+@pytest.mark.parametrize("import_strict", [False, True])
+@pytest.mark.parametrize("export_strict", [False, True])
+def test_composite_surface_roundtrip_and_closed_lod1_conversion(
+    import_strict, export_strict, tmp_path
+):
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometries = document["CityObjects"]["b"]["geometry"]
+    geometries[:] = [geometries[1]]
+    geometries[0]["type"] = "CompositeSurface"
+    geometries[0].pop("semantics")
+    city = load(document, strict=import_strict)
+    converted = footprints_from_lod1(city)
+    assert _volume(converted.buildings) == pytest.approx(4000)
+    path = tmp_path / "composite.city.json"
+    city.save(path, strict=export_strict)
+    encoded = json.loads(path.read_text())["CityObjects"]["b"]["geometry"][0]
+    assert encoded["type"] == "CompositeSurface"
+    assert encoded["lod"] == "1"
+    restored = load(path, strict=import_strict)
+    assert _volume(footprints_from_lod1(restored).buildings) == pytest.approx(4000)
+
+
+def test_imported_standard_semantics_still_require_explicit_conversion():
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometries = document["CityObjects"]["b"]["geometry"]
+    geometries[:] = [geometries[1]]
+    city = load(document)
+    with pytest.raises(ValueError, match="unsupported_metadata"):
+        footprints_from_lod1(city)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_unclassified_footprint_is_not_labelled_as_a_wall(strict, tmp_path):
+    building = building_from_footprint(BASE, 10, ground_height=2, id="b")
+    city = _city(building)
+    path = tmp_path / "footprint.city.json"
+    city.save(path, strict=strict)
+    restored = load(path, strict=strict).buildings[0]
+    assert restored.lod0.regions == []
+    assert restored.lod0.zmax == 12

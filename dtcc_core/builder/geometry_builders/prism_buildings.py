@@ -158,7 +158,11 @@ def _source_geometry(source, referenced, inherited_srs):
             if not part and record.lod == "0" and record.role is None:
                 _check_discarded_footprint(record.geometry)
                 continue
-            if record.lod != "1" or record.role is not None:
+            supported_role = record.role is None or (
+                record.role == "cityjson:CompositeSurface"
+                and isinstance(record.geometry, MultiSurface)
+            )
+            if record.lod != "1" or not supported_role:
                 raise _PrismError(
                     "unsupported_metadata",
                     "extra LODs or representation roles cannot be discarded",
@@ -459,7 +463,6 @@ def _footprints_from_lod1(
             report["failures"].append(failure)
         else:
             output.extend(pieces)
-            inherited_srs = inherited_srs or pieces[0].lod0.transform.srs
             report["converted"] += 1
             report["residuals"].append(dict(input_id=source.id, components=residuals))
     report["output_count"] = len(output)

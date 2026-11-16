@@ -6,6 +6,7 @@ from tqdm import tqdm
 from ...model import Building, City, Mesh, MultiSurface, Solid, Surface
 from ...model.object.building import BuildingPart
 from ...model.object.object import GeometryType
+from ..logging import warning
 
 
 def tin_geom_to_mesh(tin_geom_pair: tuple, verts) -> Mesh:
@@ -352,6 +353,36 @@ def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
     return building
 
 
+def _build_permissive_geometry(geometry, vertices, where):
+    """Read supported geometry, warning when unsupported content is omitted."""
+    if not isinstance(geometry, dict):
+        raise ValueError(f"{where}: geometry must be an object")
+    semantics = geometry.get("semantics")
+    if (
+        geometry.get("type") == "MultiSurface"
+        and geometry.get("lod") in (0, "0", "0.0")
+        and len(geometry.get("boundaries", [])) == 1
+        and isinstance(semantics, dict)
+        and semantics.get("values") == [[0]]
+        and isinstance(semantics.get("surfaces"), list)
+        and len(semantics["surfaces"]) == 1
+    ):
+        geometry = {**geometry, "semantics": {**semantics, "values": [0]}}
+    try:
+        return build_geometry(geometry, vertices)
+    except NotImplementedError as error:
+        if geometry.get("type") in ("MultiSurface", "CompositeSurface", "Solid"):
+            # Retain the geometry only if its structure passes without semantics.
+            native = build_geometry(
+                {key: value for key, value in geometry.items() if key != "semantics"},
+                vertices,
+            )
+            warning(f"{where}: ignoring unsupported semantics: {error}")
+            return native
+        warning(f"{where}: skipping unsupported geometry: {error}")
+        return None
+
+
 def _read_building(cj_obj, uuid, source, vertices, ancestors, *, part=False):
     from .attributes import read_attributes
 
@@ -366,10 +397,17 @@ def _read_building(cj_obj, uuid, source, vertices, ancestors, *, part=False):
             source.get("attributes", {}), source.get("type", cls.__name__)
         ),
     )
-    for index, geometry in enumerate(source.get("geometry", [])):
+    geometries = source.get("geometry", [])
+    if not isinstance(geometries, list):
+        raise ValueError(f"Building {uuid!r}: geometry must be an array")
+    for index, geometry in enumerate(geometries):
+        native = _build_permissive_geometry(
+            geometry, vertices, f"Building {uuid!r} geometry {index}"
+        )
+        if native is None:
+            continue
         label = geometry.get("lod", 1)
         lod = label if isinstance(label, str) else format(label, "g")
-        native = build_geometry(geometry, vertices)
         if isinstance(native, Solid) and len(native.shells) == 1:
             native = MultiSurface(surfaces=native.surfaces, regions=native.regions)
         building.add_geometry(
@@ -382,6 +420,13 @@ def _read_building(cj_obj, uuid, source, vertices, ancestors, *, part=False):
         )
     for child_id in source.get("children", []):
         if child_id not in cj_obj:
+            warning(f"Building {uuid!r}: child {child_id!r} not found in CityObjects")
+            continue
+        if cj_obj[child_id].get("type") != "BuildingPart":
+            warning(
+                f"Building {uuid!r}: skipping unsupported child {child_id!r} "
+                f"of type {cj_obj[child_id].get('type')!r}"
+            )
             continue
         child = _read_building(
             cj_obj, child_id, cj_obj[child_id], vertices, ancestors | {uuid}, part=True

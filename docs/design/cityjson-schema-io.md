@@ -84,11 +84,19 @@ other unmapped state still require explicit mappings. City-root attributes,
 including conversion reports, have no mapping and remain rejected; native
 `.dtcc` retains them.
 
-Both import modes retain all building LoDs and nested part IDs/attributes.
+Both import modes retain all supported building LoDs and nested part IDs/attributes.
 Repeated/fractional LoD labels are preserved exactly; ambiguous native selection
 still raises. Default building import uses MultiSurface for a one-shell Solid
 and retains a multi-shell Solid so cavities cannot be erased. Invalid building
-representations fail loading rather than leaving a silently incomplete City.
+geometry in a supported representation still fails loading. Permissive import
+warns and skips unsupported representations and non-BuildingPart children,
+warns about missing child references, and retains supported geometry without
+unsupported semantics. Strict import rejects all these cases. Permissive import
+also accepts the nested single-footprint semantic assignment emitted by the
+legacy writer; strict input still requires a flat MultiSurface assignment array.
+Default and strict export preserve fractional LoD labels and CompositeSurface
+representations. Unclassified building LoD0 geometry is exported without invented
+WallSurface semantics.
 Writers emit CityJSON 2.0 string LoD labels and flat MultiSurface semantic
 assignment arrays. This does not certify other permissive content or implement
 additional unsupported feature kinds. Other external format adapters and default artifact-only packages

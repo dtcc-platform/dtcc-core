@@ -73,7 +73,7 @@ ground. That builder stores its modelling result in `estimated_height` while
 preserving the source measurement.
 
 Native `.dtcc` save/load preserves coordinates and extrusion ownership. Both
-CityJSON import modes retain all building LoDs and nested part IDs/attributes.
+CityJSON import modes retain all supported building LoDs and nested part IDs/attributes.
 Strict export supports native `GeometryType.LOD0`/`LOD1` slots and represents a
 roof Surface as a one-polygon MultiSurface. Arbitrary representation IDs/roles,
 fields and other unmapped metadata remain explicitly unsupported in strict mode.
@@ -81,7 +81,16 @@ fields and other unmapped metadata remain explicitly unsupported in strict mode.
 CityJSON 2.0 output uses string LoD labels. Fractional input labels retain their
 exact spelling and are not silently assigned to an integer LoD. The permissive
 reader does not apply semantic schema validation, but malformed building
-representations fail loading instead of silently omitting those buildings.
+geometry in supported representations still fails loading. Unsupported geometry
+representations or children are skipped with a warning, and unsupported semantics
+are omitted with a warning while retaining the geometry. Missing child references
+also warn. Strict import rejects unsupported content and missing references.
+The default reader accepts the legacy writer's nested single-footprint semantic
+assignment; strict import requires the standard flat array. Both export modes
+preserve fractional labels and CompositeSurface representations. Integer LoD
+accessors select exact labels only: use `get_geometry(id=...)` when multiple
+representations share a label, or `get_geometries(lod="1.2")` for all exact matches.
+An unclassified LoD0 footprint is exported without a guessed semantic surface type.
 
 Default CityJSON quantization is 0.001 m, so coordinates can change. When an
 extrusion's digest changes, invalidation removes its stale ownership record and
@@ -99,3 +108,6 @@ Run the offline construction, meshing and saving demo with:
 ```sh
 uv run python demos/building_from_footprint.py
 ```
+
+The figure shows the courtyard footprint beside the triangulated extrusion,
+with ground at 2 m and roof at 12 m. Close the plot to finish.

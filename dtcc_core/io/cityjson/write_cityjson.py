@@ -339,6 +339,8 @@ def _add_object_geometries(
     indexer=None,
 ):
     """Add geometries from a DTCC object to CityJSON object data."""
+    from .admission import COMPOSITE_SURFACE_ROLE
+
     config = config or CityJSONConfig()
 
     # Iterate deterministically by geometry type
@@ -349,9 +351,10 @@ def _add_object_geometries(
             if record.lod in ("0", "1", "2", "3")
             else record.role
         )
-        if record.lod is not None and record.lod not in ("0", "1", "2", "3"):
-            raise NotImplementedError("Fractional LoD requires strict CityJSON export")
-        if record.role is not None:
+        composite_surface = record.role == COMPOSITE_SURFACE_ROLE
+        if composite_surface and not isinstance(geometry, MultiSurface):
+            raise NotImplementedError("CompositeSurface requires a MultiSurface")
+        if record.role is not None and not composite_surface:
             try:
                 geom_type = GeometryType.from_str(record.role)
             except ValueError:
@@ -373,7 +376,11 @@ def _add_object_geometries(
         ):
             continue
 
-        lod = geometry_type_to_lod(geom_type, config)
+        lod = (
+            record.lod
+            if record.lod is not None and record.lod not in ("0", "1", "2", "3")
+            else geometry_type_to_lod(geom_type, config)
+        )
         lod = lod if isinstance(lod, str) else format(lod, "g")
 
         if isinstance(geometry, Mesh):
@@ -403,7 +410,20 @@ def _add_object_geometries(
             geom_data["lod"] = lod
             if isinstance(geometry, Solid):
                 _group_solid(geom_data, geometry)
+            elif composite_surface:
+                geom_data["type"] = "CompositeSurface"
+                if not geometry.regions:
+                    geom_data.pop("semantics", None)
             obj_data["geometry"].append(geom_data)
+
+        if (
+            record.lod == "0"
+            and isinstance(obj, (Building, BuildingPart))
+            and isinstance(geometry, (Mesh, Surface, MultiSurface, Solid))
+            and not geometry.regions
+            and obj_data["geometry"]
+        ):
+            obj_data["geometry"][-1].pop("semantics", None)
 
 
 def save(

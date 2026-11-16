@@ -48,6 +48,11 @@ Run the offline stepped-building example:
 uv run python demos/footprints_from_lod1.py
 ```
 
+The figure compares the original closed solid, derived footprints labelled by
+roof elevation, and the rebuilt LoD1 parts. Footprints and rebuilt parts use the
+same colours for the 6 m and 30 m roofs. The block's aggregate LoD0 footprint is
+excluded from the rebuilt view. Close the plot to finish.
+
 ## Inputs and copying
 
 Pass a City or a sequence of Buildings. The result is an independent City or
@@ -63,11 +68,17 @@ authorize dropping extra LODs, semantic fields or other untransferable metadata.
 Repeated default conversion is geometrically idempotent.
 
 Geometry-only BuildingParts and multiple LOD1 representations are supported.
+Imported closed LoD1 CompositeSurfaces are supported under the same geometry
+checks; their source representation role is consumed by the conversion.
 Part-specific attributes, custom semantics/profiles, relations, fields, indexed
 regions and extra LODs require explicit transfer and are rejected. References
 to source/part IDs being replaced also prevent conversion. Plain Building and
 BuildingPart semantic URIs retain their established meaning. The adapter does
 not distribute arbitrary source metadata among derived pieces.
+This includes standard CityJSON Ground/Roof/Wall semantic regions: conversion
+still rejects them with `unsupported_metadata`, since region attributes and
+relationships have no defined transfer to the derived pieces. General semantic
+region conversion is outside this adapter's supported scope.
 
 ## Geometry, frames and errors
 
@@ -86,12 +97,16 @@ These limits do not guarantee that every noisy export can be normalized.
 
 Input object/geometry frames must resolve to one common translation and metre
 SRS per source. Translations are composed and applied once into the containing
-City's coordinate frame (or the sequence's common frame). Generated surface
+City's coordinate frame (or each source's frame for a sequence). Generated surface
 transforms are identity, so placement survives cleaning and rebuilding. The
 input translation is retained in provenance, and coordinate-placement rounding
 is charged to the positional and volume budgets. Rotations, scale changes, incompatible frames,
 geographic coordinates and non-metre units are unsupported. An empty SRS means
 the caller supplies the local-metre assumption. The City frame is preserved.
+A City's declared SRS is inherited by unlabelled sources and must agree with
+explicit source labels. Without a declared City SRS, each source retains its
+own label; sequence entries and sibling buildings never inherit labels from
+one another. No reprojection is performed.
 Ground support is also a caller assumption: a box at z=3..4 has inferred base 3;
 geometry cannot establish whether it floats above terrain.
 

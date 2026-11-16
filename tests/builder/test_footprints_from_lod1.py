@@ -332,6 +332,36 @@ def test_composed_translations_and_srs_preserve_physical_placement_once():
     assert piece.attributes["ground_height"] == 3335 and piece.measured_height == 10
 
 
+@pytest.mark.parametrize("container", ["sequence", "city"])
+@pytest.mark.parametrize("second_srs", ["", "EPSG:3008"])
+def test_sibling_srs_labels_are_independent_of_conversion_order(container, second_srs):
+    first = _source("first", _prism(BASE))
+    first.transform.srs = "EPSG:3006"
+    second = _source("second", _prism(BASE))
+    second.transform.srs = second_srs
+
+    def converted_labels(sources):
+        target = _city(*sources) if container == "city" else sources
+        result = footprints_from_lod1(target)
+        buildings = result.buildings if container == "city" else result
+        return {building.id: building.lod0.transform.srs for building in buildings}
+
+    expected = {"first": "EPSG:3006", "second": second_srs}
+    assert converted_labels([first, second]) == expected
+    assert converted_labels([second, first]) == expected
+    assert first.transform.srs == "EPSG:3006"
+    assert second.transform.srs == second_srs
+
+
+def test_declared_city_srs_is_inherited_and_conflicts_still_fail():
+    city = _city(_source("unlabelled", _prism(BASE)))
+    city.transform.srs = "EPSG:3006"
+    assert footprints_from_lod1(city).buildings[0].lod0.transform.srs == "EPSG:3006"
+    city.buildings[0].transform.srs = "EPSG:3008"
+    with pytest.raises(ValueError, match="unsupported_frame"):
+        footprints_from_lod1(city)
+
+
 def test_translation_survives_cleaning_rebuild_and_native_roundtrip(tmp_path):
     from dtcc_core.model import Point
 
