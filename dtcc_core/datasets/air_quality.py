@@ -13,7 +13,6 @@ Each station has:
 - Metadata attributes (ID, name, timestamp, etc.)
 """
 
-import json
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -68,29 +67,22 @@ def _get_json(
     RuntimeError
         If request fails or response is not JSON
     """
-    try:
-        import requests
-    except ImportError:
-        raise RuntimeError(
-            "requests library required for air quality dataset. "
-            "Install with: pip install requests"
-        )
+    from dtcc_core.io import HttpTransportError, http_client
 
     try:
-        response = requests.get(url, params=params, timeout=timeout_s)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
+        with http_client(timeout=timeout_s, retries=0) as http:
+            return http.json(url, params=params)
+    except HttpTransportError as e:
+        if e.kind == "decoding":
+            raise DatasetUpstreamError(
+                dataset="air_quality",
+                operation="decode_json",
+                target=e.target,
+                failure_class="invalid_json",
+                message=str(e),
+            ) from None
         raise DatasetDescriptor.build_upstream_error(
             "air_quality", "fetch_json", url, e
-        ) from e
-    except json.JSONDecodeError as e:
-        raise DatasetUpstreamError(
-            dataset="air_quality",
-            operation="decode_json",
-            target=url,
-            failure_class="invalid_json",
-            message=f"air_quality decode_json failed for {url}: {e}",
         ) from e
 
 

@@ -20,6 +20,18 @@ except ImportError:
 pytestmark = pytest.mark.skipif(gpd is None, reason="GeoPandas is required")
 
 
+def install_http(monkeypatch, handler):
+    from dtcc_core.io._http_client import _HttpClient
+
+    def request(client, url, **options):
+        options.pop("method", None)
+        options.pop("idempotent", None)
+        timeout = client._backend._state.timeout
+        return handler(url, timeout=(timeout.connect, timeout.read), **options)
+
+    monkeypatch.setattr(_HttpClient, "request", request)
+
+
 def test_filter_deso_geodataframe_by_bounds():
     inside = Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])
     outside = Polygon([(10, 10), (11, 10), (11, 11), (10, 11), (10, 10)])
@@ -60,7 +72,7 @@ def test_download_deso_statistics_parses_scb_response(monkeypatch, tmp_path):
         posted.append((url, json, headers, timeout))
         return Response()
 
-    monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    install_http(monkeypatch, fake_post)
     monkeypatch.setattr("dtcc_core.io.data.deso.info", messages.append)
     monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
 
@@ -109,7 +121,7 @@ def test_download_deso_statistics_uses_topic_latest_years(monkeypatch, tmp_path)
         posted.append((url, json, headers, timeout))
         return Response()
 
-    monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    install_http(monkeypatch, fake_post)
     monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
 
     fields = download_deso_statistics(
@@ -142,9 +154,11 @@ def test_download_deso_statistics_rejects_unsupported_statistic_year():
 
 def test_download_deso_statistics_reports_request_failure(monkeypatch, tmp_path):
     def fake_post(url, json, headers, timeout):
-        raise deso_data.requests.exceptions.Timeout("timed out")
+        from dtcc_core.io import HttpTransportError, Request
 
-    monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+        raise HttpTransportError(Request("GET", "https://test.scb"), "timeout")
+
+    install_http(monkeypatch, fake_post)
     monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
 
     with pytest.raises(RuntimeError, match="population_total.*2025"):
@@ -177,7 +191,7 @@ def test_download_deso_statistics_uses_cached_values(monkeypatch, tmp_path):
         posted.append((url, json, headers, timeout))
         return Response()
 
-    monkeypatch.setattr("dtcc_core.io.data.deso.requests.post", fake_post)
+    install_http(monkeypatch, fake_post)
     monkeypatch.setattr("dtcc_core.io.data.deso.info", messages.append)
     monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
 
@@ -270,7 +284,7 @@ def test_download_deso_filters_converts_and_reuses_cached_geopackage(
     from types import SimpleNamespace
     from unittest.mock import Mock
 
-    import requests
+    from dtcc_core.io import HttpTransportError, Request
 
     gdf = gpd.GeoDataFrame(
         {"desokod": ["inside", "outside"]},
@@ -283,10 +297,10 @@ def test_download_deso_filters_converts_and_reuses_cached_geopackage(
     fixture_path = tmp_path / "source.gpkg"
     gdf.to_file(fixture_path, driver="GPKG")
     response = SimpleNamespace(
-        content=fixture_path.read_bytes(), raise_for_status=lambda: None
+        body=fixture_path.read_bytes(), raise_for_status=lambda: None
     )
     get = Mock(return_value=response)
-    monkeypatch.setattr(deso_data.requests, "get", get)
+    install_http(monkeypatch, get)
     monkeypatch.setattr(deso_data, "cache_dir", tmp_path / "cache")
     bounds = Bounds(-1, -1, 3, 3)
 
@@ -304,10 +318,12 @@ def test_download_deso_filters_converts_and_reuses_cached_geopackage(
     assert cached.desokod.tolist() == ["inside"]
     assert get.call_count == 1
     (cache_path,) = (tmp_path / "cache").rglob("*.gpkg")
-    assert cache_path.read_bytes() == response.content
+    assert cache_path.read_bytes() == response.body
 
-    get.side_effect = requests.ConnectionError("offline fixture")
+    get.side_effect = HttpTransportError(
+        Request("GET", "https://test.scb"), "connection"
+    )
     with pytest.raises(RuntimeError, match="Failed to download DeSO"):
         deso_data.download_deso_geodataframe(bounds, use_cache=False)
-    assert cache_path.read_bytes() == response.content
+    assert cache_path.read_bytes() == response.body
     assert not list((tmp_path / "cache").rglob("*.part"))

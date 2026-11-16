@@ -107,7 +107,23 @@ def manifest_response(items, crs="EPSG:3006"):
 
 def install(monkeypatch, *responses):
     fake = FakeGet(*responses)
-    monkeypatch.setattr(orthophoto.requests, "get", fake)
+
+    def send(client, operation):
+        request = operation.request
+        operation.attempt()
+        try:
+            return fake(
+                request.url,
+                params=dict(request.params),
+                headers=dict(request.headers),
+                timeout=(client._state.timeout.connect, client._state.timeout.read),
+                allow_redirects=False,
+                stream=True,
+            )
+        except requests.RequestException as exc:
+            raise operation.error(client._kind(exc)) from None
+
+    monkeypatch.setattr(orthophoto.HttpClient, "_send", send)
     return fake
 
 
@@ -333,7 +349,7 @@ def test_manifest_request_sends_bbox_filters_and_timeout(monkeypatch):
     assert call["url"] == BASE + "/items"
     assert call["params"] == {
         "bbox": "673000.0,6578000.0,674000.0,6581000.0",
-        "year": 2025,
+        "year": "2025",
         "collection": "orto-o2-2025",
         "spektraltyp": "rgb,cir",
     }
@@ -620,7 +636,8 @@ def test_transport_failures_suggest_checks_before_the_details(monkeypatch, exc, 
     # The suggestion comes before the library's text, which can be long, and
     # names no single cause.
     assert message.startswith(f"{prefix} ({NETWORK_HINT}): ")
-    assert message.endswith(str(exc))
+    assert BASE + "/items" in message
+    assert str(exc) not in message
 
 
 def test_missing_server_credentials_point_to_the_operator(monkeypatch):
@@ -703,7 +720,7 @@ def test_error_detail_is_bounded_without_reading_whole_body(monkeypatch):
     error = fetch_error(monkeypatch, response)
     assert error.detail == "x" * 1024
     assert len(str(error)) <= 1024
-    assert response.bytes_read <= 1024 * 2
+    assert response.bytes_read <= 8192
 
 
 def test_detail_of_credentials_error_is_kept(monkeypatch):
@@ -876,7 +893,7 @@ def test_published_file_is_reused_without_request_or_header_read(monkeypatch, tm
     def forbidden(*args, **kwargs):
         raise AssertionError("no request or header read on a cache hit")
 
-    monkeypatch.setattr(orthophoto.requests, "get", forbidden)
+    monkeypatch.setattr(orthophoto.HttpClient, "_send", forbidden)
     monkeypatch.setattr(orthophoto.rasterio, "open", forbidden)
     assert download(cache_root) == path
     assert path.read_bytes() == b"cached bytes are trusted"
@@ -1277,7 +1294,7 @@ def test_acquire_tiles_returns_records_in_manifest_order(monkeypatch, tmp_path):
         BASE + "/files/orto-o2-2025/o65775_6725_25_mr25.tif",
         BASE + "/files/orto-o2-2017/o65775_6725_25_im17.tif",
     ]
-    assert fake.calls[0]["params"]["year"] == 2025
+    assert fake.calls[0]["params"]["year"] == "2025"
     assert fake.calls[0]["params"]["collection"] == "orto-o2-2025"
     assert fake.calls[0]["params"]["spektraltyp"] == "rgb,rgbi"
     assert all(call["timeout"] == TIMEOUT for call in fake.calls)

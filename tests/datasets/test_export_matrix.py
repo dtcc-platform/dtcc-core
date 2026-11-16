@@ -254,7 +254,7 @@ TILE_BOUNDS = (672500.0, 6577500.0, 672502.0, 6577502.0)
 
 
 def _tile_server():
-    """A tile server holding one RGBA GeoTIFF; get() is requests.get."""
+    """A tile server holding one RGBA GeoTIFF; the transport receives streamed responses."""
     pixel = 0.5
     size = 4
     data = np.stack(
@@ -310,11 +310,12 @@ def _tile_server():
         def close(self):
             pass
 
-    def get(url, **_):
-        path = url.removeprefix(TILE_SERVER)
+    def get(operation):
+        operation.attempt()
+        path = operation.request.url.removeprefix(TILE_SERVER)
         return Response(json.dumps(manifest).encode() if path == "/items" else body)
 
-    return {"dtcc_core.io.data.orthophoto.requests.get": get}
+    return {"dtcc_core.io.HttpClient._send": get}
 
 
 # What the populated results must hold.
@@ -556,7 +557,7 @@ CASES = [
         arguments={"statistics": ["population"]},
         sources={
             "dtcc_core.io.data.deso.download_deso_geodataframe": _deso_polygons,
-            "dtcc_core.io.data.deso.requests.post": _scb_post,
+            "dtcc_core.io._http_client._HttpClient.request": _scb_post,
         },
         check=_has_statistics,
     ),

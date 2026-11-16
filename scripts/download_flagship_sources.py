@@ -7,7 +7,8 @@ import argparse
 import gzip
 import json
 from pathlib import Path
-from urllib.request import urlopen
+
+from dtcc_core.io import http_client
 
 
 def main():
@@ -22,8 +23,8 @@ def main():
         if target.is_file():
             print(f"Cached: {target.name}", flush=True)
             continue
-        with urlopen(source["url"], timeout=90) as response:
-            data = response.read(64 * 1024 * 1024 + 1)
+        with http_client(timeout=90, max_download_bytes=64 * 1024 * 1024) as http:
+            data = http.bytes(source["url"])
         if len(data) > 64 * 1024 * 1024:
             raise ValueError(f"Source exceeds 64 MiB download limit: {source['url']}")
         # Reject malformed downloads before publishing them to the cache.

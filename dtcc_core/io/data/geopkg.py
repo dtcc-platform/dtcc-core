@@ -4,14 +4,12 @@ import asyncio
 import json
 import os
 import tempfile
-import time
 
-import aiohttp
-import requests
 from platformdirs import user_cache_dir
 
-from .logging import debug, info, warning
-from .tls import download_ssl_context
+from dtcc_core.io import AsyncHttpClient, HttpTransportError, Request
+
+from .logging import debug, info
 
 CACHE_DIR = user_cache_dir(appname="dtcc-data")
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -20,9 +18,6 @@ CACHE_FILE = os.path.join(CACHE_DIR, "tile_cache_superset.json")
 
 # The FastAPI endpoint
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000/tiles"
-_REQUEST_TIMEOUT_SECONDS = 30
-_REQUEST_MAX_ATTEMPTS = 4
-_REQUEST_RETRY_BACKOFF_SECONDS = 2.0
 
 try:
     import nest_asyncio
@@ -100,50 +95,19 @@ def post_gpkg_request(url, session, xmin, ymin, xmax, ymax, buffer_value=0):
         "maxy": round(ymax),
     }
     debug(f"[POST] to {url} with payload={payload}")
-    last_error = None
-    for attempt in range(1, _REQUEST_MAX_ATTEMPTS + 1):
-        try:
-            resp = session.post(
-                f"{url}/tiles",
-                json=payload,
-                timeout=_REQUEST_TIMEOUT_SECONDS,
-            )
-            debug(resp)
-            if resp.status_code != 200:
-                if (
-                    resp.status_code == 404
-                    and "no tiles intersect" in resp.text.lower()
-                ):
-                    raise NoFootprintTilesError(
-                        "No footprint tiles intersect the requested bounding box "
-                        f"{payload}."
-                    )
-                raise RuntimeError(
-                    f"Request failed with status {resp.status_code}:\n{resp.text}"
-                )
-            return resp.json()
-        except NoFootprintTilesError:
-            raise
-        except (requests.RequestException, RuntimeError) as exc:
-            last_error = exc
-            if attempt >= _REQUEST_MAX_ATTEMPTS:
-                raise
-            backoff = _REQUEST_RETRY_BACKOFF_SECONDS * attempt
-            warning(
-                "Footprint tile lookup attempt %d/%d failed: %s. Retrying in %.1fs.",
-                attempt,
-                _REQUEST_MAX_ATTEMPTS,
-                exc,
-                backoff,
-            )
-            time.sleep(backoff)
-
-    raise RuntimeError(f"Footprint tile lookup failed: {last_error}")
+    try:
+        return session.post(f"{url}/tiles", json=payload, idempotent=True).json()
+    except HttpTransportError as exc:
+        if exc.status == 404 and b"no tiles intersect" in exc.error_body.lower():
+            raise NoFootprintTilesError(
+                f"No footprint tiles intersect the requested bounding box {payload}."
+            ) from None
+        raise
 
 
 async def download_gpkg_file(session, base_url, filename, output_dir):
     """
-    Download a single .laz file asynchronously with aiohttp if not already cached.
+    Download a single .laz file asynchronously with the HTTP client if not already cached.
     The endpoint is assumed to be: f"{base_url}/get/lidar/{filename}"
     We'll store the downloaded file in output_dir/filename.
     """
@@ -160,17 +124,17 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
     info(f"Downloading {filename} from {url}")
     tmp_path = None
     try:
-        async with session.get(url) as resp:
+        async with session.stream(Request("GET", url)) as resp:
             if resp.status != 200:
                 raise FootprintDownloadError(
                     f"Failed to download {filename}, status code={resp.status}"
                 )
-            content = await resp.read()
             fd, tmp_path = tempfile.mkstemp(
                 dir=output_dir, prefix=f"{filename}.", suffix=".part"
             )
             with os.fdopen(fd, "wb") as f:
-                f.write(content)
+                async for chunk in resp.iter_bytes(1024 * 1024):
+                    f.write(chunk)
             try:
                 os.replace(tmp_path, out_path)
             except PermissionError:
@@ -180,7 +144,7 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
                 debug(f"File {filename} was published by a concurrent download.")
             else:
                 info(f"Saved {filename} to {out_path}")
-    except (TimeoutError, aiohttp.ClientError, OSError) as exc:
+    except (TimeoutError, HttpTransportError, OSError) as exc:
         raise FootprintDownloadError(
             f"Failed to download footprint tile {filename}: {type(exc).__name__}: {exc}"
         ) from exc
@@ -195,11 +159,10 @@ async def download_gpkg_file(session, base_url, filename, output_dir):
 async def download_all_gpkg_files(base_url, filenames, output_dir="downloaded_gpkg"):
     """
     Given a list of filenames, downloads them all asynchronously from
-    base_url/get/lidar/<filename> using aiohttp, skipping any local cache hits.
+    base_url/get/lidar/<filename> using the HTTP client, skipping any local cache hits.
     """
 
-    connector = aiohttp.TCPConnector(ssl=download_ssl_context())
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with AsyncHttpClient() as session:
         tasks = []
         for fname in filenames:
             tasks.append(download_gpkg_file(session, base_url, fname, output_dir))

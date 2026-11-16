@@ -2,7 +2,6 @@ import hashlib
 import json
 
 import pytest
-import requests
 
 from dtcc_core.datasets.publish import (
     DatasetPackageError,
@@ -16,6 +15,7 @@ from dtcc_core.datasets.publish import (
     PublishedFile,
     build_publish_idempotency_key,
 )
+from dtcc_core.io import HttpTransportError, Request
 
 
 def _write_package(tmp_path):
@@ -85,11 +85,19 @@ def _sha256(path):
 
 class FakeResponse:
     def __init__(self, status_code, payload, headers=None, json_exc=None):
-        self.status_code = status_code
+        self.status = status_code
         self.payload = payload
-        self.headers = {} if headers is None else headers
+        self.headers = (
+            {}
+            if headers is None
+            else {key.lower(): value for key, value in headers.items()}
+        )
         self.text = json.dumps(payload)
         self.json_exc = json_exc
+
+    @property
+    def body(self):
+        return self.text.encode()
 
     def json(self):
         if self.json_exc is not None:
@@ -103,14 +111,18 @@ class FakeSession:
         self.exc = exc
         self.calls = []
 
-    def post(self, url, *, data=None, files=None, headers=None, timeout=None):
+    def post(self, url, *, multipart, headers=None):
+        data = {"dataset_key": multipart[0].value.decode()}
+        entries = [
+            (p.name, (p.filename, p.value, p.content_type)) for p in multipart[1:]
+        ]
+        files = dict(entries) if len(entries) == 2 else entries
         self.calls.append(
             {
                 "url": url,
                 "data": data,
                 "files": files,
                 "headers": headers,
-                "timeout": timeout,
             }
         )
         if self.exc is not None:
@@ -667,7 +679,6 @@ def test_upload_package_posts_expected_multipart_and_closes_handles(tmp_path):
         "Authorization": "Bearer secret-token",
         "Idempotency-Key": "provided-key",
     }
-    assert call["timeout"] == 12.5
     assert set(call["files"]) == {"manifest", "files"}
     manifest_part = call["files"]["manifest"]
     file_part = call["files"]["files"]
@@ -718,7 +729,6 @@ def test_upload_package_posts_manifest_v2_multipart_and_closes_handles(tmp_path)
         "Authorization": "Bearer secret-token",
         "Idempotency-Key": "provided-key",
     }
-    assert call["timeout"] == 12.5
     parts = call["files"]
     assert [part[0] for part in parts] == ["manifest", "files", "files"]
     assert parts[0][1][0] == "manifest.json"
@@ -1017,7 +1027,9 @@ def test_upload_package_maps_timeout_as_transient(tmp_path):
     client = DatasetUploadClient(
         "https://upload.example",
         "secret-token",
-        session=FakeSession(exc=requests.Timeout("request timed out")),
+        session=FakeSession(
+            exc=HttpTransportError(Request("POST", "https://upload.example"), "timeout")
+        ),
     )
 
     with pytest.raises(DatasetUploadError) as error:
@@ -1032,7 +1044,9 @@ def test_upload_package_request_exception_cause_does_not_leak_token(tmp_path):
     client = DatasetUploadClient(
         "https://upload.example",
         "abc",
-        session=FakeSession(exc=requests.RequestException("Bearer abc failed")),
+        session=FakeSession(
+            exc=HttpTransportError(Request("POST", "https://upload.example"), "request")
+        ),
     )
 
     with pytest.raises(DatasetUploadError) as error:
@@ -1118,3 +1132,26 @@ def test_upload_package_maps_malformed_success_file_entries_to_upload_error(tmp_
     assert error.value.status_code == 200
     assert error.value.failure_class == "request"
     assert not isinstance(error.value, AttributeError)
+
+
+def test_transport_rate_limit_preserves_retry_after(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    failure = HttpTransportError(
+        Request("POST", "https://upload.example/datasets"),
+        "http_status",
+        status=429,
+        error_body=b'{"detail":"wait"}',
+        retry_after=17,
+    )
+    client = DatasetUploadClient(
+        "https://upload.example", "secret", session=FakeSession(exc=failure)
+    )
+    with pytest.raises(DatasetUploadRateLimitError) as caught:
+        client.upload_package(
+            dataset_key="smoke",
+            manifest_path=manifest_path,
+            files=files,
+            manifest=manifest,
+        )
+    assert caught.value.retry_after == 17
+    assert caught.value.detail == "wait"

@@ -24,11 +24,11 @@ def downloader(request, monkeypatch):
         await asyncio.sleep(0)
         yield payload[5:]
 
-    response.content.iter_chunked.side_effect = chunks
+    response.iter_bytes.side_effect = chunks
     session = MagicMock()
     session.__aenter__.return_value = session
-    session.get.return_value = response
-    monkeypatch.setattr(module.aiohttp, "ClientSession", lambda **kwargs: session)
+    session.stream.return_value = response
+    monkeypatch.setattr(module, "AsyncHttpClient", lambda **kwargs: session)
     if module is lidar:
         monkeypatch.setattr(lidar, "_DOWNLOAD_MAX_ATTEMPTS", 1)
     return module, filename, payload, session
@@ -62,9 +62,9 @@ def test_concurrent_downloads_publish_complete_tiles(
     assert all(path.parent == tmp_path for path in temporary_paths)
     assert (tmp_path / filename).read_bytes() == payload
     assert not list(tmp_path.glob("*.part"))
-    assert session.get.call_count == 2
+    assert session.stream.call_count == 2
     download()
-    assert session.get.call_count == 2
+    assert session.stream.call_count == 2
 
 
 def test_download_that_loses_publication_race_keeps_published_tile(
@@ -118,14 +118,16 @@ def test_lidar_retry_cleans_up_partial_download(
         attempts += 1
         yield payload[:5]
         if attempts == 1:
-            raise module.aiohttp.ClientError("interrupted stream")
+            raise module.HttpTransportError(
+                module.Request("GET", "http://example.test"), "connection"
+            )
         yield payload[5:]
 
     async def backoff(_delay):
         assert not list(tmp_path.glob("*.part"))
         assert not (tmp_path / filename).exists()
 
-    session.get.return_value.content.iter_chunked.side_effect = chunks
+    session.stream.return_value.iter_bytes.side_effect = chunks
     monkeypatch.setattr(module, "_DOWNLOAD_MAX_ATTEMPTS", 2)
     monkeypatch.setattr(module.asyncio, "sleep", backoff)
     module.run_download_files("http://example.test", [filename], tmp_path)

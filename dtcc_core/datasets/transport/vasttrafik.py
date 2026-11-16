@@ -7,6 +7,8 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
+from dtcc_core.io import HttpTransportError, http_client
+
 from ..dataset import DatasetDescriptor, DatasetUpstreamError
 from .base import (
     TransportProviderResult,
@@ -67,26 +69,11 @@ def fetch_vasttrafik_vehicles(
         return result
 
     try:
-        import requests
-    except ImportError as exc:
-        err = make_config_error(
-            dataset_name,
-            "vasttrafik",
-            "requests library required for Västtrafik transport data.",
-        )
-        result.upstream_errors.append(err)
-        if strict_live:
-            raise err from exc
-        return result
-
-    try:
         token = _fetch_token(
-            requests,
             authentication_key=resolved_authentication_key,
             timeout_s=timeout_s,
         )
         data = _fetch_positions(
-            requests,
             token=token,
             bounds_wgs84=bounds_wgs84,
             requested_modes=requested_modes,
@@ -143,25 +130,25 @@ def bounds_overlap_vasttrafik(bounds_wgs84: tuple[float, float, float, float]) -
 
 
 def _fetch_token(
-    requests,
     *,
     authentication_key: str,
     timeout_s: float,
 ):
     try:
-        response = requests.post(
-            TOKEN_URL,
-            data={"grant_type": "client_credentials"},
-            headers={"Authorization": f"Basic {authentication_key}"},
-            timeout=timeout_s,
-        )
-        response.raise_for_status()
+        with http_client(timeout=timeout_s, retries=0) as http:
+            response = http.request(
+                TOKEN_URL,
+                form={"grant_type": "client_credentials"},
+                headers={"Authorization": f"Basic {authentication_key}"},
+                method="POST",
+                public=False,
+            )
         payload = response.json()
         token = payload.get("access_token")
         if not token:
             raise ValueError("token response did not contain access_token")
         return token
-    except requests.RequestException as exc:
+    except HttpTransportError as exc:
         raise DatasetDescriptor.build_upstream_error(
             "transit_vehicles", "fetch_vasttrafik_token", TOKEN_URL, exc
         ) from exc
@@ -180,7 +167,6 @@ def _resolve_authentication_key(explicit_key: str | None) -> str | None:
 
 
 def _fetch_positions(
-    requests,
     *,
     token: str,
     bounds_wgs84: tuple[float, float, float, float],
@@ -197,21 +183,23 @@ def _fetch_positions(
         "lowerLeftLong": xmin,
         "upperRightLat": ymax,
         "upperRightLong": xmax,
-        "transportModes": list(transport_modes),
         "limit": 200,
     }
     try:
-        response = requests.get(
-            POSITIONS_URL,
-            params=params,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=timeout_s,
-        )
-        response.raise_for_status()
+        with http_client(timeout=timeout_s, retries=0) as http:
+            response = http.request(
+                POSITIONS_URL,
+                params=[
+                    *params.items(),
+                    *(("transportModes", mode) for mode in transport_modes),
+                ],
+                headers={"Authorization": f"Bearer {token}"},
+                method="GET",
+                public=False,
+            )
         return response.json()
-    except requests.RequestException as exc:
-        response = getattr(exc, "response", None)
-        if getattr(response, "status_code", None) == 403:
+    except HttpTransportError as exc:
+        if exc.status == 403:
             raise DatasetUpstreamError(
                 dataset="transit_vehicles",
                 operation="fetch_vasttrafik_positions",

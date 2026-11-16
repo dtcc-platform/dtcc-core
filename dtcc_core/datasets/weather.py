@@ -120,19 +120,12 @@ def _get_text(url: str, params: dict[str, Any] = None, timeout_s: float = 10.0) 
     RuntimeError
         If the request fails.
     """
-    try:
-        import requests
-    except ImportError:
-        raise RuntimeError(
-            "requests library required for weather dataset. "
-            "Install with: pip install requests"
-        )
+    from dtcc_core.io import HttpTransportError, http_client
 
     try:
-        response = requests.get(url, params=params, timeout=timeout_s)
-        response.raise_for_status()
-        return response.text
-    except requests.RequestException as e:
+        with http_client(timeout=timeout_s, retries=0) as http:
+            return http.text(url, params=params)
+    except HttpTransportError as e:
         raise DatasetDescriptor.build_upstream_error("weather", "fetch", url, e) from e
 
 

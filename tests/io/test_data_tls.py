@@ -155,10 +155,8 @@ def test_lookup_bundle_is_trusted(monkeypatch, no_ca_settings, one_ca):
 def test_downloads_use_the_context(module, run, tmp_path):
     context = ssl.create_default_context()
     with (
-        patch.object(module, "download_ssl_context", return_value=context),
-        patch.object(
-            module.aiohttp, "TCPConnector", wraps=aiohttp.TCPConnector
-        ) as connector,
+        patch("dtcc_core.io.data.tls.download_ssl_context", return_value=context),
+        patch.object(aiohttp, "TCPConnector", wraps=aiohttp.TCPConnector) as connector,
     ):
         asyncio.run(run(str(tmp_path)))
     assert connector.call_args.kwargs["ssl"] is context

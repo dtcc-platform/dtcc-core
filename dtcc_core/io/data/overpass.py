@@ -6,11 +6,10 @@ import re
 
 import geopandas as gpd
 import pyproj
-import requests
 from platformdirs import user_cache_dir
-from requests.adapters import HTTPAdapter
 from shapely.geometry import LineString, Polygon, box
-from urllib3.util.retry import Retry
+
+from dtcc_core.io import HttpClient, HttpTransportError, RetryPolicy, Timeout
 
 # ``warning`` is re-exported for tests that assert nothing warns here.
 from .logging import debug, error, info, warning  # noqa: F401
@@ -53,9 +52,11 @@ def create_retry_session(
     retries=OVERPASS_RETRIES,
     backoff_factor=1.0,
     status_forcelist=(429, 500, 502, 503, 504),
+    connect_timeout=OVERPASS_CONNECT_TIMEOUT_SECONDS,
+    read_timeout=OVERPASS_READ_TIMEOUT_SECONDS,
 ):
     """
-    Create a requests session with automatic retry and exponential backoff.
+    Create an HTTP client with automatic retry and exponential backoff.
 
     Parameters
     ----------
@@ -68,28 +69,16 @@ def create_retry_session(
     status_forcelist
         HTTP status codes that trigger a retry
     """
-    session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": OVERPASS_USER_AGENT,
-            "Accept": "application/json",
-        }
+    return HttpClient(
+        retry=RetryPolicy(
+            retries=retries,
+            connect=False,
+            read=False,
+            backoff=backoff_factor,
+            statuses=frozenset(status_forcelist),
+        ),
+        timeout=Timeout(connect=connect_timeout, read=read_timeout),
     )
-    retry = Retry(
-        total=retries,
-        read=0,
-        connect=0,
-        status=retries,
-        other=0,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-        allowed_methods=["GET", "POST"],
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
 
 
 def query_overpass_with_failover(
@@ -127,7 +116,6 @@ def query_overpass_with_failover(
     if timeout is not None:
         read_timeout = timeout
 
-    request_timeout = (connect_timeout, read_timeout)
     last_error = None
     for endpoint in OVERPASS_ENDPOINTS:
         try:
@@ -135,20 +123,30 @@ def query_overpass_with_failover(
                 "Trying Overpass endpoint "
                 f"{endpoint} (connect={connect_timeout:g}s, read={read_timeout:g}s)"
             )
-            session = create_retry_session()
-            resp = session.post(endpoint, data={"data": query}, timeout=request_timeout)
-            if resp.status_code == 200:
+            with create_retry_session(
+                connect_timeout=connect_timeout, read_timeout=read_timeout
+            ) as session:
+                resp = session.post(
+                    endpoint,
+                    form={"data": query},
+                    idempotent=True,
+                    headers={
+                        "User-Agent": OVERPASS_USER_AGENT,
+                        "Accept": "application/json",
+                    },
+                )
+            if resp.status == 200:
                 debug(f"Overpass query successful via {endpoint}")
                 data = resp.json()
                 data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
                 return data
             else:
-                debug(f"Endpoint {endpoint} returned status {resp.status_code}")
-                last_error = f"HTTP {resp.status_code}"
+                debug(f"Endpoint {endpoint} returned status {resp.status}")
+                last_error = f"HTTP {resp.status}"
         except ValueError as e:
             debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
             last_error = f"invalid JSON from {endpoint}: {e}"
-        except requests.exceptions.RequestException as e:
+        except HttpTransportError as e:
             debug(f"Endpoint {endpoint} failed: {e}")
             last_error = str(e)
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from platformdirs import user_cache_dir
+
+from dtcc_core.io import HttpClient, HttpTransportError, Request, Timeout, http_client
 
 from ..dataset import DatasetDescriptor, DatasetUpstreamError
 from .base import (
@@ -125,25 +128,11 @@ def fetch_trafiklab_gtfs_vehicles(
     if not selected:
         return result
 
-    try:
-        import requests
-    except ImportError as exc:
-        err = make_config_error(
-            dataset_name,
-            "trafiklab",
-            "requests library required for Trafiklab transport data.",
-        )
-        result.upstream_errors.append(err)
-        if strict_live:
-            raise err from exc
-        return result
-
     for operator in selected:
         route_metadata = {}
         if include_static_metadata or requested_modes is not None:
             try:
                 route_metadata = _fetch_route_metadata(
-                    requests,
                     operator=operator,
                     feed=feed,
                     api_key=resolved_key,
@@ -156,7 +145,6 @@ def fetch_trafiklab_gtfs_vehicles(
 
         try:
             payload = _fetch_realtime_payload(
-                requests,
                 operator=operator,
                 feed=feed,
                 api_key=resolved_key,
@@ -206,7 +194,6 @@ def _resolve_api_key(api_key: str | None) -> str | None:
 
 
 def _fetch_realtime_payload(
-    requests,
     *,
     operator: str,
     feed: str,
@@ -215,17 +202,18 @@ def _fetch_realtime_payload(
 ) -> bytes:
     url = _realtime_url(operator, feed)
     try:
-        response = requests.get(url, params={"key": api_key}, timeout=timeout_s)
-        response.raise_for_status()
-        return response.content
-    except requests.RequestException as exc:
+        with http_client(timeout=timeout_s, retries=0) as http:
+            response = http.request(
+                url, credentials={"key": api_key}, method="GET", public=False
+            )
+        return response.body
+    except HttpTransportError as exc:
         raise DatasetDescriptor.build_upstream_error(
             "transit_vehicles", "fetch_gtfs_realtime", url, exc
         ) from exc
 
 
 def _fetch_route_metadata(
-    requests,
     *,
     operator: str,
     feed: str,
@@ -238,16 +226,21 @@ def _fetch_route_metadata(
 
     url = _static_url(operator, feed)
     try:
-        response = requests.get(url, params={"key": api_key}, timeout=timeout_s)
-        response.raise_for_status()
-    except requests.RequestException as exc:
+        # National archives are large; spool to disk before opening the ZIP.
+        with tempfile.TemporaryFile() as downloaded:
+            with HttpClient(timeout=Timeout(timeout_s, timeout_s)) as http:
+                with http.stream(
+                    Request("GET", url, params={"key": api_key})
+                ) as response:
+                    for chunk in response.iter_bytes():
+                        downloaded.write(chunk)
+            downloaded.seek(0)
+            with zipfile.ZipFile(downloaded) as archive:
+                routes_txt = archive.read("routes.txt").decode("utf-8-sig")
+    except HttpTransportError as exc:
         raise DatasetDescriptor.build_upstream_error(
             "transit_vehicles", "fetch_gtfs_static", url, exc
         ) from exc
-
-    try:
-        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-            routes_txt = archive.read("routes.txt").decode("utf-8-sig")
     except (KeyError, zipfile.BadZipFile, UnicodeDecodeError) as exc:
         raise DatasetUpstreamError(
             dataset="transit_vehicles",

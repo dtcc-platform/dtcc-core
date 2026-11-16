@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -684,11 +684,10 @@ def test_air_quality_unknown_phenomenon_raises_value_error():
 
 def test_get_json_invalid_json_raises_typed_error():
     """_get_json should wrap JSON decoding failures in a typed upstream error."""
-    response = Mock()
-    response.raise_for_status = Mock()
-    response.json.side_effect = json.JSONDecodeError("bad json", "{}", 0)
+    from dtcc_core.io import HttpTransportError, Request
 
-    with patch("requests.get", return_value=response):
+    failure = HttpTransportError(Request("GET", f"{BASE_URL}/stations"), "decoding")
+    with patch("dtcc_core.io._http_client._HttpClient.json", side_effect=failure):
         with pytest.raises(DatasetUpstreamError) as exc_info:
             _get_json(f"{BASE_URL}/stations", timeout_s=3.0)
 

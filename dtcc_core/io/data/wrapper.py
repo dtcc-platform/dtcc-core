@@ -3,9 +3,8 @@ import os
 import re
 from pathlib import Path
 
-import requests
-
 from dtcc_core import io
+from dtcc_core.io import HttpClient, RetryPolicy, Timeout
 from dtcc_core.model import Bounds
 
 from .geopkg import CACHE_DIR as GPKG_CACHE_DIR
@@ -221,33 +220,34 @@ def download_data(data_type: str, provider: str, bounds: Bounds, epsg="3006", ur
         )
 
     if provider == "dtcc":
-        session = requests.Session()
-        if data_type == "lidar":
-            info("Resolving lidar tiles from DTCC source")
-            files = download_lidar(bounds.tuple, session, base_url=lidar_url)
-            if not files:
-                raise RuntimeError(
-                    "No lidar data available for the requested bounding box."
-                )
-            debug(files)
-            pc = io.load_pointcloud(files, bounds=bounds)
-            return pc
-        elif data_type == "footprints":
-            cached_footprints = _load_cached_footprints(bounds)
-            if cached_footprints is not None:
-                return cached_footprints
-            info("Resolving footprint tiles from DTCC source")
-            files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
-            if not files:
-                raise RuntimeError(
-                    f"Footprint download failed for bounds {bounds.tuple}."
-                )
-            foots = io.load_footprints(files, bounds=bounds)
-            return foots
-        else:
-            error("Incorrect data type.")
-        return
-
+        with HttpClient(
+            timeout=Timeout(30, 30), retry=RetryPolicy(retries=3)
+        ) as session:
+            if data_type == "lidar":
+                info("Resolving lidar tiles from DTCC source")
+                files = download_lidar(bounds.tuple, session, base_url=lidar_url)
+                if not files:
+                    raise RuntimeError(
+                        "No lidar data available for the requested bounding box."
+                    )
+                debug(files)
+                pc = io.load_pointcloud(files, bounds=bounds)
+                return pc
+            elif data_type == "footprints":
+                cached_footprints = _load_cached_footprints(bounds)
+                if cached_footprints is not None:
+                    return cached_footprints
+                info("Resolving footprint tiles from DTCC source")
+                files = download_tiles(bounds.tuple, session, server_url=gpkg_url)
+                if not files:
+                    raise RuntimeError(
+                        f"Footprint download failed for bounds {bounds.tuple}."
+                    )
+                foots = io.load_footprints(files, bounds=bounds)
+                return foots
+            else:
+                error("Incorrect data type.")
+            return
     else:
         if data_type == "footprints":
             info("Downloading footprint tiles from OSM source")

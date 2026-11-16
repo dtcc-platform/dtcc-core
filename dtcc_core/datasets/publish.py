@@ -8,7 +8,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import requests
+from dtcc_core.io import (
+    HttpClient,
+    HttpTransportError,
+    MultipartPart,
+    Request,
+    Response,
+    Timeout,
+)
 
 MANIFEST_V2_SCHEMA_VERSION = "dtcc-dataset-manifest-v2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -262,9 +269,11 @@ class DatasetUploadClient:
     token : str
         Bearer token used to authorise uploads.
     timeout : float, optional
-        Request timeout in seconds. ``None`` waits indefinitely.
-    session : requests.Session, optional
-        HTTP session to use. A new session is created when omitted.
+        Connect/read inactivity timeout in seconds; ``None`` selects 30 seconds.
+        Applies only to owned clients.
+    session : HttpClient, optional
+        Borrowed HTTP client, with its own timeout policy; it is not closed here.
+        When omitted, each upload owns and closes a new client.
     """
 
     def __init__(
@@ -278,8 +287,9 @@ class DatasetUploadClient:
         self.base_url = str(base_url).rstrip("/")
         self.datasets_url = _normalize_datasets_url(base_url)
         self.token = token
-        self.timeout = timeout
-        self.session = requests.Session() if session is None else session
+        self.timeout = 30 if timeout is None else timeout
+        Timeout(connect=self.timeout, read=self.timeout)
+        self.session = session
 
     @classmethod
     def from_config(
@@ -341,76 +351,66 @@ class DatasetUploadClient:
                     stack.enter_context(upload_file.path.open("rb"))
                     for upload_file in package.files
                 ]
-                multipart_files: Any
-                if package.idempotency_prefix == "dtcc-publish-v1":
-                    upload_file = package.files[0]
-                    multipart_files = {
-                        "manifest": (
-                            "manifest.json",
+                client = self.session
+                if client is None:
+                    client = stack.enter_context(
+                        HttpClient(
+                            timeout=Timeout(connect=self.timeout, read=self.timeout)
+                        )
+                    )
+                response = client.post(
+                    self.datasets_url,
+                    multipart=[
+                        MultipartPart(
+                            "dataset_key",
+                            dataset_key.encode(),
+                            content_type="text/plain",
+                        ),
+                        MultipartPart(
+                            "manifest",
                             manifest_handle,
+                            "manifest.json",
                             "application/json",
                         ),
-                        "files": (
-                            upload_file.logical_path,
-                            file_handles[0],
-                            upload_file.media_type,
-                        ),
-                    }
-                else:
-                    multipart_files = [
-                        (
-                            "manifest",
-                            ("manifest.json", manifest_handle, "application/json"),
-                        ),
-                        *[
-                            (
+                        *(
+                            MultipartPart(
                                 "files",
-                                (
-                                    upload_file.logical_path,
-                                    file_handle,
-                                    upload_file.media_type,
-                                ),
+                                file_handle,
+                                upload_file.logical_path,
+                                upload_file.media_type,
                             )
                             for upload_file, file_handle in zip(
                                 package.files, file_handles
                             )
-                        ],
-                    ]
-                response = self.session.post(
-                    self.datasets_url,
-                    data={"dataset_key": dataset_key},
-                    files=multipart_files,
+                        ),
+                    ],
                     headers=headers,
-                    timeout=self.timeout,
                 )
-        except requests.Timeout as error:
+        except HttpTransportError as error:
+            if error.kind == "http_status":
+                response = Response(
+                    error.status,
+                    error.target,
+                    {"retry-after": str(error.retry_after)}
+                    if error.retry_after is not None
+                    else {},
+                    error.error_body,
+                    Request("POST", self.datasets_url),
+                )
+                raise _upload_error_for_response(response, token=self.token) from None
             detail = _sanitize_error_text(str(error), token=self.token)
             raise DatasetUploadError(
-                f"Dataset upload timed out: {detail}",
+                f"Dataset upload failed: {detail}",
                 detail=detail,
-                failure_class="timeout",
-            ) from None
-        except requests.ConnectionError as error:
-            detail = _sanitize_error_text(str(error), token=self.token)
-            raise DatasetUploadError(
-                f"Dataset upload connection failed: {detail}",
-                detail=detail,
-                failure_class="connection",
-            ) from None
-        except requests.RequestException as error:
-            detail = _sanitize_error_text(str(error), token=self.token)
-            raise DatasetUploadError(
-                f"Dataset upload request failed: {detail}",
-                detail=detail,
-                failure_class="request",
+                failure_class=error.kind,
             ) from None
 
-        if response.status_code < 200 or response.status_code >= 300:
+        if response.status < 200 or response.status >= 300:
             raise _upload_error_for_response(response, token=self.token)
 
         try:
             payload = response.json()
-        except ValueError:
+        except (ValueError, HttpTransportError):
             detail = _response_detail(response, token=self.token)
             raise _malformed_success_error(response, detail=detail) from None
         if not isinstance(payload, Mapping):
@@ -788,7 +788,7 @@ def _file_set_sha256(files: Sequence[_PackageUploadFile]) -> str:
 
 
 def _retry_after(response: Any) -> float | None:
-    value = response.headers.get("Retry-After")
+    value = response.headers.get("retry-after")
     if value is None:
         return None
     try:
@@ -807,8 +807,10 @@ def _sanitize_error_text(text: Any, *, token: str | None) -> str:
 def _response_detail(response: Any, *, token: str | None) -> str:
     try:
         payload = response.json()
-    except ValueError:
-        return _sanitize_error_text(response.text, token=token)
+    except (ValueError, HttpTransportError):
+        return _sanitize_error_text(
+            response.body.decode("utf-8", errors="replace"), token=token
+        )
 
     if isinstance(payload, Mapping) and "detail" in payload:
         detail = payload["detail"]
@@ -820,14 +822,14 @@ def _response_detail(response: Any, *, token: str | None) -> str:
     try:
         detail_text = json.dumps(payload, sort_keys=True, default=str)
     except (TypeError, ValueError):
-        detail_text = response.text
+        detail_text = response.body.decode("utf-8", errors="replace")
     return _sanitize_error_text(detail_text[:200], token=token)
 
 
 def _upload_error_for_response(
     response: Any, *, token: str | None
 ) -> DatasetUploadError:
-    status_code = int(response.status_code)
+    status_code = int(response.status)
     detail = _response_detail(response, token=token)
     message = f"Dataset upload failed with HTTP {status_code}: {detail}"
 
@@ -881,7 +883,7 @@ def _upload_error_for_response(
 def _malformed_success_error(response: Any, *, detail: str) -> DatasetUploadError:
     return DatasetUploadError(
         f"Dataset upload returned malformed success response: {detail}",
-        status_code=int(response.status_code),
+        status_code=int(response.status),
         detail=detail,
         failure_class="request",
     )

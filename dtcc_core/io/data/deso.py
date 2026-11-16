@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import requests
 from shapely.geometry import box
 from shapely.validation import make_valid
 
+from dtcc_core.io import HttpTransportError, Timeout
 from dtcc_core.model import (
     Bounds,
     DeSO,
@@ -184,19 +184,23 @@ def download_deso_geodataframe(
         url = _wfs_url(bounds, year)
         info(f"Downloading DeSO {year} polygons from SCB")
         try:
-            response = requests.get(
-                url,
-                headers=SCB_WFS_REQUEST_HEADERS,
-                timeout=_scb_request_timeout(),
-            )
-            response.raise_for_status()
-        except requests.exceptions.RequestException as exc:
+            from dtcc_core.io import http_client
+
+            with http_client(
+                timeout=Timeout(*_scb_request_timeout()), retries=0
+            ) as http:
+                response = http.request(
+                    url,
+                    headers=SCB_WFS_REQUEST_HEADERS,
+                    method="GET",
+                )
+        except HttpTransportError as exc:
             raise RuntimeError(
                 f"Failed to download DeSO {year} polygons from SCB"
             ) from exc
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = cache_path.with_suffix(cache_path.suffix + ".part")
-        tmp_path.write_bytes(response.content)
+        tmp_path.write_bytes(response.body)
         os.replace(tmp_path, cache_path)
         gdf = gpd.read_file(cache_path)
 
@@ -381,16 +385,19 @@ def _query_scb_statistic(
             "selection": {"filter": "item", "values": [str(year)]},
         }
     )
+    from dtcc_core.io import http_client
+
     payload = {"query": query, "response": {"format": "JSON"}}
     try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=SCB_API_REQUEST_HEADERS,
-            timeout=_scb_request_timeout(),
-        )
-        response.raise_for_status()
-    except requests.exceptions.RequestException as exc:
+        with http_client(timeout=Timeout(*_scb_request_timeout()), retries=0) as http:
+            response = http.request(
+                url,
+                json=payload,
+                headers=SCB_API_REQUEST_HEADERS,
+                method="POST",
+                idempotent=True,
+            )
+    except HttpTransportError as exc:
         label = f" {name}" if name else ""
         raise RuntimeError(
             f"Failed to query SCB DeSO statistic{label} ({year})"
