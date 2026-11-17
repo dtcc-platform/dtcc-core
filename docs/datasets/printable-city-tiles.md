@@ -36,18 +36,23 @@ grid covers the selection and can extend east and north to fit whole tiles.
 For neighboring jobs on one table, use the same `scale`, `tile_size_mm`,
 `grid_origin=(x, y)` in EPSG:3006, `anchor_z` and `mounting_elevation_m`.
 The mounting elevation is the real-world height represented by the table
-surface under the base stacks. Read it from `layout.json` when extending
-an existing job. It must be a whole base step from `anchor_z` and low
-enough to fit at least one base below each city tile. When omitted, the
-lowest tile in the selection gets one base layer.
+surface under the base stacks. Read it and `anchor_z` from `layout.json` when
+extending an existing job. The mounting elevation must be a whole base step
+from `anchor_z` and low enough to fit at least one base below each city tile.
+When omitted, the lowest tile in the selection gets one base layer.
+
+If a downhill extension needs a lower mounting elevation, use that elevation
+for the whole table. Add one base under every existing stack for each step
+lowered. The step height in metres is `base_tile.height_mm * scale / 1000`.
+Reuse the existing city STLs.
 
 The defaults are `scale=1250`, `tile_size_mm=200` and `lod="lod1"`.
 `lod="lod2"` reconstructs roofs where the source supports them. The
 layout records the count of source roofs with a full LOD1 fallback.
 Tile size can range from 140 to 250 mm. Check the printer's build area
 when selecting a size. The ribbed base keeps the magnet pockets, connector
-seats and central tube at their original dimensions. The spans between the
-connectors and tube change with tile size.
+seats, central tube and 3 mm diagonal brace widths at their original
+dimensions. The spans between the connectors and tube change in length.
 The default base is 20 mm tall. Each request supports up to 64 tiles
 and 5 km per axis.
 

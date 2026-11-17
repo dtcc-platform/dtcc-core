@@ -143,7 +143,7 @@ def test_adjacent_print_stls_match_the_layout_and_reference_pockets(
 
 
 @pytest.mark.parametrize("size", [140, 160, 250])
-def test_base_changes_pitch_and_retains_the_corners_and_tube(
+def test_resized_base_retains_the_corner_tube_and_brace_dimensions(
     size, monkeypatch, tmp_path
 ):
     for target, provider in _site().items():
@@ -165,6 +165,26 @@ def test_base_changes_pitch_and_retains_the_corners_and_tube(
         radius = np.linalg.norm(plane - size / 2, axis=1)
         assert np.count_nonzero(np.isclose(radius, 7.0, atol=2e-5, rtol=0)) == 32
         assert np.count_nonzero(np.isclose(radius, 10.0, atol=2e-5, rtol=0)) >= 32
+    section = _horizontal_section(base, 10.1)
+    for x in (-1, 1):
+        for y in (-1, 1):
+            midpoint = size / 2 + np.array([x, y]) * size / 8
+            across_brace = np.array([y, -x]) * 4 / np.sqrt(2)
+            probe = shapely.LineString(
+                [midpoint - across_brace, midpoint + across_brace]
+            )
+            a, b = shapely.get_parts(section.intersection(probe))
+            assert a.distance(b) == pytest.approx(3.0, abs=3e-5)
+
+
+def _horizontal_section(mesh, z):
+    starts = mesh.vertices[mesh.faces].astype(float)
+    ends = np.roll(starts, -1, axis=1)
+    crosses = (starts[:, :, 2] < z) != (ends[:, :, 2] < z)
+    a, b = starts[crosses], ends[crosses]
+    fraction = (z - a[:, 2]) / (b[:, 2] - a[:, 2])
+    xy = a[:, :2] + fraction[:, None] * (b[:, :2] - a[:, :2])
+    return shapely.MultiLineString(xy.reshape(-1, 2, 2).tolist())
 
 
 def test_neighboring_jobs_use_the_same_mounting_elevation(monkeypatch, no_network):
@@ -192,6 +212,33 @@ def test_neighboring_jobs_use_the_same_mounting_elevation(monkeypatch, no_networ
         dataset.layout(bounds=west, mounting_elevation_m=elevation + 0.5, **options)
     with pytest.raises(ValueError, match="at least one base under each tile"):
         dataset(bounds=west, mounting_elevation_m=elevation + 2.0, **options)
+
+
+def test_downhill_extension_adds_bases_and_reuses_city_stls(monkeypatch, tmp_path):
+    for target, provider in _site(slope=0.1).items():
+        monkeypatch.setattr(target, provider)
+    dataset = datasets.printable_city_tiles
+    options = dict(scale=100, grid_origin=(X0, Y0), anchor_z=2.0)
+    east = (X0 + 20, Y0, X0 + 40, Y0 + 20)
+    west = (X0, Y0, X0 + 20, Y0 + 20)
+    earlier = dataset(bounds=east, **options).export_stl(folder=tmp_path / "earlier")
+    earlier_layout = json.loads((earlier / "layout.json").read_text())
+    assert earlier_layout["anchor_z"] == 2.0
+    assert earlier_layout["mounting_elevation_m"] == 8.0
+
+    west_tiles = dataset(bounds=west, **options)
+    elevation = west_tiles.attributes["layout"]["mounting_elevation_m"]
+    lowered_tiles = dataset(bounds=east, mounting_elevation_m=elevation, **options)
+    lowered = lowered_tiles.export_stl(folder=tmp_path / "lowered")
+    lowered_layout = json.loads((lowered / "layout.json").read_text())
+    assert lowered_layout["anchor_z"] == earlier_layout["anchor_z"]
+    assert lowered_layout["mounting_elevation_m"] == 6.0
+    assert (
+        lowered_layout["base_tile"]["count"] == earlier_layout["base_tile"]["count"] + 1
+    )
+    assert (lowered / "tile_1_0.stl").read_bytes() == (
+        earlier / "tile_1_0.stl"
+    ).read_bytes()
 
 
 def test_export_stls_writes_the_print_files_directly(monkeypatch, tmp_path, no_network):

@@ -208,37 +208,21 @@ def _validate_solid(mesh):
 
 
 def _resize_base(mesh, size):
-    """Resize the spans between the connectors and the central tube."""
+    """Resize the base while preserving the widths of its ribs and braces."""
     if size == BASE_SIZE_MM:
         return mesh
-    triangles = np.asarray(mesh.vertices, dtype=float)[mesh.faces]
-    triangles[np.abs(triangles) <= XY_PRECISION] = 0
+    vertices = mesh.vertices.astype(float)
+    vertices[np.abs(vertices) <= XY_PRECISION] = 0
+    xy = vertices[:, :2]
+    # The template's vertices are at the corners and the tube. Translating
+    # those groups along the brace and rim axes changes the spans' lengths.
     half_delta = (size - BASE_SIZE_MM) / 2
-    for axis in (0, 1):
-        triangles = _stretch_span(triangles, axis, 50.0, 88.0, half_delta)
-        triangles = _stretch_span(
-            triangles, axis, 112.0 + half_delta, 150.0 + half_delta, half_delta
-        )
-    result = _indexed(np.round(triangles, 8).astype(np.float32).astype(float))
+    xy += np.digitize(xy, (50.0, 150.0)) * half_delta
+    result = Mesh(
+        vertices=vertices.astype(np.float32).astype(float), faces=mesh.faces.copy()
+    )
     _validate_solid(result)
     return result
-
-
-def _stretch_span(triangles, axis, start, stop, extra):
-    intervals = (
-        (triangles[:, :, axis].min(axis=1) < start, [(axis, start, -1)]),
-        (np.ones(len(triangles), dtype=bool), [(axis, start, 1), (axis, stop, -1)]),
-        (triangles[:, :, axis].max(axis=1) > stop, [(axis, stop, 1)]),
-    )
-    sections = []
-    for selected, planes in intervals:
-        chosen = triangles[selected]
-        clipped, _ = _clip_triangles(chosen, np.zeros(len(chosen), dtype=int), planes)
-        clipped[:, :, axis] += extra * np.clip(
-            (clipped[:, :, axis] - start) / (stop - start), 0, 1
-        )
-        sections.append(clipped)
-    return np.concatenate(sections)
 
 
 def _building_polygons(surface):

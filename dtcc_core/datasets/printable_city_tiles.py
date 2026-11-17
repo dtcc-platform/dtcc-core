@@ -390,6 +390,7 @@ def _place_tiles(assembly, layout, args, bottoms):
     affine = np.diag([metres_per_mm, metres_per_mm, metres_per_mm, 1.0])
     affine[:3, 3] = [x0, y0, z0]
     assembly.transform = Transform(srs=WORKING_CRS, affine=affine)
+    layout["anchor_z"] = args.anchor_z
     layout["mounting_elevation_m"] = args.anchor_z + (datum - 1) * step_height
     layout["base_tile"]["count"] = sum(bottom - datum + 1 for bottom in bottoms)
     for child, tile, bottom in zip(
