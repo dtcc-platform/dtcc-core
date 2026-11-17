@@ -3,7 +3,6 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-import warnings
 
 import meshio
 import numpy as np
@@ -182,8 +181,10 @@ def test_save_gltf_round_trip(basic_mesh, tmp_path, file_extension):
         faces=basic_mesh.faces,
     )
     path = tmp_path / f"mesh{file_extension}"
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
+    if file_extension == ".gltf":
+        with pytest.warns(UserWarning, match=r"saved to a \.bin file"):
+            mesh.save(path)
+    else:
         mesh.save(path)
 
     indices, positions, translation = _read_gltf_arrays(path)
@@ -194,11 +195,18 @@ def test_save_gltf_round_trip(basic_mesh, tmp_path, file_extension):
     assert np.allclose(z_up, mesh.vertices, rtol=0.0, atol=1e-3)
 
 
-def test_save_gltf_rejects_negative_index(basic_mesh, tmp_path):
+@pytest.mark.parametrize("bad_index", [-1, 24])
+def test_save_gltf_rejects_out_of_range_index(basic_mesh, tmp_path, bad_index):
     faces = basic_mesh.faces.copy()
-    faces[0, 0] = -1
+    faces[0, 0] = bad_index
     mesh = Mesh(vertices=basic_mesh.vertices, faces=faces)
     with pytest.raises(ValueError, match="face indices"):
+        mesh.save(tmp_path / "mesh.glb")
+
+
+def test_save_gltf_rejects_mesh_without_faces(basic_mesh, tmp_path):
+    mesh = Mesh(vertices=basic_mesh.vertices, faces=np.zeros((0, 3), dtype=int))
+    with pytest.raises(ValueError, match="no faces"):
         mesh.save(tmp_path / "mesh.glb")
 
 

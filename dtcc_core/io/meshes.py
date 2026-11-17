@@ -542,8 +542,6 @@ def _save_xdmf_volume_mesh(mesh, path):
 # glTF is y-up and DTCC is z-up: (x, y, z) maps to (x, z, -y), a proper
 # rotation that keeps triangle winding.
 _Z_UP_TO_Y_UP = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
-# glTF forbids the largest value of the index type as an index.
-_GLTF_MAX_INDEX = np.iinfo(np.uint32).max - 1
 
 
 def _save_gltf_mesh(mesh, path):
@@ -556,12 +554,15 @@ def _save_gltf_mesh(mesh, path):
     mesh is rotated from z-up to glTF's y-up.
     """
     faces = np.asarray(mesh.faces)
-    if faces.size and (faces.min() < 0 or faces.max() > _GLTF_MAX_INDEX):
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if faces.size == 0:
+        raise ValueError(f"Unable to save mesh to {path}: the mesh has no faces.")
+    if faces.min() < 0 or faces.max() >= len(vertices):
         raise ValueError(
             f"Unable to save mesh to {path}: face indices must be in "
-            f"[0, {_GLTF_MAX_INDEX}] for glTF."
+            f"[0, {len(vertices) - 1}], the range of the mesh vertices."
         )
-    vertices = np.asarray(mesh.vertices, dtype=np.float64) @ _Z_UP_TO_Y_UP.T
+    vertices = vertices @ _Z_UP_TO_Y_UP.T
     origin = (vertices.min(axis=0) + vertices.max(axis=0)) / 2.0
     positions = (vertices - origin).astype(np.float32)
     indices = faces.astype(np.uint32)
