@@ -406,4 +406,5 @@ PRODUCTS = {
     ("calibration_grid", None): _calibration_grid,
     ("orthophoto", "raster"): _orthophoto_raster,
     ("orthophoto", "tiles"): _orthophoto_tiles,
+    ("satellite_imagery", None): _orthophoto_raster,
 }
