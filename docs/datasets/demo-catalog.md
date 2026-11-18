@@ -92,6 +92,14 @@ the repository root.
 | `demos/view_cityjson.py` | Inspect the original detailed LOD2 model | bundled, offline |
 | `demos/create_cityjson.py` | Catalogue LOD2 city dataset → CityJSON export | DTCC service |
 | `demos/view_pointcloud.py` | Inspect raw LiDAR points | DTCC service |
+| `demos/weather_history_comparison.py` | Compare temperature, wind speed and wind direction at one Stockholm location | SMHI observations / Open-Meteo ERA5 |
+
+Run `uv run python demos/weather_history_comparison.py` to display three shared-time
+panels for 1–3 January 2020 (UTC). Edit its `request` dictionary to change the point
+or period. The figure labels the sources and selected station distance; wind
+direction uses points to respect the 0°/360° boundary. This workflow uses
+Matplotlib to arrange the `TimeSeries.plot()` previews. Both providers require
+internet access, and SMHI station discovery can take a few minutes.
 
 Volume meshing (`dataset_city_volume_mesh.py`) is separate from the core tour. The volume example
 requires TetGen and exports the air-volume tetrahedra to `output/city_volume_mesh.vtu`.

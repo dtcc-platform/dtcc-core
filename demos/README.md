@@ -44,3 +44,8 @@ data requirements, isolation semantics and the outstanding volume-meshing limita
 
 For historical weather, [discover advertised periods near a SWEREF99 TM point](weather_history_availability.py)
 without downloading readings, then [fetch and plot a temperature history](weather_history.py).
+The [SMHI / Open-Meteo comparison](weather_history_comparison.py) fetches three
+days at the same Stockholm location and overlays temperature, wind speed and
+wind direction in three panels. Run `uv run python demos/weather_history_comparison.py`
+from the repository root. It requires internet access; SMHI station discovery
+can take a few minutes.

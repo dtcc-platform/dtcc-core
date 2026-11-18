@@ -247,3 +247,18 @@ Numerical transformations such as `between()`, `align_to()` and `resample()` ret
 core numerical series without ancillary attributes; raw quality flags do not
 transfer to derived values. Core series extracted from a collection likewise
 lack the collection's ancillary metadata and support canonical serialization.
+
+## Compare observations and reanalysis
+
+Run `uv run python demos/weather_history_comparison.py` from the repository root.
+The [comparison demo](../../demos/weather_history_comparison.py) requests the same
+SWEREF99 TM point in Stockholm and the same three-day UTC interval from both
+providers. It plots the three `TimeSeries` pairs on shared time axes, with units,
+source labels and the SMHI station distance. Edit `request` to change the dates
+or location; `end` is exclusive. Station discovery can take a few minutes.
+
+SMHI observations come from the nearest eligible station, while Open-Meteo
+returns ERA5 grid-based reanalysis at the requested location. Differences can
+reflect both spatial separation and the model. Readings retain their original
+timestamps and missing values, without resampling or gap filling. Wind direction
+uses points rather than connecting values across the 0°/360° boundary.

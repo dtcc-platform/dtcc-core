@@ -78,6 +78,10 @@ def test_demos_are_small_and_boring():
                 demo_name in WORKFLOW_DEMOS
                 and line == "from shapely.geometry import box"
             )
+            and not (
+                demo_name == "weather_history_comparison.py"
+                and line == "import matplotlib.pyplot as plt"
+            )
         ]
         assert extra_imports == [], f"{demo_name} has extra imports: {extra_imports}"
         assert len(lines) <= 40, f"{demo_name} should stay readable in under a minute"
