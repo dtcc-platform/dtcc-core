@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from dtcc_core import builder, io
+from dtcc_core.io.info import info_pointcloud
 from dtcc_core.model import Bounds, PointCloud
 
 
@@ -120,6 +121,17 @@ def test_load_pointcloud_csv_points_only_ignores_classification_column(tmp_path)
         1,
         1,
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("1,2,3\n", (1, 1.0, 1.0)), ("1,2,3\n4,5,6\n", (2, 1.0, 4.0))],
+)
+def test_info_pointcloud_csv(tmp_path, text, expected):
+    path = tmp_path / "points.csv"
+    path.write_text(text)
+    info = info_pointcloud(path)
+    assert (info["points"], info["x_min"], info["x_max"]) == expected
 
 
 @pytest.mark.parametrize("file_count", [1, 2])
