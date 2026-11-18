@@ -88,6 +88,9 @@ Every PR description covers:
 
 - Address every finding before merge: fix it, or reply with a one-line reason
   and list it under Risk.
+- Before merge, copy each finding you accepted but left unfixed into
+  `NITS.md` (nit) or `RISKS.md` (important). A pull request that fixes a
+  listed item deletes its line.
 - Fix the root cause behind a finding, and every other site with the same bug.
 - Push fixes as new commits; the reviewed history stays in place until merge.
 - After three reviewer rounds on one PR (a round is one reviewer pass plus
