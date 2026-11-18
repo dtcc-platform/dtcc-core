@@ -10,6 +10,7 @@ from .wrapper import (
     download_footprints,
     download_roadnetwork,
 )
+from .osm_places import download_places
 from .deso import attach_deso_statistics, download_deso, download_deso_statistics
 from .cache import empty_cache
 
@@ -18,6 +19,7 @@ __all__ = [
     "download_pointcloud",
     "download_footprints",
     "download_roadnetwork",
+    "download_places",
     "download_deso",
     "download_deso_statistics",
     "attach_deso_statistics",

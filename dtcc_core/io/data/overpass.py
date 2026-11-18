@@ -13,7 +13,7 @@ from shapely.geometry import LineString, Polygon, box
 from urllib3.util.retry import Retry
 
 # ``warning`` is re-exported for tests that assert nothing warns here.
-from .logging import debug, error, info, warning  # noqa: F401
+from .logging import debug, info, warning  # noqa: F401
 
 # ------------------------------------------------------------------------
 # 1) Global constants/paths
@@ -92,6 +92,10 @@ def create_retry_session(
     return session
 
 
+class OverpassError(RuntimeError):
+    """Every Overpass endpoint failed or returned an unusable response."""
+
+
 def query_overpass_with_failover(
     query,
     timeout=None,
@@ -121,8 +125,8 @@ def query_overpass_with_failover(
 
     Raises
     ------
-    RuntimeError
-        If all endpoints fail
+    OverpassError
+        If all endpoints fail. It is a ``RuntimeError``.
     """
     if timeout is not None:
         read_timeout = timeout
@@ -138,8 +142,15 @@ def query_overpass_with_failover(
             session = create_retry_session()
             resp = session.post(endpoint, data={"data": query}, timeout=request_timeout)
             if resp.status_code == 200:
-                debug(f"Overpass query successful via {endpoint}")
                 data = resp.json()
+                problem = overpass_payload_problem(data)
+                if problem is not None:
+                    debug(
+                        f"Endpoint {endpoint} returned an unusable payload: {problem}"
+                    )
+                    last_error = f"{problem} from {endpoint}"
+                    continue
+                debug(f"Overpass query successful via {endpoint}")
                 data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
                 return data
             else:
@@ -152,8 +163,24 @@ def query_overpass_with_failover(
             debug(f"Endpoint {endpoint} failed: {e}")
             last_error = str(e)
 
-    error(f"All Overpass endpoints failed. Last error: {last_error}")
-    raise RuntimeError(f"All Overpass endpoints failed: {last_error}")
+    raise OverpassError(f"All Overpass endpoints failed. Last error: {last_error}")
+
+
+def overpass_payload_problem(payload):
+    """Return why an Overpass JSON payload is unusable, or None if it is valid.
+
+    A payload is unusable when it is not an object, has no ``elements`` list,
+    or carries a ``remark`` reporting a runtime error such as a server-side
+    timeout. Overpass returns such partial results with HTTP status 200.
+    """
+    if not isinstance(payload, dict):
+        return "non-object JSON payload"
+    remark = payload.get("remark")
+    if isinstance(remark, str) and "error" in remark.lower():
+        return f"Overpass {remark.strip()}"
+    if not isinstance(payload.get("elements"), list):
+        return "payload without an 'elements' list"
+    return None
 
 
 def _overpass_source_endpoint(payload):

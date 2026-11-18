@@ -339,6 +339,12 @@ classes:
     description: Native DTCC DeSO; generic object rules, without a claim of CityGML equivalence.
     annotations:
       dtcc_native_type: DeSO
+  PlaceCollection:
+    is_a: Object
+    description: Native DTCC PlaceCollection of named places, each a child Object with a
+      Point location; generic object rules, without a claim of CityGML equivalence.
+    annotations:
+      dtcc_native_type: PlaceCollection
   PointCloud:
     is_a: Geometry
     description: Native DTCC PointCloud. Numerical state and domain bounds are admitted by
