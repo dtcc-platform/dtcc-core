@@ -32,6 +32,7 @@ from .buildings import BuildingDataset
 from .city import CityDataset
 from .terrain_surface_mesh import TerrainSurfaceMeshDataset
 from .city_surface_mesh import CitySurfaceMeshDataset
+from .printable_city_tiles import PrintableCityTilesDataset
 from .city_flat_mesh import CityFlatMeshDataset
 from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
@@ -75,6 +76,7 @@ city = get_dataset("city")
 
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
+printable_city_tiles = get_dataset("printable_city_tiles")
 city_flat_mesh = get_dataset("city_flat_mesh")
 city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")

@@ -156,6 +156,7 @@ Current Built-In Datasets
 | `terrain_surface_mesh` | derived | `Mesh` by default (`obj`, `stl`); `Raster` with `product="raster"` (`tif`) | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
+| `printable_city_tiles` | derived | `Object` | — | Magnetic city tiles and a matching base. Call `export_stl(folder=...)` on the assembly for print files or `export(path, canonical=True)` for a package. See [the printable city tiles guide](../../docs/datasets/printable-city-tiles.md). |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection`; `Raster` with `product="raster"` | `gpkg`, `geojson`; `tif` with `product="raster"` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
@@ -474,6 +475,11 @@ For a generated download:
    canonical package and as a web format (map-placed PNG/GeoTIFF or RFC 7946
    GeoJSON), the constraints and options of each format, and the reasons a
    product has no web format.
+
+For printable city tiles, `describe()["stl_export"]` sets `target` to
+`"result"`. Call the listed `export_stl(folder=...)` method on the assembly
+returned by the dataset. Its canonical package includes the printable files
+and `artifacts/preview.geojson`.
 
 Creating Custom Datasets
 ------------------------

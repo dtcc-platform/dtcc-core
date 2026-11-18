@@ -8,6 +8,7 @@ DATASET_DEMOS = (
     "dataset_city.py",
     "dataset_city_flat_mesh.py",
     "dataset_city_surface_mesh.py",
+    "dataset_printable_city_tiles.py",
     "dataset_city_volume_mesh.py",
     "dataset_deso.py",
     "dataset_hydrology.py",

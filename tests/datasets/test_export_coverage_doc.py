@@ -26,8 +26,8 @@ def test_every_builtin_product_appears_once_in_the_doc():
         for name, dataset in table.builtin_datasets().items()
         for entry in dataset.describe()["export"]
     ]
-    assert len(declared) == 30
-    assert len({name for name, _ in declared}) == 25
+    assert len(declared) == 31
+    assert len({name for name, _ in declared}) == 26
     lines = DOC.read_text(encoding="utf-8").splitlines()
     for name, product in declared:
         label = f"`{product}`" if product else "-"
