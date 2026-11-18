@@ -36,6 +36,7 @@ and fails when this page differs.
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
 | `printable_city_tiles` | - | `Object` | yes | `geojson` | none | none |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
+| `satellite_imagery` | - | `Raster` | yes | `png`, `tif` | none | none |
 | `smoke` | `field` | `VolumeMesh` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
 | `smoke` | `slice` | `FieldSlice` | yes | `geojson`, `png`, `tif` | geojson: crs_resolvable; png: slice_axis=z, translation_only_root_transform, crs_resolvable; tif: slice_axis=z, translation_only_root_transform, crs_resolvable | none |
 | `smoke` | `streamlines` | `StreamlineCollection` | yes | `geojson` | geojson: crs_resolvable | none |

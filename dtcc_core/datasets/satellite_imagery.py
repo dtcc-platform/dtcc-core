@@ -86,6 +86,18 @@ class SatelliteImageryDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.Raster"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "unit": {"formats": ["png", "tif"], "default": None},
+            },
+            "exclusions": [],
+        }
+    ]
     # The largest allowed request is about 400 tiles at about 2 s each.
     timeout_hint = 900
     provider = [
