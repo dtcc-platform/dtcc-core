@@ -327,7 +327,9 @@ class SemanticProfile:
         A successful report is a snapshot, not continuous enforcement on mutable data.
         Diagnostic ``objects[id]`` identifies a model-scoped object, not a new API.
         Schemas declaring native bindings can also validate Geometry and Field roots.
+        A root-only Dataset wrapper is validated as its transient Object.
         """
+        model = exchange._transient(model)
         if not isinstance(model, Object) and not self._backend.open_semantics:
             raise TypeError("SemanticProfile.validate expects a native Object root")
         exchange.validate(model)

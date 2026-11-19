@@ -539,16 +539,43 @@ def _save_xdmf_volume_mesh(mesh, path):
         marker_sidecar_path.unlink()
 
 
+# glTF is y-up and DTCC is z-up: (x, y, z) maps to (x, z, -y), a proper
+# rotation that keeps triangle winding.
+_Z_UP_TO_Y_UP = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
+
+
 def _save_gltf_mesh(mesh, path):
-    triangles_binary_blob = mesh.faces.flatten().tobytes()
-    points_binary_blob = mesh.vertices.flatten().tobytes()
+    """Save a triangle mesh as glTF 2.0 (.gltf with a .bin file, or .glb).
+
+    Indices are written as uint32 and positions as float32, matching the
+    accessor types. Positions are stored relative to the centre of the
+    bounding box, which goes in the node translation, so projected
+    coordinates such as SWEREF 99 TM northings keep float32 precision. The
+    mesh is rotated from z-up to glTF's y-up.
+    """
+    faces = np.asarray(mesh.faces)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if faces.size == 0:
+        raise ValueError(f"Unable to save mesh to {path}: the mesh has no faces.")
+    if faces.min() < 0 or faces.max() >= len(vertices):
+        raise ValueError(
+            f"Unable to save mesh to {path}: face indices must be in "
+            f"[0, {len(vertices) - 1}], the range of the mesh vertices."
+        )
+    vertices = vertices @ _Z_UP_TO_Y_UP.T
+    origin = (vertices.min(axis=0) + vertices.max(axis=0)) / 2.0
+    positions = (vertices - origin).astype(np.float32)
+    indices = faces.astype(np.uint32)
+
+    triangles_binary_blob = indices.flatten().tobytes()
+    points_binary_blob = positions.flatten().tobytes()
     data = triangles_binary_blob + points_binary_blob
 
     model = pygltflib.GLTF2()
     scene = pygltflib.Scene(nodes=[0])
     model.scenes.append(scene)
     model.scene = 0
-    nodes = pygltflib.Node(mesh=0)
+    nodes = pygltflib.Node(mesh=0, translation=origin.tolist())
     model.nodes.append(nodes)
 
     buffer = pygltflib.Buffer()
@@ -559,19 +586,19 @@ def _save_gltf_mesh(mesh, path):
     triangle_accessor = pygltflib.Accessor(
         bufferView=0,
         componentType=pygltflib.UNSIGNED_INT,
-        count=mesh.faces.size,
+        count=indices.size,
         type=pygltflib.SCALAR,
-        max=[int(mesh.faces.max())],
-        min=[int(mesh.faces.min())],
+        max=[int(indices.max())],
+        min=[int(indices.min())],
     )
     model.accessors.append(triangle_accessor)
     points_accessor = pygltflib.Accessor(
         bufferView=1,
         componentType=pygltflib.FLOAT,
-        count=len(mesh.vertices),
+        count=len(positions),
         type=pygltflib.VEC3,
-        max=mesh.vertices.max(axis=0).tolist(),
-        min=mesh.vertices.min(axis=0).tolist(),
+        max=positions.max(axis=0).tolist(),
+        min=positions.min(axis=0).tolist(),
     )
     model.accessors.append(points_accessor)
 

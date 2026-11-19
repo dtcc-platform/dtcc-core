@@ -1,6 +1,7 @@
-from typing import Literal
+import warnings
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 import dtcc_core
 from dtcc_core.builder import tree_raster_from_pointcloud
@@ -29,6 +30,28 @@ class TreeArgs(DatasetBaseArgs):
         None, description="Output file format"
     )
 
+    product: Literal["trees", "raster"] = Field(
+        "trees",
+        description="Return detected trees or the tree-height raster",
+    )
+
+    @model_validator(mode="after")
+    def validate_product(self):
+        if self.product == "raster" and "vector_geometry" in self.model_fields_set:
+            raise ValueError("vector_geometry applies only to product='trees'")
+        if self.format == "tif" and self.product == "trees":
+            if "product" in self.model_fields_set:
+                raise ValueError("format='tif' requires product='raster'")
+            warnings.warn(
+                "format='tif' without product is deprecated; pass product='raster'",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.product = "raster"
+        if self.product == "raster" and self.format not in (None, "tif"):
+            raise ValueError("product='raster' supports only format='tif'")
+        return self
+
 
 class TreesDataset(DatasetDescriptor):
     """Trees dataset, registered as ``trees``.
@@ -49,6 +72,28 @@ class TreesDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "tree_collection"
     python_return_type = "dtcc_core.model.TreeCollection"
+    export_capabilities = [
+        {
+            "product": "trees",
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+        {
+            "product": "raster",
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "m"},
+            },
+            "exclusions": [],
+        },
+    ]
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
         provider_entry("dtcc-platform", role="processor"),
@@ -124,7 +169,7 @@ class TreesDataset(DatasetDescriptor):
     key_points = [
         "Derived from the same upstream point cloud source used by point_cloud",
         "tree_type selects detection thresholds for urban, mixed, dense, or arid settings",
-        "format='tif' exports a tree-height raster",
+        "product='raster' returns a tree-height raster; the default returns detected trees",
         "vector exports can use point or circle geometry",
     ]
     presentation_legend = {
@@ -146,6 +191,7 @@ class TreesDataset(DatasetDescriptor):
         "alternate_geometry": "raster",
         "default_crs": "EPSG:3006",
         "tree_type_profiles": ["urban", "mixed", "dense", "arid"],
+        "value_units": "m",
     }
     presentation_warnings = [
         "Tree extraction quality depends on upstream point cloud density, classification quality, and acquisition season.",
@@ -158,17 +204,38 @@ class TreesDataset(DatasetDescriptor):
         "Building and terrain interactions can affect canopy-height estimates.",
     ]
 
+    def describe(self) -> dict[str, Any]:
+        metadata = super().describe()
+        metadata["products"] = [
+            {
+                "name": "trees",
+                "python_return_type": "dtcc_core.model.TreeCollection",
+                "formats": ["gpkg", "geojson"],
+                "description": "Detected trees with position, height, and crown radius.",
+            },
+            {
+                "name": "raster",
+                "python_return_type": "dtcc_core.model.Raster",
+                "formats": ["tif"],
+                "description": "Canopy-height raster in meters built from vegetation returns.",
+            },
+        ]
+        return metadata
+
     def build(self, args: TreeArgs):
         bounds = self.parse_bounds(args.bounds)
         pc: PointCloud = dtcc_core.io.data.download_pointcloud(bounds=bounds)
-        if args.format == "tif":
+        if args.product == "raster":
             raster = tree_raster_from_pointcloud(
                 pc,
                 None,
                 tree_type=args.tree_type,
                 cell_size=args.cell_size,
             )
-            return self.export_to_bytes(raster, "tif")
+            raster.crs = self.default_crs
+            if args.format == "tif":
+                return self.export_to_bytes(raster, "tif")
+            return raster
         else:
             city = City()
             city.add_point_cloud(pc)
