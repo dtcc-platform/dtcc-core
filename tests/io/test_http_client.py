@@ -423,8 +423,9 @@ def test_status_body_bound_and_failed_body_keeps_status(native):
 
 
 def test_error_body_budget_stops_retry_and_preserves_status(native):
+    response = reply(b"x" * (32 * 1024), status=503, headers={"Retry-After": "30"})
     client, calls, delays = native(
-        [reply([b"12345678"] * 20, status=503, headers={"Retry-After": "30"})],
+        [response],
         max_download_bytes=10,
     )
     with client:
@@ -437,10 +438,42 @@ def test_error_body_budget_stops_retry_and_preserves_status(native):
             caught.value.attempts,
         ) == ("http_status", 503, 30.0, 1)
         assert len(calls) == 1 and delays == []
-        assert client.counters.received_body_bytes == 16
+        assert client.counters.received_body_bytes == 8192
+        assert response.is_closed
         with pytest.raises(HttpLimitError) as limit_caught:
             client.text(URL)
         assert limit_caught.value.resource == "received_body_bytes"
+
+
+@pytest.mark.parametrize("backend", ["native", "sync", "async"])
+def test_large_status_body_leaves_budget_for_retry(backend, server):
+    from dtcc_core.io import Budget, RetryPolicy
+
+    url, calls, _ = server
+    request = Request("GET", url + "/retry", params={"error_size": 32 * 1024})
+
+    def check(response, counters):
+        assert response.status == 200 and response.body == b"ok"
+        assert calls["/retry"] == 2
+        assert counters.logical_requests == 1
+        assert counters.network_attempts == 2
+        assert counters.received_body_bytes == 8192 + len(b"ok")
+        assert counters.delivered_body_bytes == len(b"ok")
+
+    if backend == "native":
+        with http_client(max_download_bytes=12 * 1024, retries=1) as client:
+            check(client.request(request.url, params=request.params), client.counters)
+    else:
+
+        async def scenario(api):
+            check(await api.request(request), api.client.counters)
+
+        test_http_transport.run(
+            backend,
+            scenario,
+            budget=Budget(max_received_bytes=12 * 1024),
+            retry=RetryPolicy(retries=1),
+        )
 
 
 def test_certificate_error_not_retried(native):

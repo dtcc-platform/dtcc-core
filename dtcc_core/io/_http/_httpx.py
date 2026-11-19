@@ -89,8 +89,8 @@ class NativeHttpClient:
             self._client.close()
         self._closed = True
 
-    def _chunks(self, response, operation, *, limited=True):
-        iterator = response.iter_bytes()
+    def _chunks(self, response, operation, size=None, *, limited=True):
+        iterator = response.iter_bytes(chunk_size=size)
         while True:
             operation.before_read()
             chunk = next(iterator, None)
@@ -102,7 +102,7 @@ class NativeHttpClient:
     def _status_error(self, response, operation):
         body = bytearray()
         try:
-            for chunk in self._chunks(response, operation, limited=False):
+            for chunk in self._chunks(response, operation, 8192, limited=False):
                 body.extend(chunk[: 8192 - len(body)])
                 if len(body) == 8192:
                     break

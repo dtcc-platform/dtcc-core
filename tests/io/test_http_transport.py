@@ -54,7 +54,11 @@ class Handler(BaseHTTPRequestHandler):
                 else 200
             )
             headers = {"Retry-After": "0"}
-            body = b"retry" if status == 503 else b"ok"
+            body = (
+                b"retry".ljust(int(query.get("error_size", [5])[0]), b"x")
+                if status == 503
+                else b"ok"
+            )
         elif parsed.path == "/status":
             status, body = int(query.get("code", [404])[0]), b"provider-secret"
             if "retry_after" in query:
