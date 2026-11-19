@@ -19,6 +19,7 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_roads.py` | OpenStreetMap road network | `roads.plot(column="highway")` |
 | `demos/dataset_space_syntax.py` | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | `demos/dataset_deso.py` | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
+| `demos/dataset_built_up.py` | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg | `built_up_1975.plot()` / `built_up_2020.plot()` |
 | `demos/dataset_satellite_imagery.py` | Sentinel-2 true-colour image from Digital Earth Sweden | `imagery.plot()` |
 | `demos/dataset_weather.py` | SMHI weather stations | `weather.plot("air_temperature")` |
 | `demos/dataset_air_quality.py` | SMHI air-quality stations | `air_quality.plot("NO2")` |
@@ -86,6 +87,8 @@ the repository root.
 |---|---|---|
 | `demos/clean_building_footprints.py` | Compare isolated and joint footprint cleaning | DTCC service |
 | `demos/build_lod1_buildings.py` | Clean three neighbours, build LOD1 geometry and mesh the block's exterior shell | synthetic, offline |
+| `demos/building_from_footprint.py` | Construct a courtyard building with explicit height and ground, triangulate LOD1 and save a native model | synthetic, offline |
+| `demos/footprints_from_lod1.py` | Decompose a closed podium/tower, clean derived footprints, rebuild the parts and save the reported City | synthetic, offline |
 | `demos/build_city_surface_mesh.py` | Estimate heights → clean footprints → mesh terrain and buildings | DTCC service |
 | `demos/build_terrain_with_footprints.py` | Terrain-only mesh conforming to cleaned footprint subdomains | DTCC service |
 | `demos/build_terrain_raster.py` | Ground points → terrain raster | DTCC service |
