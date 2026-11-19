@@ -223,3 +223,32 @@ def test_download_roadnetwork_defaults_to_osm(monkeypatch):
 
     assert wrapper.download_roadnetwork(bounds) == "roads"
     assert calls == [("roads", "OSM", bounds, "3006")]
+
+
+def test_overpass_failure_lists_every_endpoint(monkeypatch):
+    import requests
+
+    class Response:
+        status_code = 400
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            if endpoint == "endpoint-3":
+                raise requests.Timeout("Read timed out.")
+            return Response()
+
+    monkeypatch.setattr(
+        overpass, "OVERPASS_ENDPOINTS", ["endpoint-1", "endpoint-2", "endpoint-3"]
+    )
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    with pytest.raises(RuntimeError) as info:
+        overpass.query_overpass_with_failover("[out:json];")
+
+    message = str(info.value)
+    assert message.startswith(
+        "All Overpass endpoints failed. Last error: Read timed out."
+    )
+    assert "- endpoint-1: HTTP 400" in message
+    assert "- endpoint-2: HTTP 400" in message
+    assert "- endpoint-3: Read timed out." in message
