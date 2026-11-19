@@ -984,7 +984,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "affine" },
-    { name = "aiohttp" },
+    { name = "aiohttp", specifier = ">=3.10.0,<4.0.0" },
     { name = "certifi" },
     { name = "dtcc-mesher", git = "https://github.com/dtcc-platform/dtcc-mesher.git?rev=d9643e735097c719ebeab8bacc06f4ed1f9ae042" },
     { name = "dtcc-tetgen-wrapper", marker = "extra == 'volume'", git = "https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git?rev=22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c" },
