@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
+from affine import Affine
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import DatasetManifest, attach_dataset_context
@@ -73,8 +74,12 @@ def _write_golden_package(path: Path) -> None:
 
 
 def _write_canonical_package(path: Path) -> None:
-    """Real native raster plus a display derivative for downstream consumers."""
-    raster = Raster(data=np.array([[1, 2], [3, 4]], dtype=np.uint8))
+    """Real native raster plus a map-placed PNG for downstream consumers."""
+    raster = Raster(
+        data=np.array([[1, 2], [3, 4]], dtype=np.uint8),
+        georef=Affine(1.0, 0.0, 320000.0, 0.0, -1.0, 6399002.0),
+        crs="EPSG:3006",
+    )
     context = DatasetContext(
         identity=DatasetIdentity(
             name="canonical-raster", title="Canonical raster contract fixture"
@@ -83,7 +88,9 @@ def _write_canonical_package(path: Path) -> None:
             description="Synthetic uint8 image for package interchange."
         ),
         provenance=DatasetProvenance(
-            processing_steps=["Construct a deterministic 2x2 uint8 image"]
+            processing_steps=[
+                "Construct a deterministic 2x2 uint8 image on a 1 m EPSG:3006 grid"
+            ]
         ),
         presentation=DatasetPresentation(),
         request=DatasetRequest(

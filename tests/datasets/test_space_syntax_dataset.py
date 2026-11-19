@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.builder.roadnetwork.space_syntax import analyze_space_syntax
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.space_syntax import SpaceSyntaxArgs, SpaceSyntaxDataset
 from dtcc_core.model import RoadNetwork
 
@@ -197,3 +199,50 @@ def test_space_syntax_dataset_protobuf_format(monkeypatch):
     assert restored.attributes["space_syntax_reach"] == [1.0, 1.0]
     assert np.allclose(restored.vertices, _road_network().vertices)
     assert np.array_equal(restored.edges, _road_network().edges)
+
+
+@pytest.mark.usefixtures("no_network")
+def test_space_syntax_canonical_geojson_round_trip(monkeypatch, tmp_path):
+    roads = _road_network()
+    roads.vertices = np.array(
+        [[319950.0, 6398950.0], [320050.0, 6399000.0], [320150.0, 6398950.0]]
+    )
+    calls = []
+
+    def fake_roads(bounds, source="OSM"):
+        calls.append(bounds)
+        return roads
+
+    monkeypatch.setattr(datasets, "roads", fake_roads)
+    result = datasets.space_syntax(bounds=(319900.0, 6398900.0, 320200.0, 6399100.0))
+
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert len(calls) == 1
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    first, second = payload["features"]
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 for the second vertex.
+    assert second["geometry"]["coordinates"][0] == pytest.approx(
+        [11.980484024390593, 57.697122380732424], abs=1e-9
+    )
+    properties = first["properties"]
+    assert properties["space_syntax_connectivity"] == 1.0
+    assert properties["space_syntax_reach"] == 1.0
+    assert properties["space_syntax_mean_depth"] == 1.0
+    assert properties["space_syntax_integration"] == 1.0
+    assert properties["space_syntax_choice"] == 0.0
+    assert properties["space_syntax_mean_depth_unit"] == "steps"
+    assert properties["space_syntax_integration_unit"] == "1/steps"
+    for name in ("connectivity", "reach", "choice"):
+        assert f"space_syntax_{name}_unit" not in properties
+    assert properties["length"] == 1.0
+    assert properties["length_unit"] == "metre"

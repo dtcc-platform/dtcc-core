@@ -1,9 +1,74 @@
+import importlib
 from unittest.mock import ANY, patch
 
 import pytest
 
 from dtcc_core.io.data import wrapper
 from dtcc_core.model import Bounds
+
+
+@pytest.mark.parametrize(
+    ("env", "lidar", "gpkg"),
+    [
+        ({}, "https://api.dtcc.chalmers.se", "https://api.dtcc.chalmers.se"),
+        (
+            {"DTCC_DATA_URL": "http://old.example"},
+            "http://old.example:8000",
+            "http://old.example:8001",
+        ),
+        (
+            {"DTCC_LIDAR_URL": "http://lidar.example"},
+            "http://lidar.example",
+            "https://api.dtcc.chalmers.se",
+        ),
+        (
+            {"DTCC_GPKG_URL": "http://gpkg.example"},
+            "https://api.dtcc.chalmers.se",
+            "http://gpkg.example",
+        ),
+        (
+            {
+                "DTCC_DATA_URL": "http://old.example",
+                "DTCC_LIDAR_URL": "http://lidar.example",
+            },
+            "http://lidar.example",
+            "http://old.example:8001",
+        ),
+    ],
+)
+def test_service_urls(env, lidar, gpkg):
+    assert wrapper._service_urls(env) == (lidar, gpkg)
+
+
+def test_service_urls_read_from_environment_at_import(monkeypatch):
+    monkeypatch.setenv("DTCC_LIDAR_URL", "http://lidar.example")
+    monkeypatch.setenv("DTCC_GPKG_URL", "http://gpkg.example")
+    try:
+        importlib.reload(wrapper)
+        assert wrapper.DTCC_LIDAR_URL == "http://lidar.example"
+        assert wrapper.DTCC_GPKG_URL == "http://gpkg.example"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(wrapper)
+
+
+def test_download_data_url_argument_appends_service_ports():
+    bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
+
+    with (
+        patch.object(wrapper, "_load_cached_footprints", return_value=None),
+        patch.object(wrapper, "download_lidar", return_value=["a.laz"]) as lidar,
+        patch.object(wrapper, "download_tiles", return_value=["a.gpkg"]) as tiles,
+        patch.object(wrapper.io, "load_pointcloud"),
+        patch.object(wrapper.io, "load_footprints"),
+    ):
+        wrapper.download_data("lidar", "dtcc", bounds, url="http://old.example")
+        wrapper.download_data("footprints", "dtcc", bounds, url="http://old.example")
+
+    lidar.assert_called_once_with(bounds.tuple, ANY, base_url="http://old.example:8000")
+    tiles.assert_called_once_with(
+        bounds.tuple, ANY, server_url="http://old.example:8001"
+    )
 
 
 def test_download_data_propagates_lidar_request_error():
@@ -175,3 +240,73 @@ def test_public_download_helpers_forward_bounds_crs_and_provider(
     download.assert_called_once_with(data_type, expected_provider, bounds, epsg="3021")
     with pytest.raises(RuntimeError, match="valid provider"):
         getattr(wrapper, name)(bounds, provider="unsupported")
+
+
+def test_download_imagery_returns_des_raster_and_forwards_options():
+    bounds = Bounds(xmin=0, ymin=0, xmax=10, ymax=10)
+
+    with patch.object(
+        wrapper, "_download_imagery", return_value="raster"
+    ) as download_imagery:
+        result = wrapper.download_imagery(bounds, date="2025-06-01", style="ndvi")
+
+    assert result == "raster"
+    download_imagery.assert_called_once_with(
+        bounds.tuple, date="2025-06-01", style="ndvi"
+    )
+
+
+def test_download_imagery_rejects_other_epsg():
+    with patch.object(wrapper, "_download_imagery") as download_imagery:
+        with pytest.raises(ValueError, match="only available in EPSG:3006"):
+            wrapper.download_imagery(Bounds(0, 0, 10, 10), epsg="4326")
+    download_imagery.assert_not_called()
+
+
+def test_download_imagery_accepts_bounds_tuple():
+    with patch.object(
+        wrapper, "_download_imagery", return_value="raster"
+    ) as download_imagery:
+        assert wrapper.download_imagery((0, 0, 10, 10)) == "raster"
+    download_imagery.assert_called_once_with((0, 0, 10, 10))
+
+
+def test_download_data_rejects_imagery_in_other_epsg():
+    with patch.object(wrapper, "_download_imagery") as download_imagery:
+        with pytest.raises(ValueError, match="only available in EPSG:3006"):
+            wrapper.download_data("imagery", "DES", Bounds(0, 0, 10, 10), epsg="4326")
+    download_imagery.assert_not_called()
+
+
+def test_download_data_accepts_imagery_epsg_as_a_number():
+    with patch.object(
+        wrapper, "_download_imagery", return_value="raster"
+    ) as download_imagery:
+        result = wrapper.download_data(
+            "imagery", "DES", Bounds(0, 0, 10, 10), epsg=3006, style="ndvi"
+        )
+    assert result == "raster"
+    download_imagery.assert_called_once()
+    assert download_imagery.call_args.kwargs["style"] == "ndvi"
+
+
+@pytest.mark.parametrize(
+    "data_type, provider", [("lidar", "dtcc"), ("footprints", "OSM"), ("roads", "OSM")]
+)
+def test_download_data_rejects_options_only_imagery_takes(
+    monkeypatch, data_type, provider
+):
+    # Any download would mean the option was ignored; none may reach the network.
+    def no_network(*args, **kwargs):
+        raise AssertionError("download started")
+
+    for name in (
+        "download_lidar",
+        "download_tiles",
+        "get_buildings_for_bbox",
+        "get_roads_for_bbox",
+    ):
+        monkeypatch.setattr(wrapper, name, no_network)
+
+    with pytest.raises(TypeError, match="max_clod"):
+        wrapper.download_data(data_type, provider, Bounds(0, 0, 10, 10), max_clod=10)
