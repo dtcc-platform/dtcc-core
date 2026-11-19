@@ -562,6 +562,7 @@ def _save_gltf_mesh(mesh, path):
     coordinates such as SWEREF 99 TM northings keep float32 precision. The
     mesh is rotated from z-up to glTF's y-up.
     """
+    _reject_time_series(mesh, path)
     faces = np.asarray(mesh.faces)
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
     if faces.size == 0:
