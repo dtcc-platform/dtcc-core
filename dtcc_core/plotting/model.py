@@ -140,7 +140,7 @@ def _grid_points(g, association, ids):
         z = b.zmin + (k + (0.5 if cell else 0)) * b.depth / max(g.depth, 1)
         if g.z_levels is not None:
             g._validate_z_levels()
-            levels = np.asarray(g.z_levels)
+            levels = np.asarray(g.z_levels, dtype=float)
             z = (0.5 * (levels[:-1] + levels[1:]) if cell else levels)[k]
     else:
         j, i = np.unravel_index(ids, (ny, nx))

@@ -290,6 +290,16 @@ def test_volume_grid_uniform_layers_keep_scalar_step(levels):
     np.testing.assert_array_equal(grid.zsteps, [2, 2, 2])
 
 
+def test_volume_grid_assigned_integer_elevations_keep_uniform_step():
+    grid = VolumeGrid(width=1, height=1, depth=2)
+    grid.z_levels = np.array([-120, -10, 100], dtype=np.int8)
+
+    np.testing.assert_array_equal(grid.zsteps, [110.0, 110.0])
+    assert grid.zstep == 110.0
+    assert grid.bounds == Bounds(xmax=1, ymax=1, zmin=-120, zmax=100)
+    assert grid.bounds.depth == 220.0
+
+
 @pytest.mark.parametrize(
     ("levels", "message"),
     [

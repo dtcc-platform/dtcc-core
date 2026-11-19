@@ -277,10 +277,10 @@ class VolumeGrid(Geometry):
             self._bounds = Bounds(
                 xmin=0,
                 ymin=0,
-                zmin=0 if self.z_levels is None else self.z_levels[0],
+                zmin=0 if self.z_levels is None else float(self.z_levels[0]),
                 xmax=self.width,
                 ymax=self.height,
-                zmax=self.depth if self.z_levels is None else self.z_levels[-1],
+                zmax=self.depth if self.z_levels is None else float(self.z_levels[-1]),
             )
         return self._bounds
 
