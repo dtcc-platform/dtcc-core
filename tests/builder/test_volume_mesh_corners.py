@@ -438,6 +438,11 @@ def test_repair_refreshes_generated_diagnostics_without_rewriting_history():
     mesh = tag(two_cells())
     mesh.boundary_corner_repair = {"requested": False, "num_cells": 2}
     mesh.stage_audit = {"attempts": [{"stages": {"volume_mesh": {"num_cells": 2}}}]}
+    from dtcc_core.datasets.city_volume_mesh import CityVolumeMeshDataset
+
+    descriptor = CityVolumeMeshDataset()
+    args = descriptor.validate(dict(bounds=[0, 0, 10, 10]))
+    mesh.dataset_context = descriptor.create_context(args)
     result = mesh.repair_boundary_corners(boundary_markers={-1})
     assert result.boundary_corner_repair["num_cells"] == result.num_cells == 8
     assert result.boundary_corner_repair["boundary_markers"] == [-1]
@@ -446,3 +451,9 @@ def test_repair_refreshes_generated_diagnostics_without_rewriting_history():
     assert result.stage_audit["attempts"] == mesh.stage_audit["attempts"]
     assert "processing_steps" not in mesh.stage_audit
     assert mesh.boundary_corner_repair == {"requested": False, "num_cells": 2}
+
+    result.boundary_corner_repair["boundary_markers"].append(17)
+    assert result.stage_audit["processing_steps"][-1]["boundary_markers"] == [-1]
+    assert result.dataset_context.provenance.processing_steps[-1][
+        "boundary_markers"
+    ] == [-1]

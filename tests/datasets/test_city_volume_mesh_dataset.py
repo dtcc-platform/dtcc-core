@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import ANY, Mock, patch
 
 import pytest
 from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
+from dtcc_core.common.progress import phase_timing
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_volume_mesh import (
     CityVolumeMeshArgs,
@@ -346,31 +348,65 @@ def test_repair_request_forwarding_context_and_identity(monkeypatch, enabled, en
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-def test_repair_export_sidecar_is_result_aware_and_builds_once(monkeypatch, enabled):
-    from dtcc_core.model import VolumeMesh
+def test_repair_export_sidecar_is_result_aware_and_builds_once(
+    monkeypatch, tmp_path, enabled
+):
+    from dtcc_core.model import City, VolumeMesh
 
     dataset = CityVolumeMeshDataset()
+    city = City()
     mesh = VolumeMesh()
     if enabled:
         mesh.boundary_corner_repair = {
             "operation": "repair_boundary_corners",
             "requested": True,
             "num_cells": 4,
+            "boundary_markers": [-1],
         }
-    build = Mock(return_value=mesh)
-    monkeypatch.setattr(dataset, "build", build)
-    export = Mock(return_value=b"mesh")
-    monkeypatch.setattr(dataset, "export_to_bytes", export)
-    args = dataset.validate(
-        dict(bounds=[0, 0, 10, 10], format="vtu", repair_boundary_corners=enabled)
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.tetgen._require_tetgen", lambda: None
     )
-    payload, extra = dataset._export_payload(args)
-    assert payload == b"mesh"
+    build = Mock(return_value=mesh)
+    monkeypatch.setattr(dataset, "_build_mesh_from_city", build)
+    phases = []
+
+    @contextmanager
+    def capture_phase(name):
+        phases.append(name)
+        try:
+            yield
+        finally:
+            phases.pop()
+
+    def serialize(mesh_to_export, export_format):
+        assert phases == ["export"]
+        return b"mesh"
+
+    export = Mock(side_effect=serialize)
+    monkeypatch.setattr(dataset, "export_to_bytes", export)
+    path = tmp_path / "mesh.vtu"
+    with (
+        phase_timing(capture_phase),
+        patch(
+            "dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds",
+            return_value=city,
+        ),
+    ):
+        result = dataset.export(
+            path, bounds=[0, 0, 10, 10], repair_boundary_corners=enabled
+        )
+
+    assert path.read_bytes() == b"mesh"
     build.assert_called_once()
-    assert build.call_args.args[0].format is None
-    assert build.call_args.args[0].repair_boundary_corners is enabled
+    assert build.call_args.args[0] is city
+    assert build.call_args.args[1].repair_boundary_corners is enabled
     export.assert_called_once_with(mesh, "vtu")
-    context = extra["dataset_context"]
+    if enabled:
+        mesh.boundary_corner_repair["boundary_markers"].append(2)
+        assert mesh.dataset_context.provenance.processing_steps[-1][
+            "boundary_markers"
+        ] == [-1]
+    context = result.manifest["dataset_context"]
     assert context["request"]["parameters"]["format"] == "vtu"
     assert context["request"]["parameters"]["repair_boundary_corners"] is enabled
     records = [
@@ -466,7 +502,7 @@ def test_direct_city_build_preserves_native_mesh_contract(monkeypatch, enabled):
         assert result.boundary_corner_repair["repaired_parent_cells"] == 1
 
 
-def test_direct_city_build_preserves_supplied_coordinate_frame(monkeypatch):
+def test_direct_city_wrapper_preserves_builder_result_frame(monkeypatch):
     from dtcc_core import BoxMesh
     from dtcc_core.model import City, VolumeMesh
 

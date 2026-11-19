@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC
 
@@ -115,10 +116,11 @@ def find_boundary_corners(
 ) -> BoundaryCornerReport:
     """Find vertices incident to one tetrahedron and three selected boundary faces.
 
-    None selects all geometric boundaries without needing labels. A nonempty
-    filter requires all candidate faces to be labelled and selects a vertex only
-    when its three incident labels belong to the filter. Missing candidate labels
-    raise ValueError. This checks connectivity, not general validity or stability.
+    None selects all geometric boundaries without needing labels. Supplied
+    boundary arrays must be well formed, and coordinates must be floating point.
+    A nonempty filter selects a vertex only when all three incident face labels
+    belong to the filter. Missing candidate labels raise ValueError. This checks
+    connectivity, not general validity or stability.
     """
     labels, selected = _validated_input(mesh, boundary_markers)
     empty = np.empty(0, dtype=np.int64)
@@ -229,7 +231,7 @@ def _update_context(result, record):
         return
     from datetime import datetime
 
-    context.provenance.processing_steps.append(record)
+    context.provenance.processing_steps.append(deepcopy(record))
     context.provenance.generated_at = datetime.now(UTC).isoformat()
     context.health = None
 
@@ -248,8 +250,6 @@ def repair_boundary_corners(
     inferred. Missing labels and unresolved or collapsed geometry raise ValueError
     without modifying the source. Absence of corners is not a stability proof.
     """
-    from copy import deepcopy
-
     report = find_boundary_corners(mesh, boundary_markers=boundary_markers)
     if not report.num_corners:
         result = deepcopy(mesh)
@@ -282,6 +282,6 @@ def repair_boundary_corners(
     result.boundary_corner_repair = record
     audit = getattr(result, "stage_audit", None)
     if isinstance(audit, dict):
-        audit.setdefault("processing_steps", []).append(dict(record))
+        audit.setdefault("processing_steps", []).append(deepcopy(record))
     _update_context(result, record)
     return result

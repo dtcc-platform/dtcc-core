@@ -39,8 +39,9 @@ vertices may belong to the same cell. Reports are transient snapshots and do not
 track subsequent mesh edits.
 
 With `boundary_markers=None`, detection uses geometric connectivity and needs no
-tags. An explicit collection selects a vertex only when all three incident face
-labels belong to that collection. An empty collection selects nothing. Nonempty
+tags. Coordinates must be floating point, and any supplied facet data must be
+well formed. An explicit collection selects a vertex only when all three
+incident face labels belong to that collection. An empty collection selects nothing. Nonempty
 filters require an unambiguous label on every candidate face; missing labels
 raise an error even when other candidate faces would exclude the vertex. Partial
 tags away from candidate faces are allowed. Facet matching ignores stored order
@@ -71,6 +72,10 @@ prepared = mesh.repair_boundary_corners()
 ```
 
 ## Nonmutating local repair
+
+Run the [offline demo](../demos/repair_boundary_corners.py) to inspect a single
+tetrahedron before and after repair. It exports both meshes as VTU files for
+comparison in ParaView.
 
 `repair_boundary_corners(mesh, *, boundary_markers=None)` detects its own current
 selection and returns an independent `VolumeMesh`. It accepts no inspection
@@ -130,7 +135,11 @@ The city builder forwards the flag to the low-level builder, which applies
 repair once after tetrahedralization and before final quality summaries, stage
 audit completion, Dataset Context, and export. When repair is requested, the mesh's
 `boundary_corner_repair` record contains the request flag, detected corner/parent
-counts, repaired counts, and final vertex/cell counts. City stage audits and
+counts, repaired counts, and final vertex/cell counts. The low-level repair
+runs before attaching TetGen boundary arrays, so suppressing markers with
+`-B` does not block generation. When `-B` is used with boundary faces
+requested, the returned faces lack tags. Tagged mesh formats require one
+marker per face. City stage audits and
 dataset processing history include these execution results. With the default
 false flag, generation skips corner inspection and adds no repair execution
 record. The flag remains in the city audit configuration and validated dataset
@@ -139,10 +148,14 @@ request, so true and false requests remain distinct. City volume generation requ
 Structured `BoxMesh` has no generation flag and can use the repair operation.
 
 `city_volume_mesh.build_from_city(city, ...)` returns the builder's native mesh
-without attaching download-dataset context. Its coordinate frame and any repair
-diagnostic record stay on the mesh. Calling the dataset with bounds attaches
+without attaching download-dataset context. The wrapper preserves any frame
+already on the builder result and leaves repair diagnostics on the mesh. The
+native builder currently does not propagate the input city’s SRS ([#200]).
+Calling the dataset with bounds attaches
 Dataset Context, and dataset package exports include result-aware processing
 history.
+
+[#200]: https://github.com/dtcc-platform/dtcc-core/issues/200
 
 Generation deliberately includes open corners because it cannot know future
 solver boundary choices. Selective preprocessing uses the marker-filtered model

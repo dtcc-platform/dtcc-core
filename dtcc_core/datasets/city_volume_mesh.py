@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
@@ -375,17 +376,12 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         if isinstance(result, VolumeMesh):
             record = getattr(result, "boundary_corner_repair", None)
             if record is not None:
-                context.provenance.processing_steps.append(dict(record))
+                context.provenance.processing_steps.append(deepcopy(record))
         return context
 
     def _export_payload(self, args):
         """Build once and include final mesh processing in the export sidecar."""
-        mesh = self.build(args.model_copy(update={"format": None}))
-        context = self._context_for_result(mesh, args)
-        attach_dataset_context(mesh, context)
-        return self.export_to_bytes(mesh, args.format), {
-            "dataset_context": context.model_dump(mode="json")
-        }
+        return self._build_with_progress(args, include_export_context=True)
 
     def build_from_city(self, city: City, **kwargs):
         args = self.validate(kwargs)
@@ -395,6 +391,11 @@ class CityVolumeMeshDataset(DatasetDescriptor):
         return volume_mesh
 
     def build(self, args: CityVolumeMeshArgs):
+        return self._build_with_progress(args)
+
+    def _build_with_progress(
+        self, args: CityVolumeMeshArgs, *, include_export_context: bool = False
+    ):
         from dtcc_core.builder.meshing.tetgen import _require_tetgen
 
         _require_tetgen()
@@ -433,6 +434,12 @@ class CityVolumeMeshDataset(DatasetDescriptor):
                     else "Preparing volume mesh..."
                 ),
             ):
-                if args.format is not None:
-                    return self.export_to_bytes(volume_mesh, args.format)
-                return volume_mesh
+                if args.format is None:
+                    return volume_mesh
+                if include_export_context:
+                    context = self._context_for_result(volume_mesh, args)
+                    attach_dataset_context(volume_mesh, context)
+                    return self.export_to_bytes(volume_mesh, args.format), {
+                        "dataset_context": context.model_dump(mode="json")
+                    }
+                return self.export_to_bytes(volume_mesh, args.format)

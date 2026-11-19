@@ -32,6 +32,7 @@ WORKFLOW_DEMOS = (
     "build_terrain_with_footprints.py",
     "clean_building_footprints.py",
     "create_cityjson.py",
+    "repair_boundary_corners.py",
     "view_cityjson.py",
     "view_pointcloud.py",
 )

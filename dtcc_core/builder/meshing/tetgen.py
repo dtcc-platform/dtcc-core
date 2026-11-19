@@ -299,6 +299,13 @@ def build_volume_mesh(
             f"Got cells shape {cells.shape!r}."
         )
     volume_mesh = VolumeMesh(vertices=vertices, cells=cells)
+    if repair_boundary_corners:
+        from .volume_corners import repair_boundary_corners as repair_corners
+
+        # Subdivision preserves the original facets and vertex indices.
+        # TetGen can return these facets without markers when using -B.
+        volume_mesh = repair_corners(volume_mesh)
+
     if tetgen_out.boundary_tri_faces is not None:
         boundary_faces = np.asarray(tetgen_out.boundary_tri_faces)
         volume_mesh.boundary_faces = boundary_faces
@@ -306,8 +313,4 @@ def build_volume_mesh(
         boundary_markers = np.asarray(tetgen_out.boundary_tri_markers)
         volume_mesh.boundary_markers = boundary_markers
 
-    if repair_boundary_corners:
-        from .volume_corners import repair_boundary_corners as repair_corners
-
-        volume_mesh = repair_corners(volume_mesh)
     return volume_mesh
