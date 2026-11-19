@@ -699,6 +699,8 @@ MANIFEST_FAILURES = {
     "server error": (FakeResponse(500, "boom"), "http_5xx", 500),
     "timeout": (requests.Timeout("slow"), "timeout", None),
     "connection": (requests.ConnectionError("down"), "connection", None),
+    # SSLError subclasses ConnectionError but is not a transient outage.
+    "tls": (requests.exceptions.SSLError("certificate verify failed"), "tls", None),
 }
 
 
