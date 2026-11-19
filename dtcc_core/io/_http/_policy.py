@@ -215,13 +215,16 @@ class Operation:
         )
 
     def retry(self, error, phase):
-        return retry_allowed(
-            self.request,
-            self.state.retry,
-            self.retries,
-            error.kind,
-            error.phase or phase,
-            error.status,
+        return (
+            retry_allowed(
+                self.request,
+                self.state.retry,
+                self.retries,
+                error.kind,
+                error.phase or phase,
+                error.status,
+            )
+            and self.state.budget.can_attempt()
         )
 
     def delay(self, headers):

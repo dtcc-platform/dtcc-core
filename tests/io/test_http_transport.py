@@ -455,10 +455,17 @@ def test_budget_attempts_and_received_bytes(backend, server):
     url, calls, _ = server
 
     async def scenario(api):
-        with pytest.raises(HttpTransportError, match="resource_limit"):
+        with pytest.raises(HttpTransportError) as caught:
             await api.request(Request("GET", url + "/retry?fail=10"))
+        assert (caught.value.kind, caught.value.status, caught.value.attempts) == (
+            "http_status",
+            503,
+            2,
+        )
         assert calls["/retry"] == 2
         assert api.client.counters.network_attempts == 2
+        with pytest.raises(HttpTransportError, match="resource_limit"):
+            await api.request(Request("GET", url + "/json"))
 
     run(
         backend,
@@ -473,6 +480,47 @@ def test_budget_attempts_and_received_bytes(backend, server):
         assert api.client.counters.received_body_bytes == 17
 
     run(backend, bytes_scenario, budget=Budget(max_received_bytes=16))
+
+
+@pytest.mark.parametrize(
+    "budget_kwargs",
+    [{"max_attempts": 1}, {"max_received_bytes": 4}],
+)
+def test_retry_does_not_sleep_when_budget_exhausted(backend, server, budget_kwargs):
+    url, calls, _ = server
+    delays = []
+
+    if backend == "sync":
+
+        def sleep(delay):
+            delays.append(delay)
+    else:
+
+        async def sleep(delay):
+            delays.append(delay)
+
+    async def scenario(api):
+        with pytest.raises(HttpTransportError) as caught:
+            await api.request(Request("GET", url + "/status?code=503&retry_after=30"))
+        error = caught.value
+        assert (error.kind, error.status, error.retry_after, error.attempts) == (
+            "http_status",
+            503,
+            30.0,
+            1,
+        )
+        assert delays == []
+        assert calls["/status"] == 1
+        with pytest.raises(HttpTransportError, match="resource_limit"):
+            await api.request(Request("GET", url + "/json"))
+
+    run(
+        backend,
+        scenario,
+        retry=RetryPolicy(retries=3),
+        budget=Budget(**budget_kwargs),
+        sleep=sleep,
+    )
 
 
 def test_stream_and_caller_failure(backend, server):

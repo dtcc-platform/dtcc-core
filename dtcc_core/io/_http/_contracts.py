@@ -376,6 +376,18 @@ class Budget:
         self._lock = Lock()
         self._exhausted = None
 
+    def can_attempt(self) -> bool:
+        """Return whether another network attempt can currently fit in this budget."""
+        with self._lock:
+            if self._exhausted is not None:
+                return False
+            for key in ("received_body_bytes", "delivered_body_bytes"):
+                cap = self.limits[key]
+                if cap is not None and self._used[key] >= cap:
+                    return False
+            limit = self.limits["network_attempts"]
+            return limit is None or self._used["network_attempts"] < limit
+
     def before_read(self, request):
         with self._lock:
             exhausted = self._exhausted

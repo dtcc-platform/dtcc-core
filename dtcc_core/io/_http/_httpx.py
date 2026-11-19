@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 import httpx2
 from certifi import where
 
-from ._contracts import _UNSET, HttpLimitError, HttpTransportError, Response
+from ._contracts import _UNSET, HttpTransportError, Response
 from ._policy import Operation, State, headers_lower, parse_retry_after
 
 
@@ -106,8 +106,6 @@ class NativeHttpClient:
                 body.extend(chunk[: 8192 - len(body)])
                 if len(body) == 8192:
                     break
-        except HttpLimitError:
-            raise
         except (httpx2.RequestError, HttpTransportError):
             # Keep the status when its diagnostic body is truncated or broken.
             pass

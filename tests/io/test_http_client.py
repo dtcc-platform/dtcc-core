@@ -245,11 +245,26 @@ def test_partial_reads_count_bytes_and_limit_stops_retry(native):
 
 
 def test_attempt_budget_blocks_retry(native):
-    client, calls, _ = native([httpx2.ConnectError("secret")], max_attempts=1)
-    with client, pytest.raises(HttpLimitError) as caught:
-        client.json(URL)
-    assert caught.value.resource == "network_attempts" and caught.value.observed == 2
-    assert caught.value.attempts == 1 and len(calls) == 1
+    client, calls, delays = native(
+        [reply(b"busy", status=503, headers={"Retry-After": "30"})],
+        max_attempts=1,
+    )
+    with client:
+        with pytest.raises(HttpTransportError) as caught:
+            client.json(URL)
+        assert (
+            caught.value.kind,
+            caught.value.status,
+            caught.value.retry_after,
+            caught.value.attempts,
+        ) == ("http_status", 503, 30.0, 1)
+        assert len(calls) == 1 and delays == []
+        with pytest.raises(HttpLimitError) as limit_caught:
+            client.json(URL)
+        assert (
+            limit_caught.value.resource == "network_attempts"
+            and limit_caught.value.observed == 2
+        )
 
 
 def test_download_stops_at_crossing_chunk(native):
@@ -407,14 +422,25 @@ def test_status_body_bound_and_failed_body_keeps_status(native):
     assert len(calls) == 1 and not delays
 
 
-def test_error_body_budget_cannot_be_hidden_by_status(native):
+def test_error_body_budget_stops_retry_and_preserves_status(native):
     client, calls, delays = native(
-        [reply([b"12345678"] * 20, status=503)], max_download_bytes=10
+        [reply([b"12345678"] * 20, status=503, headers={"Retry-After": "30"})],
+        max_download_bytes=10,
     )
-    with client, pytest.raises(HttpLimitError) as caught:
-        client.text(URL)
-    assert caught.value.resource == "received_body_bytes"
-    assert len(calls) == 1 and not delays
+    with client:
+        with pytest.raises(HttpTransportError) as caught:
+            client.text(URL)
+        assert (
+            caught.value.kind,
+            caught.value.status,
+            caught.value.retry_after,
+            caught.value.attempts,
+        ) == ("http_status", 503, 30.0, 1)
+        assert len(calls) == 1 and delays == []
+        assert client.counters.received_body_bytes == 16
+        with pytest.raises(HttpLimitError) as limit_caught:
+            client.text(URL)
+        assert limit_caught.value.resource == "received_body_bytes"
 
 
 def test_certificate_error_not_retried(native):
