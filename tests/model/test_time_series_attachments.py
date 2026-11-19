@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+import h5py
 import meshio
 import numpy as np
 import pygltflib
@@ -209,16 +210,26 @@ def test_mesh_exports_write_geometry_with_time_series(
 
     mesh.save(path, center_on_origin=center_on_origin)
 
-    saved = meshio.read(path)
+    kind = "triangle" if isinstance(mesh, Mesh) else "tetra"
+    if suffix == ".xdmf":
+        with h5py.File(path.with_suffix(".h5"), "r") as saved:
+            saved_vertices = np.asarray(saved["Mesh/mesh/geometry"])
+            saved_cells = np.asarray(saved["Mesh/mesh/topology"])
+        xdmf = path.read_text()
+        assert f"{path.stem}.h5:/Mesh/mesh/geometry" in xdmf
+        assert f"{path.stem}.h5:/Mesh/mesh/topology" in xdmf
+    else:
+        saved = meshio.read(path)
+        saved_vertices = saved.points
+        saved_cells = saved.cells_dict[kind]
     vertices = mesh.vertices.copy()
     if center_on_origin:
         vertices[:, :2] -= (
             vertices[:, :2].min(axis=0) + vertices[:, :2].max(axis=0)
         ) / 2
-    np.testing.assert_allclose(saved.points, vertices)
-    kind = "triangle" if isinstance(mesh, Mesh) else "tetra"
+    np.testing.assert_allclose(saved_vertices, vertices)
     np.testing.assert_array_equal(
-        saved.cells_dict[kind], mesh.faces if kind == "triangle" else mesh.cells
+        saved_cells, mesh.faces if kind == "triangle" else mesh.cells
     )
     assert exchange.dumps(mesh) == before
 
