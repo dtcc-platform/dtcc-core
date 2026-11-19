@@ -47,10 +47,11 @@ TetGen Wrapper use numerical/native interfaces and require no format changes.
 ## Contract evidence
 
 `scripts/generate_dataset_contract.py` now emits both the existing v2 golden
-package and a deterministic `canonical.dtccpkg`: a native uint8 raster, its PNG
-preview, companion georeferencing file and context. Upload tests transport these
-through authenticated publication/download; with Core installed, they also use
-the real publication client and reconstruct the downloaded model/context.
+package and a deterministic `canonical.dtccpkg`: a native uint8 raster, its
+map-placed PNG preview with `placement` and `rendering` metadata in the manifest
+(no world file), and context. Upload tests transport these through authenticated
+publication/download; with Core installed, they also use the real publication
+client and reconstruct the downloaded model/context.
 Atlas tests exercise discovery, argument schema and actual download endpoints;
 a clean Python subprocess uses real Core rather than the usual Atlas test mocks.
 Tangible tests use the same package in its browser-module and CLI import paths.
