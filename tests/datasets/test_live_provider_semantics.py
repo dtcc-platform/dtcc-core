@@ -252,10 +252,10 @@ def test_overpass_client_message_is_classified_by_every_endpoint(
 
 
 def test_redaction_keeps_the_text_after_a_secret() -> None:
-    from dtcc_core.datasets.dataset import _redact_url_secrets
+    from dtcc_core.datasets.dataset import redact_url_secrets
 
     message = "Max retries exceeded with url: /x?key=s3cr3t) (Caused by Timeout)"
 
-    assert _redact_url_secrets(message) == (
+    assert redact_url_secrets(message) == (
         "Max retries exceeded with url: /x?key=REDACTED) (Caused by Timeout)"
     )

@@ -15,7 +15,7 @@ import aiohttp
 import pytest
 import requests
 
-from dtcc_core.datasets.dataset import DatasetUpstreamError, _redact_url_secrets
+from dtcc_core.datasets.dataset import DatasetUpstreamError, redact_url_secrets
 
 OVERPASS_ALL_FAILED = "All Overpass endpoints failed"
 _OVERPASS_ERRORS_HEADER = "Errors by endpoint:\n"
@@ -122,4 +122,4 @@ def skip_if_transient(exc: BaseException, case: str) -> None:
 
 def transient_skip_reason(exc: BaseException, case: str) -> str:
     """Return a skip message for ``exc`` with credential query values removed."""
-    return f"{case}: transient upstream failure: {_redact_url_secrets(str(exc))}"
+    return f"{case}: transient upstream failure: {redact_url_secrets(str(exc))}"

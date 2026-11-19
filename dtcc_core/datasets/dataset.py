@@ -129,7 +129,7 @@ _SECRET_QUERY_PARAM = re.compile(
 )
 
 
-def _redact_url_secrets(text: str) -> str:
+def redact_url_secrets(text: str) -> str:
     """Replace the values of credential query parameters in ``text``."""
     return _SECRET_QUERY_PARAM.sub(r"\1REDACTED", text)
 
@@ -1044,7 +1044,7 @@ class DatasetDescriptor(ABC):
                 failure_class = "request"
 
         # requests puts the full URL, query string included, in its errors.
-        message = _redact_url_secrets(
+        message = redact_url_secrets(
             f"{dataset} {operation} failed for {target}: {exc}"
         )
         return DatasetUpstreamError(
