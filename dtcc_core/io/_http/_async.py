@@ -199,13 +199,16 @@ class AsyncHttpClient:
             return "timeout"
         if isinstance(exc, self._aiohttp.ClientConnectorCertificateError):
             return "certificate"
-        if isinstance(exc, self._aiohttp.ClientPayloadError):
+        if isinstance(
+            exc,
+            (
+                self._aiohttp.ClientConnectionError,
+                self._aiohttp.ClientPayloadError,
+                self._aiohttp.ClientResponseError,
+            ),
+        ):
             return "connection"
-        return (
-            "connection"
-            if isinstance(exc, self._aiohttp.ClientConnectionError)
-            else "request"
-        )
+        return "request"
 
     def _raise_local_error(self, operation, response=None):
         if operation.local_errors:

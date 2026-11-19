@@ -4,6 +4,7 @@ import asyncio
 import gzip
 import io
 import json
+import socket
 import threading
 import traceback
 from collections import Counter
@@ -1002,3 +1003,68 @@ def test_mutated_json_payload_preserves_redirect_error(backend, server, method, 
             assert received[0][1] == b'{"value": [1]}'
 
     run(backend, scenario)
+
+
+@pytest.mark.parametrize("case", ["malformed_status", "proxy_connect_502"])
+def test_protocol_and_proxy_failures_retry_as_connection(backend, case):
+    payload = (
+        b"NOT-HTTP\r\n\r\n"
+        if case == "malformed_status"
+        else b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
+    )
+    connections = 0
+    stop = threading.Event()
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    listener.settimeout(0.1)
+    port = listener.getsockname()[1]
+
+    def serve():
+        nonlocal connections
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                break
+            connections += 1
+            with conn:
+                conn.settimeout(1.0)
+                try:
+                    conn.recv(4096)
+                    conn.sendall(payload)
+                except OSError:
+                    pass
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+
+    target_url = (
+        f"http://127.0.0.1:{port}/"
+        if case == "malformed_status"
+        else "https://example.invalid/"
+    )
+    client_kwargs = {"retry": RetryPolicy(retries=2, backoff=0)}
+    if case == "proxy_connect_502":
+        client_kwargs["proxy"] = f"http://127.0.0.1:{port}"
+
+    async def scenario(api):
+        with pytest.raises(HttpTransportError) as caught:
+            await api.request(Request("GET", target_url))
+        error = caught.value
+        assert (error.kind, error.attempts, error.retry_allowed_by_policy) == (
+            "connection",
+            3,
+            True,
+        )
+        assert api.client.counters.network_attempts == 3
+
+    try:
+        run(backend, scenario, **client_kwargs)
+        assert connections == 3
+    finally:
+        stop.set()
+        listener.close()
+        thread.join()

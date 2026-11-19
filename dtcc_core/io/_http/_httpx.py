@@ -32,7 +32,9 @@ def _kind(exc):
         return "timeout"
     if isinstance(exc, httpx2.DecodingError):
         return "decoding"
-    if isinstance(exc, (httpx2.NetworkError, httpx2.RemoteProtocolError)):
+    if isinstance(
+        exc, (httpx2.NetworkError, httpx2.RemoteProtocolError, httpx2.ProxyError)
+    ):
         return "connection"
     return "request"
 

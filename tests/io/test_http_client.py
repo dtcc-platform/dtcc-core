@@ -209,7 +209,14 @@ def test_retry_exhaustion_and_override(native):
 
 
 @pytest.mark.parametrize(
-    "failure", [httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.ReadTimeout]
+    "failure",
+    [
+        httpx2.ConnectError,
+        httpx2.ConnectTimeout,
+        httpx2.ReadTimeout,
+        httpx2.ProxyError,
+        httpx2.RemoteProtocolError,
+    ],
 )
 def test_transport_retries(native, failure):
     client, calls, delays = native([failure("secret"), reply()])
