@@ -228,7 +228,8 @@ class Object(Model):
     children: dict = field(default_factory=lambda: defaultdict(list))
     geometry: dict[str, GeometryRepresentation] = field(default_factory=dict)
     transform: Transform = field(default_factory=Transform)
-    _bounds: Bounds = None
+    # Derived envelope cache or local override, so == ignores it.
+    _bounds: Bounds = field(default=None, compare=False)
     # Optional intrinsic semantics, independent of Python class and containment.
     semantic_type: str | None = field(default=None, kw_only=True)
     profile_id: str | None = field(default=None, kw_only=True)

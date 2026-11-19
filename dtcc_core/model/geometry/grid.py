@@ -25,6 +25,13 @@ def _step(extent: float, count: int, dimension: str) -> float:
     return extent / count
 
 
+def _domain_or_field(grid, name):
+    """Field value for ==; an unset domain reads as its default, unchanged."""
+    if name == "_bounds" and grid._bounds is None:
+        return grid._default_domain()
+    return getattr(grid, name)
+
+
 @dataclass(repr=False)
 class Grid(Geometry):
     """Represents a structured quadrilateral grid in 2D.
@@ -38,9 +45,15 @@ class Grid(Geometry):
     """
 
     # The domain is intrinsic state; None alone means it has not been initialized.
+    # == compares it, reading an unset domain as the default from cell counts.
     _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
+
+    def _default_domain(self):
+        return Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
+
+    _eq_field_value = _domain_or_field
 
     def _summary_items(self):
         return [
@@ -62,7 +75,7 @@ class Grid(Geometry):
         """
         _validate_dimensions(width=self.width, height=self.height)
         if self._bounds is None:
-            self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
+            self._bounds = self._default_domain()
         return self._bounds
 
     @property
@@ -144,10 +157,23 @@ class VolumeGrid(Geometry):
     """
 
     # The domain is intrinsic state; None alone means it has not been initialized.
+    # == compares it, reading an unset domain as the default from cell counts.
     _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
     depth: int = 0
+
+    def _default_domain(self):
+        return Bounds(
+            xmin=0,
+            ymin=0,
+            zmin=0,
+            xmax=self.width,
+            ymax=self.height,
+            zmax=self.depth,
+        )
+
+    _eq_field_value = _domain_or_field
 
     def _summary_items(self):
         return [
@@ -170,14 +196,7 @@ class VolumeGrid(Geometry):
         """
         _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
         if self._bounds is None:
-            self._bounds = Bounds(
-                xmin=0,
-                ymin=0,
-                zmin=0,
-                xmax=self.width,
-                ymax=self.height,
-                zmax=self.depth,
-            )
+            self._bounds = self._default_domain()
         return self._bounds
 
     @property
