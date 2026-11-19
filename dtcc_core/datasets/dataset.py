@@ -1015,9 +1015,20 @@ class DatasetDescriptor(ABC):
 
     @staticmethod
     def build_upstream_error(
-        dataset: str, operation: str, target: str, exc: Exception
+        dataset: str,
+        operation: str,
+        target: str,
+        exc: Exception,
+        *,
+        include_error_text: bool = True,
     ) -> DatasetUpstreamError:
-        """Classify request-layer failures into a typed upstream error."""
+        """Classify request-layer failures into a typed upstream error.
+
+        Credential query values in the message are redacted. A request that
+        sends its credential in a header passes ``include_error_text=False``:
+        ``requests`` can repeat header values in its error text, so the message
+        then names only the error type and HTTP status.
+        """
         try:
             import requests
         except ImportError:
@@ -1029,6 +1040,10 @@ class DatasetDescriptor(ABC):
         if requests is not None:
             if isinstance(exc, requests.Timeout):
                 failure_class = "timeout"
+            # SSLError subclasses ConnectionError, but a certificate or TLS
+            # failure is not a transient outage.
+            elif isinstance(exc, requests.exceptions.SSLError):
+                failure_class = "tls"
             elif isinstance(exc, requests.ConnectionError):
                 failure_class = "connection"
             elif isinstance(exc, requests.HTTPError):
@@ -1043,9 +1058,15 @@ class DatasetDescriptor(ABC):
             elif isinstance(exc, requests.RequestException):
                 failure_class = "request"
 
+        if include_error_text:
+            detail = str(exc)
+        else:
+            detail = type(exc).__name__
+            if status_code is not None:
+                detail += f" (HTTP {status_code})"
         # requests puts the full URL, query string included, in its errors.
         message = redact_url_secrets(
-            f"{dataset} {operation} failed for {target}: {exc}"
+            f"{dataset} {operation} failed for {target}: {detail}"
         )
         return DatasetUpstreamError(
             dataset=dataset,

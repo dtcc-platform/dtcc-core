@@ -656,3 +656,82 @@ def test_trafiklab_request_errors_do_not_expose_the_api_key(
     assert "key=REDACTED" in str(exc.value)
     assert exc.value.__cause__ is None
     assert exc.value.__suppress_context__
+
+
+def test_trafiklab_certificate_failure_is_not_transient(tmp_path, monkeypatch):
+    import requests
+
+    from tests.datasets.live.live_policy import is_transient_live_failure
+
+    module = importlib.import_module("dtcc_core.datasets.transport.trafiklab_gtfs")
+
+    def get(url, params=None, timeout=None):
+        raise requests.exceptions.SSLError("certificate verify failed")
+
+    monkeypatch.setattr(requests, "get", get)
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        module._fetch_realtime_payload(
+            requests, operator="sl", feed="sl", api_key="key", timeout_s=1.0
+        )
+
+    assert exc.value.failure_class == "tls"
+    assert not exc.value.is_transient
+    assert not is_transient_live_failure(exc.value)
+
+
+def _vasttrafik_fetches(module, requests, secret):
+    """Call each Västtrafik request helper with ``secret`` as its credential."""
+    return {
+        "token": lambda: module._fetch_token(
+            requests, authentication_key=secret, timeout_s=1.0
+        ),
+        "positions": lambda: module._fetch_positions(
+            requests,
+            token=secret,
+            bounds_wgs84=(11.9, 57.6, 12.1, 57.8),
+            requested_modes=("bus",),
+            timeout_s=1.0,
+        ),
+    }
+
+
+@pytest.mark.parametrize("fetch", ["token", "positions"])
+def test_vasttrafik_request_errors_do_not_expose_the_credential(fetch):
+    import traceback
+
+    import requests
+
+    module = importlib.import_module("dtcc_core.datasets.transport.vasttrafik")
+    # requests rejects a header value with a newline before sending anything,
+    # and its error message repeats the value.
+    secret = "fake\ns3cr3t-credential"
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        _vasttrafik_fetches(module, requests, secret)[fetch]()
+
+    rendered = "".join(traceback.format_exception(exc.value))
+    assert "s3cr3t-credential" not in rendered
+    assert "InvalidHeader" in str(exc.value)
+    assert exc.value.__cause__ is None
+    assert exc.value.__suppress_context__
+
+
+def test_vasttrafik_strict_failure_does_not_expose_the_key(monkeypatch):
+    import traceback
+
+    monkeypatch.delenv("VASTTRAFIK_AUTHENTICATION_KEY", raising=False)
+    module = importlib.import_module("dtcc_core.datasets.transport.vasttrafik")
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        module.fetch_vasttrafik_vehicles(
+            dataset_name="transit_vehicles",
+            bounds_wgs84=(11.9, 57.6, 12.1, 57.8),
+            requested_modes=("bus",),
+            authentication_key="fake\ns3cr3t-credential",
+            timeout_s=1.0,
+            include_unknown_modes=False,
+            strict_live=True,
+        )
+
+    assert "s3cr3t-credential" not in "".join(traceback.format_exception(exc.value))
