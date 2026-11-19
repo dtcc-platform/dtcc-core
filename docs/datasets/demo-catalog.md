@@ -18,6 +18,9 @@ centre, `(297470, 6375410, 342470, 6420410)`, because the geometry domain has
 no weather, sea-level or discharge stations. Live buses use a 2 km window
 centred on Chalmers. Observation availability depends on the provider and date.
 Supplied CityJSON and synthetic geometry examples use their native domains.
+The calibration grid uses the 500 × 500 m physical table bounds
+`(319720, 6397660, 320220, 6398160)`, with 40 divisions for 1 cm spacing on the
+printed model.
 
 | Demo | Dataset story | Preview |
 |---|---|---|
