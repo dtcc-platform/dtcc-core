@@ -603,6 +603,14 @@ CASES = [
         producer="_realize",
     ),
     Case(
+        "built_up",
+        sources={
+            "dtcc_core.io.data.download_built_up": (
+                lambda **_: PRODUCTS["built_up", None]("populated", None)
+            )
+        },
+    ),
+    Case(
         "satellite_imagery",
         sources={
             "dtcc_core.datasets.satellite_imagery.dtcc_core.io.data.download_imagery": (

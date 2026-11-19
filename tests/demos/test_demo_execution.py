@@ -95,3 +95,41 @@ def test_height_demo_keeps_three_roofs_in_one_block(preview_without_windows):
     z = shell.vertices[shell.faces][:, :, 2]
     horizontal = z.max(axis=1) == z.min(axis=1)
     assert sorted(set(z[horizontal, 0])) == [0, 8, 12, 16]
+
+
+def test_courtyard_demo_preserves_the_hole_in_the_extruded_mesh(
+    preview_without_windows,
+):
+    from shapely.geometry import Polygon
+
+    result = runpy.run_path(str(DEMO_DIR / "building_from_footprint.py"))
+    building, mesh = result["building"], result["mesh"]
+    assert len(building.lod0.holes) == 1
+    courtyard = Polygon(building.lod0.holes[0][:, :2])
+    assert (mesh.vertices[:, 2].min(), mesh.vertices[:, 2].max()) == (2, 12)
+    for vertices in mesh.vertices[mesh.faces]:
+        if np.all(vertices[:, 2] == 12):
+            assert Polygon(vertices[:, :2]).intersection(
+                courtyard
+            ).area == pytest.approx(0, abs=1e-10)
+    assert len(result["fig"].axes) == 2
+
+
+def test_prism_demo_preserves_volume_and_displays_only_rebuilt_parts(
+    preview_without_windows,
+):
+    from tests.builder.test_footprints_from_lod1 import _volume
+
+    result = runpy.run_path(str(DEMO_DIR / "footprints_from_lod1.py"))
+    assert _volume(result["city"].buildings) == pytest.approx(3264)
+    assert _volume(result["cleaned"].buildings) == pytest.approx(3264)
+    assert sorted(p.lod1.zmax for p in result["parts"]) == [6, 30]
+    assert [
+        b.lod0.to_polygon(simplify=0).area for b in result["derived"].buildings
+    ] == [
+        364,
+        36,
+    ]
+    assert len(result["fig"].axes) == 3
+    assert len(result["rebuilt"].collections) == 2
+    assert [text.get_text() for text in result["plan"].texts] == ["6 m", "30 m"]

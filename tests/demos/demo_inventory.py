@@ -3,6 +3,7 @@
 DATASET_DEMOS = (
     "dataset_air_quality.py",
     "dataset_building_footprints.py",
+    "dataset_built_up.py",
     "dataset_buses.py",
     "dataset_calibration_grid.py",
     "dataset_city.py",
@@ -30,8 +31,10 @@ WORKFLOW_DEMOS = (
     "build_terrain_raster.py",
     "build_terrain_surface_mesh.py",
     "build_terrain_with_footprints.py",
+    "building_from_footprint.py",
     "clean_building_footprints.py",
     "create_cityjson.py",
+    "footprints_from_lod1.py",
     "view_cityjson.py",
     "view_pointcloud.py",
 )

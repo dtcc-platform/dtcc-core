@@ -17,6 +17,18 @@ The [calibration grid](dataset_calibration_grid.py) and
 physical table bounds. The [satellite imagery demo](dataset_satellite_imagery.py)
 uses a 3 × 3 km window to show enough 10 m pixels. The bundled CityJSON and
 hand-built LOD1 block use their own geometry.
+To construct a building directly, run [Building from a footprint](building_from_footprint.py),
+an offline courtyard example with meshing and native model saving. See the
+[constructor guide](../docs/buildings-from-footprints.md) for inputs, height
+updates and CityJSON persistence.
+Its figure compares the footprint and extrusion and labels ground and roof heights.
+
+[Footprints from LOD1](footprints_from_lod1.py) runs the reverse workflow on an
+offline podium/tower solid, retaining both roof levels through cleaning and
+rebuilding. See the [conversion guide](../docs/buildings-from-lod1.md) for
+supported geometry, copying, provenance and error handling.
+Its figure compares the source solid, roof-coloured footprints and rebuilt LoD1
+parts without the block's aggregate footprint plane.
 
 For footprint cleaning and building meshing, follow this short tour:
 

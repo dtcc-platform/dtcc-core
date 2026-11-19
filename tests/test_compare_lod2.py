@@ -47,6 +47,85 @@ def test_reference_vertical_wall_preserves_absolute_xyz():
     )
 
 
+def _write_reference_shapes(path, *, roofs, walls=()):
+    import fiona
+
+    directory = path / "3D-Byggnader"
+    directory.mkdir()
+    schema = {
+        "geometry": "3D Polygon",
+        "properties": {"BDG_ID": "int", "Aktualitet": "int"},
+    }
+    for name, features in (
+        ("roofs_buildings_export", roofs),
+        ("walls_buildings_export", walls),
+        ("new_consolidated_buildings_export", ()),
+    ):
+        with fiona.open(
+            directory / f"{name}.shp",
+            "w",
+            driver="ESRI Shapefile",
+            crs=comparison.LOCAL_CRS,
+            schema=schema,
+        ) as layer:
+            for building_id, ring in features:
+                layer.write(
+                    {
+                        "geometry": {"type": "Polygon", "coordinates": [ring]},
+                        "properties": {"BDG_ID": building_id, "Aktualitet": 1},
+                    }
+                )
+
+
+def test_reference_polygon_selects_only_complete_buildings(tmp_path, monkeypatch):
+    monkeypatch.setattr(comparison, "OUTPUT_DIR", tmp_path)
+    roof = [(0, 0, 3), (4, 0, 3), (0, 4, 3), (0, 0, 3)]
+    wall = [(0, 0, 0), (4, 0, 0), (4, 0, 3), (0, 0, 3), (0, 0, 0)]
+    _write_reference_shapes(
+        tmp_path,
+        roofs=[(1, roof), (2, [(x + 2, y, z) for x, y, z in roof])],
+        walls=[(1, wall), (2, [(x + 2, y, z) for x, y, z in wall])],
+    )
+    region = Polygon([(-1, -1), (6, -1), (-1, 6)])
+    mesh, metadata = comparison.read_reference(region, data_dir=tmp_path)
+
+    assert [source["key"] for source in metadata["sources"]] == ["original:1"]
+    assert mesh.cells_dict["triangle"].shape == (3, 3)
+    assert set(mesh.cell_data_dict["source_kind"]["triangle"]) == {0, 1}
+    assert not list(tmp_path.glob("*.vtu"))
+
+
+def test_reference_polygon_excludes_wall_with_triangles_outside_region(tmp_path):
+    from shapely import force_2d, make_valid
+
+    wall = [(0, 0, 0), (0.05, 2, 0), (0, 2, 10), (0.05, 0, 10), (0, 0, 0)]
+    _write_reference_shapes(tmp_path, roofs=(), walls=[(1, wall)])
+    region = make_valid(force_2d(Polygon(wall))).buffer(0.002)
+
+    with pytest.raises(ValueError, match="No triangles to export"):
+        comparison.read_reference(region, data_dir=tmp_path)
+
+
+def test_reference_reader_rejects_degenerate_triangles_before_export(tmp_path):
+    roof = [
+        (x, y, 1)
+        for x, y in (
+            (0, 0),
+            (0.4, 0),
+            (0.4000001, -0.0000001),
+            (0.4000002, 0),
+            (1, 0),
+            (1, 1),
+            (0, 1),
+            (0, 0),
+        )
+    ]
+    _write_reference_shapes(tmp_path, roofs=[(1, roof)])
+
+    with pytest.raises(ValueError, match="Empty or degenerate mesh: reference"):
+        comparison.read_reference(comparison.box(-1, -1, 2, 2), data_dir=tmp_path)
+
+
 def test_reference_hole_not_filled_and_nonplanar_vertices_preserved():
     rings = [
         np.array(
