@@ -42,7 +42,7 @@ import shapely
 from pyproj import CRS, Transformer
 from rasterio.windows import from_bounds
 from scipy.spatial import cKDTree
-from shapely.geometry import Polygon, box, shape
+from shapely.geometry import MultiPoint, Polygon, box, shape
 from shapely.ops import unary_union
 
 from dtcc_core.reproject.reproject import reproject_array, reproject_surface
@@ -141,13 +141,17 @@ def concatenate(parts):
     return np.vstack(vertices), np.vstack(faces)
 
 
-def save_vtu(name, vertices, faces, *, allow_empty=False, **fields):
+def _validate_mesh(name, vertices, faces, *, allow_empty=False):
     if not np.isfinite(vertices).all():
         raise ValueError(f"Nonfinite coordinates in {name}")
     xyz = vertices[faces]
     area2 = np.linalg.norm(np.cross(xyz[:, 1]-xyz[:, 0], xyz[:, 2]-xyz[:, 0]), axis=1)
     if (not len(faces) and not allow_empty) or np.any(area2 <= 1e-12):
         raise ValueError(f"Empty or degenerate mesh: {name}")
+
+
+def save_vtu(name, vertices, faces, *, allow_empty=False, **fields):
+    _validate_mesh(name, vertices, faces, allow_empty=allow_empty)
     path = OUTPUT_DIR / f"{name}.vtu"
     meshio.write_points_cells(path, vertices, [("triangle", faces)],
                               cell_data={key: [np.asarray(value)] for key, value in fields.items()})
@@ -178,7 +182,11 @@ def read_reference(region, *, data_dir=None):
                 group['records'].append(dict(file=filename, feature_id=feature.id, properties=properties))
                 group['faces'].extend((rings, kind) for rings in polygon_rings(feature.geometry))
     # Whole features only, so boundary buildings are not cut or reconstructed from partial roofs.
-    groups = [g for g in groups.values() if region.covers(box(*_group_bounds(g)))]
+    envelope = region.envelope
+    groups = [
+        group for group in groups.values()
+        if _group_covered(region, envelope, group)
+    ]
     parts, owners, kinds, records, failures, deviations = [], [], [], [], [], []
     for owner, group in enumerate(groups):
         records.append(dict(reference_id=owner, key=group['key'], records=group['records']))
@@ -193,6 +201,7 @@ def read_reference(region, *, data_dir=None):
             kinds.extend([kind] * len(faces))
             deviations.append(deviation)
     vertices, faces = concatenate(parts)
+    _validate_mesh('reference', vertices, faces)
     mesh = meshio.Mesh(vertices, [("triangle", faces)],
                        cell_data={"reference_id": [np.asarray(owners)],
                                   "source_kind": [np.asarray(kinds)]})
@@ -212,6 +221,26 @@ def load_reference(bounds):
 def _group_bounds(group):
     points = np.vstack([np.asarray(r)[:, :2] for rings, _ in group['faces'] for r in rings])
     return (*points.min(axis=0), *points.max(axis=0))
+
+
+def _group_covered(region, envelope, group):
+    bounds = box(*_group_bounds(group))
+    if region.covers(bounds):
+        return True
+    if not envelope.covers(bounds):
+        return False
+    for rings, _ in group['faces']:
+        try:
+            vertices, faces, _ = triangulate_reference(rings)
+        except ValueError:
+            points = np.vstack(rings)[:, :2]
+            if not region.covers(MultiPoint(points).convex_hull):
+                return False
+            continue
+        for triangle in vertices[faces, :2]:
+            if not region.covers(MultiPoint(triangle).convex_hull):
+                return False
+    return True
 
 
 def local_pointcloud(bounds):
