@@ -275,6 +275,14 @@ class AsyncHttpClient:
             "http_status", status=response.status, body=bytes(body), phase="read"
         )
 
+    async def _backoff(self, operation, headers):
+        """Wait before a reserved retry; a cancelled wait returns the reservation."""
+        try:
+            await self._sleep(operation.delay(headers))
+        except BaseException:
+            operation.release()
+            raise
+
     async def _open(self, operation):
         while True:
             response, error, headers = None, None, {}
@@ -308,7 +316,7 @@ class AsyncHttpClient:
             )
             if not operation.retry(error, "connect"):
                 raise error from None
-            await self._sleep(operation.delay(headers))
+            await self._backoff(operation, headers)
 
     @asynccontextmanager
     async def stream(self, request, *, max_body_bytes=None):
@@ -362,7 +370,7 @@ class AsyncHttpClient:
             if error is not None:
                 if not operation.retry(error, "read"):
                     raise error from None
-                await self._sleep(operation.delay(headers))
+                await self._backoff(operation, headers)
                 continue
             operation.delivered(len(body))
             result = Response(

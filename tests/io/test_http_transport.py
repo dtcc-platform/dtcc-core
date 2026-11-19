@@ -523,6 +523,68 @@ def test_retry_does_not_sleep_when_budget_exhausted(backend, server, budget_kwar
     )
 
 
+def test_shared_budget_sleeps_only_for_a_reserved_attempt(server):
+    url, calls, _ = server
+    delays = []
+
+    async def sleep(delay):
+        delays.append(delay)
+        await asyncio.sleep(0)
+
+    async def main():
+        async with AsyncHttpClient(
+            retry=RetryPolicy(retries=3),
+            budget=Budget(max_attempts=3),
+            sleep=sleep,
+        ) as client:
+            request = Request("GET", url + "/status?code=503&retry_after=30")
+            errors = await asyncio.gather(
+                client.request(request), client.request(request), return_exceptions=True
+            )
+            assert client.counters.network_attempts == 3
+        return errors
+
+    errors = asyncio.run(main())
+    # Both first attempts start before either retry decision; only one of the
+    # two operations can take the third attempt, and only it waits.
+    assert [(e.kind, e.status, e.retry_after) for e in errors] == [
+        ("http_status", 503, 30.0)
+    ] * 2
+    assert sorted(e.attempts for e in errors) == [1, 2]
+    assert delays == [30.0] and calls["/status"] == 3
+
+
+def test_interrupted_backoff_returns_its_reserved_attempt(backend, server):
+    url, _, _ = server
+
+    class Interrupted(Exception):
+        pass
+
+    if backend == "sync":
+
+        def sleep(delay):
+            raise Interrupted
+    else:
+
+        async def sleep(delay):
+            raise Interrupted
+
+    async def scenario(api):
+        with pytest.raises(Interrupted):
+            await api.request(Request("GET", url + "/status?code=503"))
+        # The interrupted retry never ran, so its attempt is still available.
+        assert (await api.request(Request("GET", url + "/json"))).status == 200
+        assert api.client.counters.network_attempts == 2
+
+    run(
+        backend,
+        scenario,
+        retry=RetryPolicy(retries=1),
+        budget=Budget(max_attempts=2),
+        sleep=sleep,
+    )
+
+
 def test_stream_and_caller_failure(backend, server):
     url, _, _ = server
     failure = OSError("caller failed")

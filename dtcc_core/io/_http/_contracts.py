@@ -376,17 +376,19 @@ class Budget:
         self._lock = Lock()
         self._exhausted = None
 
-    def can_attempt(self) -> bool:
-        """Return whether another network attempt can currently fit in this budget."""
-        with self._lock:
-            if self._exhausted is not None:
-                return False
-            for key in ("received_body_bytes", "delivered_body_bytes"):
-                cap = self.limits[key]
-                if cap is not None and self._used[key] >= cap:
-                    return False
-            limit = self.limits["network_attempts"]
-            return limit is None or self._used["network_attempts"] < limit
+    def _bytes_spent(self):
+        """Return the byte limit that rules out further attempts, or None.
+
+        The caller holds the lock. An attempt cannot deliver anything once a
+        byte budget is used up, so it is refused before it is sent.
+        """
+        if self._exhausted is not None:
+            return self._exhausted
+        for key in ("received_body_bytes", "delivered_body_bytes"):
+            cap = self.limits[key]
+            if cap is not None and self._used[key] >= cap:
+                return (key, cap, self._used[key])
+        return None
 
     def before_read(self, request):
         with self._lock:
@@ -394,15 +396,23 @@ class Budget:
         if exhausted is not None:
             raise HttpLimitError(request, *exhausted)
 
+    def start_reserved_attempt(self, request):
+        """Admit an attempt already charged by consume; a refused one is returned."""
+        with self._lock:
+            exhausted = self._bytes_spent()
+            if exhausted is not None:
+                self._used["network_attempts"] -= 1
+        if exhausted is not None:
+            raise HttpLimitError(request, *exhausted)
+
+    def release_attempt(self):
+        """Return an attempt charged by consume that was never sent."""
+        with self._lock:
+            self._used["network_attempts"] -= 1
+
     def consume(self, name, amount, request):
         with self._lock:
-            exhausted = self._exhausted if name == "network_attempts" else None
-            if name == "network_attempts" and exhausted is None:
-                for key in ("received_body_bytes", "delivered_body_bytes"):
-                    cap = self.limits[key]
-                    if cap is not None and self._used[key] >= cap:
-                        exhausted = (key, cap, self._used[key])
-                        break
+            exhausted = self._bytes_spent() if name == "network_attempts" else None
             if exhausted is None:
                 limit = self.limits[name]
                 observed = self._used[name] + amount

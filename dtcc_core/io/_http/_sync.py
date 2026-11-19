@@ -221,6 +221,14 @@ class HttpClient:
             "http_status", status=response.status_code, body=bytes(body), phase="read"
         )
 
+    def _backoff(self, operation, headers):
+        """Wait before a reserved retry; an interrupted wait returns the reservation."""
+        try:
+            self._sleep(operation.delay(headers))
+        except BaseException:
+            operation.release()
+            raise
+
     def _open(self, operation):
         while True:
             response, error, headers = None, None, {}
@@ -254,7 +262,7 @@ class HttpClient:
             )
             if not operation.retry(error, "connect"):
                 raise error from None
-            self._sleep(operation.delay(headers))
+            self._backoff(operation, headers)
 
     @contextmanager
     def stream(self, request, *, max_body_bytes=None):
@@ -309,7 +317,7 @@ class HttpClient:
             if error is not None:
                 if not operation.retry(error, "read"):
                     raise error from None
-                self._sleep(operation.delay(headers))
+                self._backoff(operation, headers)
                 continue
             operation.delivered(len(body))
             result = Response(

@@ -323,9 +323,13 @@ a new Budget; there is no implicit reset. Limits include the chunk that crosses 
 not delivered. These are decoded-body limits, not exact wire-byte measurements or
 peak-memory guarantees: backends can buffer/decompress before yielding. Error
 bodies are read only up to 8 KiB; if that read fails, the status error is raised
-with the bytes read so far. When a budget leaves no room for another attempt,
-retries stop without sleeping and raise the pending failure (preserving its HTTP
-status and `retry_after`). Unread redirect bodies are closed without being
+with the bytes read so far. A retry reserves its attempt in the budget before
+sleeping, so of several operations sharing a budget only those holding an
+attempt wait. When the budget leaves no room for another attempt, retries stop
+without sleeping and raise the pending failure (preserving its HTTP status and
+`retry_after`). A sleep that is cancelled or raises returns its reserved
+attempt. If a byte cap is reached during the sleep, the reserved attempt is
+refused and returned, and a `resource_limit` error is raised. Unread redirect bodies are closed without being
 counted. Observation counts, time intervals and provider-specific budgets remain
 outside this package.
 

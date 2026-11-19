@@ -16,6 +16,7 @@ from dtcc_core.io._http import (
     AsyncHttpClient,
     Budget,
     HttpClient,
+    HttpLimitError,
     HttpTransportError,
     MultipartPart,
     RedirectPolicy,
@@ -117,6 +118,61 @@ def test_parse_retry_after(value, expected):
 def test_policy_validation(factory):
     with pytest.raises(ValueError):
         factory()
+
+
+def test_retry_reserves_its_attempt_before_backoff():
+    state = State(
+        retry=RetryPolicy(retries=3, statuses=frozenset({503})),
+        budget=Budget(max_attempts=2),
+    )
+    first = Operation(state, Request("GET", "https://example.test/a"), None)
+    second = Operation(state, Request("GET", "https://example.test/b"), None)
+    first.attempt()
+    error = first.error("http_status", status=503, phase="read")
+    assert first.retry(error, "read")
+    # The reservation is charged at once, so no other operation can take it.
+    with pytest.raises(HttpLimitError) as caught:
+        second.attempt()
+    assert caught.value.resource == "network_attempts"
+    first.attempt()
+    assert state.budget._used["network_attempts"] == 2 and first.attempts == 2
+
+
+def test_released_reservation_frees_its_attempt():
+    state = State(
+        retry=RetryPolicy(retries=3, statuses=frozenset({503})),
+        budget=Budget(max_attempts=2),
+    )
+    operation = Operation(state, Request("GET", "https://example.test/"), None)
+    operation.attempt()
+    assert operation.retry(operation.error("http_status", status=503), "read")
+    operation.release()
+    operation.release()
+    assert state.budget._used["network_attempts"] == 1
+    operation.attempt()
+    assert operation.attempts == 2
+
+
+def test_reserved_attempt_is_refused_after_bytes_run_out():
+    state = State(
+        retry=RetryPolicy(retries=3, statuses=frozenset({503})),
+        budget=Budget(max_attempts=5, max_received_bytes=4),
+    )
+    first = Operation(state, Request("GET", "https://example.test/a"), None)
+    other = Operation(state, Request("GET", "https://example.test/b"), None)
+    first.attempt()
+    assert first.retry(first.error("http_status", status=503), "read")
+    other.attempt()
+    with pytest.raises(HttpLimitError):
+        other.received(b"12345")
+    with pytest.raises(HttpLimitError) as caught:
+        first.attempt()
+    assert (caught.value.resource, caught.value.phase) == (
+        "received_body_bytes",
+        "connect",
+    )
+    # The refused reservation is returned rather than counted as an attempt.
+    assert state.budget._used["network_attempts"] == 2 and first.attempts == 1
 
 
 def test_delay_backoff_retry_after_and_caps():

@@ -144,13 +144,15 @@ class Operation:
         self.state, self.request, self.limit = state, request, limit
         self.attempts = self.retries = self.hops = self.size = 0
         self.local_errors = []
+        # A retry charges its attempt before backing off; attempt() then uses it.
+        self._reserved = False
         state.counters.logical_requests += 1
         self._consume("logical_requests", 1, None)
 
-    def _consume(self, name, amount, phase):
-        """Charge the shared budget, reporting this operation's attempts on failure."""
+    def _budget(self, phase, call, *args):
+        """Call the shared budget, reporting this operation's attempts on failure."""
         try:
-            self.state.budget.consume(name, amount, self.request)
+            call(*args, self.request)
         except HttpLimitError as exc:
             raise HttpLimitError(
                 self.request,
@@ -161,24 +163,21 @@ class Operation:
                 phase=phase,
             ) from None
 
+    def _consume(self, name, amount, phase):
+        self._budget(phase, self.state.budget.consume, name, amount)
+
     def attempt(self):
-        self._consume("network_attempts", 1, "connect")
+        if self._reserved:
+            self._reserved = False
+            self._budget("connect", self.state.budget.start_reserved_attempt)
+        else:
+            self._consume("network_attempts", 1, "connect")
         self.state.counters.network_attempts += 1
         self.attempts += 1
         self.size = 0
 
     def before_read(self):
-        try:
-            self.state.budget.before_read(self.request)
-        except HttpLimitError as exc:
-            raise HttpLimitError(
-                self.request,
-                exc.resource,
-                exc.limit,
-                exc.observed,
-                attempts=self.attempts,
-                phase="read",
-            ) from None
+        self._budget("read", self.state.budget.before_read)
 
     def received(self, chunk, *, limited=True):
         """Account for a chunk; limited=False skips max_body_bytes, not budgets."""
@@ -215,17 +214,32 @@ class Operation:
         )
 
     def retry(self, error, phase):
-        return (
-            retry_allowed(
-                self.request,
-                self.state.retry,
-                self.retries,
-                error.kind,
-                error.phase or phase,
-                error.status,
-            )
-            and self.state.budget.can_attempt()
-        )
+        """Return whether to retry, reserving the next attempt before any backoff.
+
+        Reserving first means an operation only waits when the shared budget
+        still holds its next attempt; otherwise the caller raises error at once.
+        """
+        if not retry_allowed(
+            self.request,
+            self.state.retry,
+            self.retries,
+            error.kind,
+            error.phase or phase,
+            error.status,
+        ):
+            return False
+        try:
+            self.state.budget.consume("network_attempts", 1, self.request)
+        except HttpLimitError:
+            return False
+        self._reserved = True
+        return True
+
+    def release(self):
+        """Return a reserved attempt whose backoff was interrupted."""
+        if self._reserved:
+            self._reserved = False
+            self.state.budget.release_attempt()
 
     def delay(self, headers):
         delay = retry_delay(

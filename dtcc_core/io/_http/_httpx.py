@@ -199,6 +199,14 @@ class NativeHttpClient:
         )
         return None, headers, error
 
+    def _backoff(self, operation, headers):
+        """Wait before a reserved retry; an interrupted wait returns the reservation."""
+        try:
+            self._sleep(operation.delay(headers))
+        except BaseException:
+            operation.release()
+            raise
+
     def request(self, request):
         if self._closed:
             raise ValueError("Client is closed")
@@ -211,7 +219,7 @@ class NativeHttpClient:
             if error is not None:
                 if not operation.retry(error, error.phase):
                     raise error from None
-                self._sleep(operation.delay(headers))
+                self._backoff(operation, headers)
                 continue
             if response is None:
                 continue
