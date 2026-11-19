@@ -14,6 +14,7 @@ from dtcc_core.datasets.publish import (
     DatasetUploadInProgressError,
     DatasetUploadRateLimitError,
     PublishedFile,
+    _sanitize_error_text,
     build_publish_idempotency_key,
 )
 
@@ -1040,6 +1041,57 @@ def test_upload_package_request_exception_cause_does_not_leak_token(tmp_path):
 
     assert "abc" not in str(error.value)
     assert error.value.__cause__ is None
+
+
+def test_upload_package_maps_tls_failure_as_not_transient(tmp_path):
+    manifest_path, files, manifest = _write_package(tmp_path)
+    # SSLError subclasses ConnectionError but is not worth retrying.
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "secret-token",
+        session=FakeSession(
+            exc=requests.exceptions.SSLError("certificate verify failed")
+        ),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        _upload_package(client, manifest_path, files, manifest)
+
+    assert error.value.failure_class == "tls"
+    assert not error.value.is_transient
+
+
+def test_upload_package_invalid_token_header_does_not_leak_token(tmp_path):
+    import traceback
+
+    manifest_path, files, manifest = _write_package(tmp_path)
+    # requests rejects a header value with a newline before sending anything,
+    # and its error text repeats the value with the newline escaped.
+    client = DatasetUploadClient(
+        "https://upload.example",
+        "fake\ns3cr3t-token",
+        session=requests.Session(),
+    )
+
+    with pytest.raises(DatasetUploadError) as error:
+        _upload_package(client, manifest_path, files, manifest)
+
+    for text in (
+        str(error.value),
+        str(error.value.detail),
+        "".join(traceback.format_exception(error.value)),
+    ):
+        assert "s3cr3t-token" not in text
+    assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "token", ["fake\ns3cr3t-token", "it's\ts3cr3t-token", 'say "s3cr3t-token"']
+)
+def test_sanitize_error_text_redacts_escaped_token(token):
+    rendered = _sanitize_error_text(f"bad header: {('Bearer ' + token)!r}", token=token)
+
+    assert "s3cr3t-token" not in rendered
 
 
 def test_upload_package_maps_invalid_success_json_to_upload_error(tmp_path):
