@@ -334,6 +334,7 @@ class DatasetUploadClient:
             "Idempotency-Key": key,
         }
 
+        invalid_header = False
         try:
             with ExitStack() as stack:
                 manifest_handle = stack.enter_context(Path(manifest_path).open("rb"))
@@ -400,14 +401,10 @@ class DatasetUploadClient:
                 failure_class="tls",
             ) from None
         # requests repeats a rejected header value, the token included, in its
-        # error text, so that text is left out.
+        # error text. Raising after the except block keeps that error out of
+        # __context__ as well.
         except requests.exceptions.InvalidHeader:
-            detail = "a request header value is invalid"
-            raise DatasetUploadError(
-                f"Dataset upload request failed: {detail}",
-                detail=detail,
-                failure_class="request",
-            ) from None
+            invalid_header = True
         except requests.ConnectionError as error:
             detail = _sanitize_error_text(str(error), token=self.token)
             raise DatasetUploadError(
@@ -422,6 +419,13 @@ class DatasetUploadClient:
                 detail=detail,
                 failure_class="request",
             ) from None
+        if invalid_header:
+            detail = "a request header value is invalid"
+            raise DatasetUploadError(
+                f"Dataset upload request failed: {detail}",
+                detail=detail,
+                failure_class="request",
+            )
 
         if response.status_code < 200 or response.status_code >= 300:
             raise _upload_error_for_response(response, token=self.token)
@@ -825,15 +829,17 @@ def _sanitize_error_text(text: Any, *, token: str | None) -> str:
 
 
 def _token_forms(token: str) -> set[str]:
-    """Return ``token`` as written and as it appears inside a ``repr``.
+    """Return ``token`` as written, inside a ``repr`` and inside JSON.
 
     ``requests`` reports a rejected header value with ``repr``, which escapes
     newlines and other control characters, and escapes a quote only when the
-    value contains both quote characters.
+    value contains both quote characters. Error details from the service are
+    rendered with ``json.dumps``.
     """
     escaped = repr(token)[1:-1]
     return {
         token,
+        json.dumps(token)[1:-1],
         escaped,
         escaped.replace("\\'", "'"),
         escaped.replace('\\"', '"'),
@@ -853,13 +859,13 @@ def _response_detail(response: Any, *, token: str | None) -> str:
         if isinstance(detail, str):
             return _sanitize_error_text(detail, token=token)
         detail_text = json.dumps(detail, sort_keys=True, default=str)
-        return _sanitize_error_text(detail_text[:200], token=token)
+        return _sanitize_error_text(detail_text, token=token)[:200]
 
     try:
         detail_text = json.dumps(payload, sort_keys=True, default=str)
     except (TypeError, ValueError):
         detail_text = response.text
-    return _sanitize_error_text(detail_text[:200], token=token)
+    return _sanitize_error_text(detail_text, token=token)[:200]
 
 
 def _upload_error_for_response(

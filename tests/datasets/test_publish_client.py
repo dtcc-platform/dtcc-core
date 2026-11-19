@@ -14,6 +14,7 @@ from dtcc_core.datasets.publish import (
     DatasetUploadInProgressError,
     DatasetUploadRateLimitError,
     PublishedFile,
+    _response_detail,
     _sanitize_error_text,
     build_publish_idempotency_key,
 )
@@ -1083,6 +1084,7 @@ def test_upload_package_invalid_token_header_does_not_leak_token(tmp_path):
     ):
         assert "s3cr3t-token" not in text
     assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 @pytest.mark.parametrize(
@@ -1092,6 +1094,18 @@ def test_sanitize_error_text_redacts_escaped_token(token):
     rendered = _sanitize_error_text(f"bad header: {('Bearer ' + token)!r}", token=token)
 
     assert "s3cr3t-token" not in rendered
+
+
+@pytest.mark.parametrize("token", ["s3cr3t-token", "s3cr3t’token\u0001"])
+def test_response_detail_redacts_echoed_token_before_truncating(token):
+    # The token straddles the 200-character limit of the JSON detail, and
+    # json.dumps escapes it differently from repr.
+    payload = {"detail": {"echo": "x" * 180 + token}}
+    response = FakeResponse(400, payload)
+
+    detail = _response_detail(response, token=token)
+
+    assert "s3cr3t" not in detail
 
 
 def test_upload_package_maps_invalid_success_json_to_upload_error(tmp_path):
