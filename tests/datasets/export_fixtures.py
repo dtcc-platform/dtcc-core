@@ -283,6 +283,23 @@ def _height_raster(variant, directory):
     return Raster(data=data, georef=GEOREF, crs="EPSG:3006", nodata=np.nan)
 
 
+def _built_up_raster(variant, directory):
+    """Built-up square metres per 100 m cell, including nodata."""
+    if variant == "empty":
+        return Raster()
+    data = np.array([[0.0, 2500.0], [10000.0, np.nan]], dtype=np.float32)
+    if variant == "all_invalid":
+        data[:] = np.nan
+    elif variant != "populated":
+        _unknown(variant)
+    return Raster(
+        data=data,
+        georef=Affine(100.0, 0.0, X0, 0.0, -100.0, Y0),
+        crs="EPSG:3006",
+        nodata=np.nan,
+    )
+
+
 def _orthophoto_raster(variant, directory):
     """A uint8 RGBA mosaic."""
     if variant == "empty":
@@ -383,6 +400,7 @@ PRODUCTS = {
     ("point_cloud", None): _point_cloud,
     ("building_footprints", None): _footprints,
     ("buildings", None): _buildings,
+    ("built_up", None): _built_up_raster,
     ("city", None): _city,
     ("terrain_surface_mesh", "mesh"): _mesh,
     ("terrain_surface_mesh", "raster"): _height_raster,
