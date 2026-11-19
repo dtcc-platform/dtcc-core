@@ -18,7 +18,6 @@ from ..model.geometry import Geometry, Point
 from ..model.object import Object
 from ..model.object.representation import GeometryRepresentation
 from ..reproject.reproject import reproject_array
-from ._attachments import reject_time_series
 
 
 def resolve_source_crs(model, geometries):
@@ -217,7 +216,6 @@ def feature_collection(features, *, source_crs, crs, metadata=None):
 def _point_feature_collection(model, members, id_key, crs):
     """Return one Point feature per ``(object, point)`` pair of an exported copy."""
     points = [point for _, point in members]
-    reject_time_series(points, "GeoJSON")
     source_crs = resolve_source_crs(
         model, [*(member for member, _ in members), *points]
     )

@@ -129,6 +129,8 @@ A package is a directory or a `.dtccpkg` archive with:
   samples. GeoJSON can substantially increase package size, export time and
   parsing cost; the overhead depends on the data. Leave out `format=` when no
   map view is needed.
+  Attached time series remain in `artifacts/model.dtcc`; the GeoJSON map view
+  omits them and leaves the source model unchanged.
 - A printable city tiles package always includes multiple artifacts with role
   `derived`, including `artifacts/preview.geojson`, `artifacts/layout.json`,
   `artifacts/base_tile.stl` and one STL per city tile.

@@ -263,3 +263,9 @@ validate N against their owner's element count, including when T is zero.
 Nested dataset contexts are rejected, as for Field. Malformed data is rejected
 before replacing an existing model or file. Strict CityJSON export rejects
 time-series attachments because it has no mapping for them.
+
+Ordinary mesh exports (including OBJ, STL, VTK/VTU, XDMF and glTF/GLB) and model
+GeoJSON conversions write their documented geometry and static data subset.
+They omit attached time series and leave the source model unchanged. These
+derived formats do not preserve the complete model; use `.dtcc` for a temporal
+round trip. Strict CityJSON retains its rejection of unsupported attachments.
