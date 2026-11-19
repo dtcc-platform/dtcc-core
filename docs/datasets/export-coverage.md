@@ -20,6 +20,7 @@ and fails when this page differs.
 | `air_quality` | - | `SensorCollection` | yes | `geojson` | none | none |
 | `building_footprints` | - | `FootprintCollection` | yes | `geojson` | none | none |
 | `buildings` | - | `BuildingCollection` | yes | `geojson` | none | none |
+| `built_up` | - | `Raster` | yes | `png`, `tif` | none | none |
 | `buses` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `calibration_grid` | - | `CalibrationGrid` | yes | `geojson` | geojson: crs_resolvable | none |
 | `city` | - | `City` | yes | `geojson` | none | none |
@@ -34,7 +35,9 @@ and fails when this page differs.
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
 | `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: tile collections have no web artifact; use the raster product for imagery |
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
+| `printable_city_tiles` | - | `Object` | yes | `geojson` | none | none |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
+| `satellite_imagery` | - | `Raster` | yes | `png`, `tif` | none | none |
 | `smoke` | `field` | `VolumeMesh` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
 | `smoke` | `slice` | `FieldSlice` | yes | `geojson`, `png`, `tif` | geojson: crs_resolvable; png: slice_axis=z, translation_only_root_transform, crs_resolvable; tif: slice_axis=z, translation_only_root_transform, crs_resolvable | none |
 | `smoke` | `streamlines` | `StreamlineCollection` | yes | `geojson` | geojson: crs_resolvable | none |
@@ -72,6 +75,9 @@ and fails when this page differs.
 - **Exclusion**: formats a product does not offer, with the reason. A product
   with no web format has an exclusion; the 3D-only products have no
   map-placed or RFC 7946 form, and `orthophoto` tiles have no web output.
+
+The [printable city tiles Dataset](printable-city-tiles.md) includes its
+GeoJSON preview, layout and STLs in the default canonical package.
 
 `datasets.info()` lists the web formats per product and marks a constrained
 format with `*`.
@@ -124,6 +130,9 @@ A package is a directory or a `.dtccpkg` archive with:
   samples. GeoJSON can substantially increase package size, export time and
   parsing cost; the overhead depends on the data. Leave out `format=` when no
   map view is needed.
+- A printable city tiles package always includes multiple artifacts with role
+  `derived`, including `artifacts/preview.geojson`, `artifacts/layout.json`,
+  `artifacts/base_tile.stl` and one STL per city tile.
 - For a `RasterTileCollection`, one artifact with role `tile` and format
   `tif` per tile, under `artifacts/tiles/`. The model refers to the tiles by
   these package-relative paths. The tiles reload after the original cache is
@@ -134,7 +143,9 @@ manifest fields.
 
 ## Consumer steps
 
-Read `manifest.json`, find the artifact with role `derived`, and check its
+Read `manifest.json` and select the `derived` artifact by format. Printable
+city tile packages use `artifacts/preview.geojson` for the map preview and
+list the tile files in `artifacts/layout.json`. Check each selected artifact's
 size and SHA-256 digest before use.
 
 ### GeoJSON

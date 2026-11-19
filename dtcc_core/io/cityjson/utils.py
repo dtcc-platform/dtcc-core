@@ -6,6 +6,7 @@ from tqdm import tqdm
 from ...model import Building, City, Mesh, MultiSurface, Solid, Surface
 from ...model.object.building import BuildingPart
 from ...model.object.object import GeometryType
+from ..logging import warning
 
 
 def tin_geom_to_mesh(tin_geom_pair: tuple, verts) -> Mesh:
@@ -265,7 +266,9 @@ def get_geom_to_use(geom_list, lod=2, prefer_surface=True) -> dict:
     candidates = []
     current_lod = lod
     while not candidates and current_lod >= 0:
-        candidates = [g for g in geom_list if g.get("lod") == current_lod]
+        candidates = [
+            g for g in geom_list if g.get("lod") in (current_lod, str(current_lod))
+        ]
         current_lod -= 1
 
     # If no LOD-specific candidates, use all
@@ -338,35 +341,97 @@ def _convert_lod_to_geometry_type(lod_value):
 
 
 def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
-    """Build a DTCC Building from CityJSON building data."""
-    building = Building()
-    if parent_city is not None:
-        parent_city.children[Building].append(building)
+    """Build a Building preserving every source LoD and nested part identity.
 
-    building.id = uuid
+    lod is retained for call compatibility; all labelled representations are
+    imported. Fractional LoDs retain their exact labels rather than being
+    assigned to a coarser integer LoD.
+    """
+    building = _read_building(cj_obj, uuid, cj_building, verts, set())
+    if parent_city is not None:
+        parent_city.add_building(building)
+    return building
+
+
+def _build_permissive_geometry(geometry, vertices, where):
+    """Read supported geometry, warning when unsupported content is omitted."""
+    if not isinstance(geometry, dict):
+        raise ValueError(f"{where}: geometry must be an object")
+    semantics = geometry.get("semantics")
+    if (
+        geometry.get("type") == "MultiSurface"
+        and geometry.get("lod") in (0, "0", "0.0")
+        and len(geometry.get("boundaries", [])) == 1
+        and isinstance(semantics, dict)
+        and semantics.get("values") == [[0]]
+        and isinstance(semantics.get("surfaces"), list)
+        and len(semantics["surfaces"]) == 1
+    ):
+        geometry = {**geometry, "semantics": {**semantics, "values": [0]}}
+    try:
+        return build_geometry(geometry, vertices)
+    except NotImplementedError as error:
+        if geometry.get("type") in ("MultiSurface", "CompositeSurface", "Solid"):
+            # Retain the geometry only if its structure passes without semantics.
+            native = build_geometry(
+                {key: value for key, value in geometry.items() if key != "semantics"},
+                vertices,
+            )
+            warning(f"{where}: ignoring unsupported semantics: {error}")
+            return native
+        warning(f"{where}: skipping unsupported geometry: {error}")
+        return None
+
+
+def _read_building(cj_obj, uuid, source, vertices, ancestors, *, part=False):
     from .attributes import read_attributes
 
-    building.attributes = read_attributes(
-        cj_building.get("attributes", {}), cj_building.get("type", "Building")
+    if uuid in ancestors:
+        raise ValueError("CityJSON building containment is cyclic")
+    if part and source.get("type") != "BuildingPart":
+        raise ValueError("CityJSON building children must be BuildingParts")
+    cls = BuildingPart if part else Building
+    building = cls(
+        id=uuid,
+        attributes=read_attributes(
+            source.get("attributes", {}), source.get("type", cls.__name__)
+        ),
     )
-
-    building_root_geom, building_children = get_building_geometry(
-        cj_obj, cj_building, verts, lod=lod
-    )
-
-    # Add root geometry
-    if building_root_geom is not None:
-        geom, ms = building_root_geom
-        lod_type = _convert_lod_to_geometry_type(geom.get("lod", 1))
-        building.add_geometry(ms, lod_type)
-
-    # Add building parts
-    for geom, ms in building_children:
-        lod_type = _convert_lod_to_geometry_type(geom.get("lod", 1))
-        building_part = BuildingPart()
-        building.children[BuildingPart].append(building_part)
-        building_part.add_geometry(ms, lod_type)
-
+    geometries = source.get("geometry", [])
+    if not isinstance(geometries, list):
+        raise ValueError(f"Building {uuid!r}: geometry must be an array")
+    for index, geometry in enumerate(geometries):
+        native = _build_permissive_geometry(
+            geometry, vertices, f"Building {uuid!r} geometry {index}"
+        )
+        if native is None:
+            continue
+        label = geometry.get("lod", 1)
+        lod = label if isinstance(label, str) else format(label, "g")
+        if isinstance(native, Solid) and len(native.shells) == 1:
+            native = MultiSurface(surfaces=native.surfaces, regions=native.regions)
+        building.add_geometry(
+            native,
+            id=f"cityjson-{index}",
+            lod=lod,
+            role="cityjson:CompositeSurface"
+            if geometry.get("type") == "CompositeSurface"
+            else None,
+        )
+    for child_id in source.get("children", []):
+        if child_id not in cj_obj:
+            warning(f"Building {uuid!r}: child {child_id!r} not found in CityObjects")
+            continue
+        if cj_obj[child_id].get("type") != "BuildingPart":
+            warning(
+                f"Building {uuid!r}: skipping unsupported child {child_id!r} "
+                f"of type {cj_obj[child_id].get('type')!r}"
+            )
+            continue
+        child = _read_building(
+            cj_obj, child_id, cj_obj[child_id], vertices, ancestors | {uuid}, part=True
+        )
+        building.add_child(child)
     return building
 
 
@@ -434,7 +499,7 @@ def set_buildings(
     parent_city : City
         City instance to which constructed buildings are added as children.
     lod : int, default 2
-        Level of detail to extract when building geometries.
+        Retained for compatibility. All labelled building LoDs are imported.
 
     Returns
     -------

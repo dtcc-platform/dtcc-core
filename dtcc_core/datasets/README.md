@@ -152,13 +152,16 @@ Current Built-In Datasets
 | `orthophoto` | raw | `Raster` (RGBA); `RasterTileCollection` with `product="tiles"` | `tif` | Lantmäteriet orthophotos through the DTCC LM tile server; needs `server_url` or `DTCC_ORTHOPHOTO_URL`. Tiles export as canonical packages (`export(path, canonical=True)`) that carry the tile files and reload after the cache is gone. See [the orthophoto guide](../../docs/datasets/orthophoto.md). |
 | `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider/cache footprints for context and table alignment; use `crs="EPSG:3006"` for table GeoJSON. |
 | `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 block buildings from selected footprints and point-cloud-derived heights. |
+| `built_up` | raw | `Raster` | `tif` | GHSL GHS-BUILT-S R2023A built-up surface in m² per 100 m cell for any epoch 1975-2030 (2025/2030 projected), total or non-residential; reprojection preserves area totals. |
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
 | `terrain_surface_mesh` | derived | `Mesh` by default (`obj`, `stl`); `Raster` with `product="raster"` (`tif`) | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
+| `printable_city_tiles` | derived | `Object` | — | Magnetic city tiles and a matching base. Call `export_stl(folder=...)` on the assembly for print files or `export(path, canonical=True)` for a package. See [the printable city tiles guide](../../docs/datasets/printable-city-tiles.md). |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
 | `trees` | derived | `TreeCollection`; `Raster` with `product="raster"` | `gpkg`, `geojson`; `tif` with `product="raster"` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
+| `satellite_imagery` | raw | `Raster` | `tif`, `png` | Digital Earth Sweden (RISE) Sentinel-2 RGBA imagery in EPSG:3006 at 10 m, defaulting to the newest clear acquisition, with style and cloud-cover options. Rendered images, not measurements. See [satellite imagery](../../docs/datasets/satellite-imagery.md). |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
 | `buses` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("bus",))`. |
@@ -474,6 +477,11 @@ For a generated download:
    canonical package and as a web format (map-placed PNG/GeoTIFF or RFC 7946
    GeoJSON), the constraints and options of each format, and the reasons a
    product has no web format.
+
+For printable city tiles, `describe()["stl_export"]` sets `target` to
+`"result"`. Call the listed `export_stl(folder=...)` method on the assembly
+returned by the dataset. Its canonical package includes the printable files
+and `artifacts/preview.geojson`.
 
 Creating Custom Datasets
 ------------------------
