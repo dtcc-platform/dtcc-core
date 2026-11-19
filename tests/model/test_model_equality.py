@@ -228,3 +228,53 @@ def test_named_tuples_and_missing_dates():
     dates = np.array(["NaT", "2020-01-01"], dtype="datetime64[s]")
     assert (DatasetValue(dates) == DatasetValue(dates.copy())) is True
     assert (DatasetValue(dates) == DatasetValue(dates[::-1].copy())) is False
+
+
+def test_dataset_value_equals_raw_value_when_nested():
+    array = np.array([1.0, np.nan])
+    wrapped = DatasetValue(array.copy())
+    assert ([1, 2] == DatasetValue([1, 2])) is True
+    assert (DatasetValue([wrapped, 2]) == [array, 2]) is True
+    assert (DatasetValue(DatasetValue(wrapped)) == array) is True
+    looped = DatasetValue()
+    looped.value = looped
+    assert (looped == DatasetValue(looped)) is True
+    # Arithmetic through NumPy still treats a DatasetValue as a sequence.
+    assert np.sum(DatasetValue([1, 2])) == 3
+    assert (DatasetValue({"a": DatasetValue(3)}) == {"a": 3}) is True
+
+
+def test_record_array_fields_follow_the_same_rules():
+    kind = np.dtype([("height", "f8"), ("floors", "i4")])
+    records = np.array([(np.nan, 2), (10.0, 3)], dtype=kind)
+    assert (Field(values=records) == Field(values=records.copy())) is True
+    changed = records.copy()
+    changed["floors"][1] = 4
+    assert (Field(values=records) == Field(values=changed)) is False
+
+    mixed = np.array([(np.nan, "a")], dtype=[("height", "f8"), ("name", "O")])
+    assert (DatasetValue(mixed) == DatasetValue(mixed.copy())) is True
+
+
+def test_raster_tiles_compare_missing_resolution():
+    from datetime import datetime
+    from pathlib import Path
+
+    from dtcc_core.model.values.raster_tiles import RasterTile
+
+    def tile(resolution):
+        return RasterTile(
+            path=Path("tile.tif"),
+            id="t1",
+            collection="ortho",
+            datetime=datetime(2024, 5, 1),
+            extent=Bounds(xmax=1.0, ymax=1.0),
+            crs="EPSG:3006",
+            spektraltyp="RGB",
+            resolution=resolution,
+            size_bytes=None,
+        )
+
+    assert RasterTile.__eq__ is model_equal
+    assert (tile(np.nan) == tile(np.nan)) is True
+    assert (tile(0.5) == tile(0.25)) is False

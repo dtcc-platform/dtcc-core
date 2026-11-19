@@ -89,9 +89,10 @@ class DatasetValue(Model):
 
     def __eq__(self, other) -> bool:
         """Compare wrapped values, or the wrapped value with a raw value."""
-        if isinstance(other, DatasetValue):
-            other = other.value
-        return values_equal(self.value, other)
+        return values_equal(self, other)
+
+    def _eq_unwrap(self):
+        return self.value
 
     def get(self, key, default=None):
         """Return ``mapping.get(key, default)`` for mapping values."""

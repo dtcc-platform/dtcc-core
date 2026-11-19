@@ -13,6 +13,7 @@ import numpy as np
 
 def values_equal(a, b) -> bool:
     """Return one bool for two field values under the model equality policy."""
+    a, b = _unwrap(a), _unwrap(b)
     if a is b:
         return True
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
@@ -37,11 +38,27 @@ def values_equal(a, b) -> bool:
 def _arrays_equal(a, b) -> bool:
     if type(a) is not type(b) or a.shape != b.shape or a.dtype != b.dtype:
         return False
+    if a.dtype.names:
+        return all(_arrays_equal(a[name], b[name]) for name in a.dtype.names)
     if a.dtype.hasobject:
         return all(values_equal(x, y) for x, y in zip(a.flat, b.flat, strict=True))
     if a.dtype.kind in "fcmM":
         return bool(np.array_equal(a, b, equal_nan=True))
     return bool(np.array_equal(a, b))
+
+
+def _unwrap(value):
+    """Innermost value of containers that compare as their contents (DatasetValue).
+
+    Stops at a wrapper already seen, so a self-wrapping value cannot loop.
+    """
+    seen = set()
+    while (unwrap := getattr(type(value), "_eq_unwrap", None)) is not None:
+        if id(value) in seen:
+            break
+        seen.add(id(value))
+        value = unwrap(value)
+    return value
 
 
 def _is_nan(value) -> bool:
