@@ -60,6 +60,8 @@ class _AsyncStream:
         ):
             self._operation.delivered(len(chunk))
             yield chunk
+            if self.closed:
+                raise ValueError("Response stream is closed")
 
 
 class AsyncHttpClient:

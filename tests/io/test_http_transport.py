@@ -950,6 +950,18 @@ def test_stream_cannot_be_read_after_its_block_exits(backend, server):
             async for _ in api.chunks(response):
                 pass
 
+        async with api.stream(Request("GET", url + "/gzip")) as response:
+            chunks = api.chunks(response, size=1024)
+            first = await anext(chunks)
+            assert len(first) > 0
+        with pytest.raises(ValueError, match="closed"):
+            await anext(chunks)
+
+        async with api.stream(Request("GET", url + "/gzip")) as response:
+            async for chunk in api.chunks(response, size=1024):
+                assert len(chunk) > 0
+                break
+
     run(backend, scenario)
 
 

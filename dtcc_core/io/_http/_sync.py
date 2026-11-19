@@ -57,6 +57,8 @@ class _Stream:
         for chunk in self._client._chunks(self._response, self._operation, chunk_size):
             self._operation.delivered(len(chunk))
             yield chunk
+            if self.closed:
+                raise ValueError("Response stream is closed")
 
 
 class HttpClient:
