@@ -28,7 +28,7 @@ dependencies = [
     "httpx2>=2.16.0,<3",
     "certifi",
     "platformdirs",
-    "aiohttp >= 3.10.0, < 4.0.0",
+    "aiohttp >= 3.11.0, < 4.0.0",
     "folium",
     "gtfs-realtime-bindings >= 2.0.0, < 3.0.0",
     "h5py == 3.16.0",

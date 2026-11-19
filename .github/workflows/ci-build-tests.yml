@@ -132,6 +132,16 @@ jobs:
             --package dtcc_core \
             --coverage-file tests/coverage.json
 
+      # The async HTTP client depends on aiohttp internals, so test the lowest
+      # aiohttp version pyproject.toml allows as well as the locked one.
+      - name: Test HTTP transport on the lowest allowed aiohttp
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          version=$(uv run --locked python scripts/dependency_lower_bound.py aiohttp)
+          cd tests
+          uv run --locked --with "aiohttp==$version" \
+            pytest io/test_http_transport.py io/test_http_policy.py
+
       # Base-install tests above remain separate from the optional native backend.
       - name: Install volume-meshing dependencies
         run: uv sync --locked --extra volume
