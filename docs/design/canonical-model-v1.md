@@ -59,6 +59,8 @@ floats, integers and strings. The wire uses an explicit value union: integers ar
 canonical decimal strings (including values outside int64), floats are doubles,
 and empty containers and null remain distinct. It is not Protobuf Struct's
 double-only numeric representation. Arbitrary Python objects remain unsupported.
+Canonical attribute maps do not preserve key insertion order across exchange;
+consumers must not rely on the order of restored keys.
 
 Mesh arrays preserve numerical dtype, shape and C-order values. The allowed wire
 dtypes are `|b1`, `|i1`, `|u1`, `<i2`, `<i4`, `<i8`, `<u2`, `<u4`, `<u8`, `<f4`,
@@ -103,13 +105,44 @@ have role `derived` and `derived_from` pointing to that artifact. Every artifact
 has a size and SHA-256 digest. Root Dataset Context, including health/warnings,
 is restored from the manifest.
 
-Artifact CRS describes the canonical root's own transform SRS, when present.
-Artifact bounds remain unset: request bounds and stored local coordinate bounds
-do not establish global bounds after composing nested transforms. Supplemental
-serializers do not yet supply reliable spatial summaries, so their CRS/bounds are
-also unset. Dataset discovery/request metadata remains Context, not an intrinsic
-artifact claim. This slice preserves transforms; it does not settle global
-transform composition or computed spatial summaries.
+The canonical artifact's CRS describes the canonical root's own transform SRS,
+when present. Its bounds remain unset: request bounds and stored local coordinate bounds
+do not establish global bounds after composing nested transforms. A derived
+artifact may carry `crs` and `bounds` when its serializer computes them from its
+own output: canonical `format="geojson"`, admitted only for model types whose
+writer follows the RFC 7946 web profile (class attribute `web_geojson = True`),
+records `crs` `EPSG:4326` and WGS84 `bounds` `[minlon, minlat, maxlon, maxlat]`,
+or six values `[minlon, minlat, minz, maxlon, maxlat, maxz]` when positions have
+z. For other types canonical `format="geojson"` is refused before anything is
+written. Map-placed `format="png"` and `format="tif"` artifacts, admitted for a
+`Raster` or a model with a `to_raster(field=None)` hook returning
+`(Raster, rendering)`, leave `crs` and `bounds` unset and carry `placement` and
+`rendering` instead. Canonical PNG and GeoTIFF require a Raster with a CRS;
+`format="tiff"` is written as `tif`, and other raster formats are refused before
+anything is written. A colour-mapped PNG of integer data requires valid values
+within `[-2**53, 2**53]`, the integers float64 holds exactly, and is refused
+before anything is written otherwise.
+`placement` records the artifact grid: `crs`, `transform`
+(affine coefficients `a, b, c, d, e, f`), positive `width` and `height`, `bounds`
+in that CRS, `bounds_wgs84` and the source `nodata` as a finite number or the
+string `"NaN"`. The PNG is warped to the north-up EPSG:3857 grid from
+`rasterio.warp.calculate_default_transform` (nearest for integer data, bilinear
+for floating data, validity mask nearest as alpha); the GeoTIFF keeps the source
+grid with band unit and description. `rendering` records the written `bands`
+(uint8 RGB(A) or GeoTIFF bands) or the hook's `field`, the colour-mapped `band`,
+`unit`, `value_range` and `colormap`, `transparent_nodata`, and the hook's
+`components` when given; re-export of a loaded package needs the export options
+again. Other derived artifacts leave all four unset. The manifest version stays
+`dtcc-dataset-manifest-v3`: both records are optional and omitted when absent,
+and packages without them load unchanged in the current reader. Readers older
+than this change reject a package carrying them (unknown manifest fields fail
+validation), so packages with map-placed raster artifacts are not backward
+compatible. The reader accepts a derived `crs` only as a nonempty string,
+`bounds` only as four or six finite ordered numbers, and `placement` only with
+finite numbers, ordered bounds and positive sizes. Dataset discovery/request
+metadata remains Context, not an intrinsic artifact claim. This slice preserves
+transforms; it does not settle global transform composition or computed spatial
+summaries.
 
 The reader checks manifest version and structure, safe paths, artifact integrity,
 canonical type/version/CRS agreement and derived relationships. ZIPs are read
@@ -127,6 +160,40 @@ failed admission or supplemental serialization preserves existing output. This
 provides local atomic replacement, not a cross-process transaction or a promise
 of crash durability for the whole package.
 
+### Tile packages
+
+A `RasterTileCollection` (root-only kind 19) carries tile metadata and, per tile,
+the package-relative reference `artifacts/tiles/<collection>/<index>-<id>.tif`
+(collection and id reduced to `A-Za-z0-9_-`), never a local cache path.
+`export(path, canonical=True)` writes the canonical model and copies each tile file
+to its reference as an artifact with role `tile`, format `tif`, `size` and `sha256`,
+and no other metadata; `format=` and the legacy package are refused. Publishing
+keeps refusing: `publish()`, the exported package's `publish()` and the upload
+admission (`DatasetUploadClient.upload_package`) reject a tile package before any
+upload configuration is read or anything is sent. In a `.dtccpkg` the tile members
+are stored uncompressed (`ZIP_STORED`); the model and manifest keep their
+compression. The package is staged and moved into place, so a failed tile copy
+leaves the destination untouched.
+
+`load_model_package` binds each reference only to a manifest artifact with role
+`tile` that passed the size and SHA-256 checks; a reference without such an artifact
+(including one pointing at a `derived` artifact), a `tile` artifact no reference
+names, and a `tile` artifact with any other metadata all fail. In a directory
+package the restored tile's `path` is the artifact file. In a `.dtccpkg`, `path` is
+the member name and `archive` the local archive path; nothing is extracted, and an
+archive whose resolved path holds a brace is refused. `load_tile` checks the binding
+again because a `RasterTile` can be built directly: a tile restored from a
+standalone model file has no binding and refuses to load or export, and is never
+resolved against the working directory. An archive tile needs an existing local
+archive (no GDAL virtual path, no braces) and a member that passes the portable
+package-path check; the reader opens `/vsizip/{archive}/{member}`, which it builds
+itself, and admits the header and the memory budget before any pixel is read. A
+local tile `path` is an ordinary filesystem path, opened in its absolute form; only
+GDAL virtual paths (`/vsi...`) are refused. `build_mosaic` reads local cache tiles
+only and refuses unbound and archive-bound tiles before opening any file. Re-export
+of a collection loaded from an archive reads its members through `zipfile`. The
+tiles load and re-export after the original cache is gone.
+
 ## Compatibility and migration
 
 The original `dtcc.proto`, generated legacy bindings, `.pb`/`.pb2` routes and
@@ -141,12 +208,30 @@ supports v3. Do not switch defaults or retire legacy readers until required type
 and Python/browser/C++ consumers have migration evidence. Unknown new fields are
 rejected by v1, so an extension needs an explicit compatibility/version decision.
 
+Derived-artifact `crs` and `bounds` are a recorded compatibility decision of the
+same kind: the manifest version stays `dtcc-dataset-manifest-v3` because the
+manifest fields already exist, are optional and are null when absent,
+and packages without them load unchanged in the current reader. Readers older
+than this change reject a package whose derived artifact carries `crs` or
+`bounds` ("Supplemental artifact must identify its canonical source"), so
+packages enriched with derived spatial metadata are not backward compatible.
+
 The generated Python binding requires existing dependency `protobuf>=5.29.0,<6`.
 Regenerate only this schema with the development compiler `grpcio-tools==1.71.0`:
 
 ```bash
 python -m grpc_tools.protoc -I dtcc_core/schemas --python_out=dtcc_core/model dtcc_core/schemas/dtcc.proto
 ```
+
+To verify the generated file by hand, hash the committed `dtcc_pb2.py`, regenerate it
+with the pinned compiler and compare the two hashes; they must be equal.
+
+`Object.Kind` carries seven root-only result-wrapper kinds: `TREE_COLLECTION` (13),
+`BUILDING_COLLECTION` (14), `FOOTPRINT_COLLECTION` (15), `CALIBRATION_GRID` (16),
+`FIELD_SLICE` (17), `STREAMLINE_COLLECTION` (18) and `RASTER_TILE_COLLECTION` (19).
+This kind extension is a recorded compatibility decision: wire version stays **6** and
+schema 0.9.0 is unchanged. The kinds are rejected anywhere below the root. A kind
+retired later is marked `reserved` in `dtcc.proto` rather than reused.
 
 LinkML remains isolated in [the profile experiment](../../sandbox/model_profiles/README.md).
 It is neither a runtime dependency nor an alternative wire authority. Python

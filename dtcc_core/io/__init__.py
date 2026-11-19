@@ -13,6 +13,7 @@ from . import roadnetwork
 from . import landuse
 from . import pointcloud_directory
 from . import trees
+from . import geojson
 from .cityjson import cityjson
 from .cityjson import write_cityjson
 
@@ -21,6 +22,7 @@ from .data import (
     download_pointcloud,
     download_footprints,
     download_roadnetwork,
+    download_imagery,
     empty_cache,
 )
 
@@ -89,5 +91,6 @@ __all__ = [
     "download_pointcloud",
     "download_footprints",
     "download_roadnetwork",
+    "download_imagery",
     "empty_cache",
 ]

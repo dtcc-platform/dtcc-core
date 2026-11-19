@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from numbers import Real
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import numpy as np
 import rasterio
@@ -68,15 +68,22 @@ def load_tile(tile: RasterTile, *, max_memory_bytes: int) -> Raster:
     read. Local filesystem errors propagate unchanged; Rasterio failures to open
     or decode the file raise RasterTileReadError. The file is never modified and
     no network access is made.
+
+    A tile with an ``archive`` is read in place as the member ``path`` of that
+    local ZIP archive, through ``/vsizip/{archive}/{member}``. A tile without a
+    package binding, a GDAL virtual path, or an archive member that is not a
+    portable package path raises ValueError.
     """
     _check_budget(max_memory_bytes)
-    path = Path(tile.path)
+    archive, name = _tile_location(tile)
+    # An absolute local path cannot be parsed by Rasterio as a URL scheme.
+    path = Path(name).absolute() if archive is None else f"/vsizip/{{{archive}}}/{name}"
     if tile.spektraltyp == "pan":
         raise NotImplementedError(
             f"Loading pan tile {tile.collection}/{tile.id} is not supported; "
             f"read {path} directly."
         )
-    _preflight(path)
+    _preflight(path if archive is None else archive)
     with _reading():
         with _open_source(path) as source:
             nodata = _admit(tile, path, source, LOAD_LAYOUTS)
@@ -113,6 +120,44 @@ def _check_budget(max_memory_bytes) -> None:
         raise TypeError(f"max_memory_bytes must be an integer, not {kind}")
     if max_memory_bytes <= 0:
         raise ValueError(f"max_memory_bytes must be positive, not {max_memory_bytes}")
+
+
+def _tile_location(tile: RasterTile) -> tuple[Path | None, Path | str]:
+    """Return (archive, member name) of an archive tile, or (None, path).
+
+    The archive must be a local path and the member a portable package path;
+    a local path must not name a GDAL virtual file system.
+    """
+    if tile._unbound:
+        raise ValueError(
+            f"Cannot read raster tile {tile.id!r}: its reference "
+            f"{Path(tile.path).as_posix()!r} has no package binding. Load the tile "
+            "from the dataset package that contains it."
+        )
+    if tile.archive is None:
+        if os.fspath(tile.path).replace("\\", "/").lower().startswith("/vsi"):
+            raise ValueError(
+                f"Raster tile path {os.fspath(tile.path)!r} is a GDAL virtual file "
+                "path; pass a local file path."
+            )
+        return None, tile.path
+    from ..datasets.publish import DatasetPackageError, _validate_package_path
+
+    archive = os.fspath(tile.archive)
+    if archive.replace("\\", "/").lower().startswith("/vsi") or any(
+        brace in archive for brace in "{}"
+    ):
+        raise ValueError(
+            f"Raster tile archive {archive!r} must be a local file path without braces."
+        )
+    member = tile.path.as_posix() if isinstance(tile.path, PurePath) else tile.path
+    try:
+        _validate_package_path(member)
+    except DatasetPackageError as error:
+        raise ValueError(
+            f"Raster tile member {member!r} is not a portable package path"
+        ) from error
+    return Path(archive), member
 
 
 def _preflight(path: Path) -> None:
@@ -339,6 +384,9 @@ def build_mosaic(
     spacing is at most the output resolution. The resolution is the finest
     admitted file's unless given; the mosaic never falls back to a coarser one.
 
+    Every tile must be a local file: a tile without a package binding or bound
+    to a package archive raises ValueError before any file is opened.
+
     Headers are admitted and the working memory (the RGBA output, the largest
     block of read buffers and READ_OVERHEAD_BYTES) checked before any pixel is
     read. Tiles whose files are not admitted or cannot be decoded are recorded
@@ -354,6 +402,14 @@ def build_mosaic(
     """
     _check_request(bounds, resolution, required=False)
     _check_budget(max_memory_bytes)
+    tiles = list(tiles)
+    for tile in tiles:
+        if _tile_location(tile)[0] is not None:
+            raise ValueError(
+                f"Cannot mosaic raster tile {tile.id!r}: it is a member of the "
+                f"package archive {tile.archive}, and build_mosaic reads local "
+                "cache files only. Load package-bound tiles with tile.load()."
+            )
     raised = []
 
     def report(*values):
@@ -381,7 +437,8 @@ def build_mosaic(
     with _reading():
         admitted = []
         for number, tile in enumerate(candidates, 1):
-            path = Path(tile.path)
+            # An absolute local path cannot be parsed by Rasterio as a URL scheme.
+            path = Path(tile.path).absolute()
             _preflight(path)
             try:
                 with _open_source(path) as source:

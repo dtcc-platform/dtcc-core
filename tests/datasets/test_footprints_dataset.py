@@ -6,14 +6,16 @@ import json
 from unittest.mock import Mock, patch
 
 import numpy as np
+import pytest
 
 import dtcc_core.datasets as datasets
-from dtcc_core.datasets import get_dataset
+from dtcc_core.datasets import get_dataset, load_model_package
 from dtcc_core.datasets.footprints import (
     FootprintsArgs,
     FootprintsDataset,
     _filter_small_buildings,
 )
+from dtcc_core.io.geojson import resolve_source_crs
 from dtcc_core.model import Building, City, FootprintCollection, GeometryType, Surface
 
 
@@ -299,3 +301,91 @@ def test_building_footprints_geojson_default_remains_wgs84(mock_city_cls):
     data = json.loads(payload)
     x, y = data["features"][0]["geometry"]["coordinates"][0][0][:2]
     assert abs(x) <= 180 and abs(y) <= 90, (x, y)
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.footprints.City")
+@pytest.mark.parametrize("populated", [True, False], ids=["populated", "empty"])
+def test_building_footprints_canonical_round_trip(
+    mock_city_cls, populated, canonical_round_trip
+):
+    """The registered Dataset call survives a canonical package round trip."""
+    city = _city_with_one_footprint() if populated else City()
+    city.download_footprints = lambda **_kwargs: None
+    mock_city_cls.return_value = city
+
+    result = datasets.building_footprints(
+        bounds=(319720.0, 6397660.0, 320220.0, 6398160.0)
+    )
+    restored = canonical_round_trip("building_footprints", result)
+
+    assert len(restored.footprints) == len(result.footprints) == int(populated)
+    assert restored.source_ids == result.source_ids
+    assert restored.source_indices == result.source_indices
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.footprints.City")
+def test_building_footprints_source_crs_comes_from_surfaces(mock_city_cls):
+    """An output-only crs request does not relabel the source footprints."""
+    city = _city_with_one_footprint()
+    city.download_footprints = lambda **_kwargs: None
+    mock_city_cls.return_value = city
+
+    result = datasets.building_footprints(
+        bounds=(319720.0, 6397660.0, 320220.0, 6398160.0),
+        format=None,
+        crs="EPSG:4326",
+    )
+
+    assert result.dataset_context.metadata.crs == ["EPSG:4326"]
+    assert result.footprints
+    assert all(surface.transform.srs == "EPSG:3006" for surface in result.footprints)
+    assert resolve_source_crs(result, result.footprints) == "EPSG:3006"
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.footprints.City")
+def test_building_footprints_canonical_geojson_round_trip(mock_city_cls, tmp_path):
+    """Canonical GeoJSON is WGS84, reloads from the package and re-exports equal."""
+    city = _city_with_one_footprint()
+    calls = []
+    city.download_footprints = lambda **kwargs: calls.append(kwargs)
+    mock_city_cls.return_value = city
+
+    result = datasets.building_footprints(
+        bounds=(319720.0, 6397660.0, 320220.0, 6398160.0)
+    )
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert len(calls) == 1
+
+    payload, copy = (
+        json.loads((p.path / a.path).read_text())
+        for p in (package, again)
+        for a in p.artifacts
+        if a.format == "geojson"
+    )
+    assert payload == copy
+    assert "crs" not in payload
+    [feature] = payload["features"]
+    assert feature["id"] == "bldg-1"
+    assert (
+        json.loads(
+            next(
+                (again.path / a.path).read_text()
+                for a in again.artifacts
+                if a.format == "geojson"
+            )
+        )["features"][0]["id"]
+        == "bldg-1"
+    )
+    assert feature["properties"]["source_id"] == "bldg-1"
+    [ring] = feature["geometry"]["coordinates"]
+    assert all(-180 <= lon <= 180 and -90 <= lat <= 90 for lon, lat in ring)
+    # Oracle: pyproj EPSG:3006 -> EPSG:4326 of the footprint corner
+    # (319900, 6397900); rings are counter-clockwise.
+    assert [11.97879311854237, 57.68719536715784] in [
+        pytest.approx(position, abs=1e-9) for position in ring
+    ]
