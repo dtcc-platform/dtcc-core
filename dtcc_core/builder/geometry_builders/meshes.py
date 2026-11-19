@@ -2004,6 +2004,7 @@ def _build_tetgen_surface_shell_stage(
         smoothing=smoothing,
         merge_meshes=True,
         min_wall_strip=reference_length,
+        follow_terrain=True,
     )
     transition_refinement_stats = _tetgen_shell_transition_refinement_disabled_stats()
     if refine_for_tetgen:
@@ -3186,6 +3187,7 @@ def _build_city_surface_mesh_from_ground_mesh(
     min_wall_strip: float,
     patch_planes=None,
     patch_owners=None,
+    follow_terrain=False,
 ) -> Mesh | list[Mesh]:
     """Terrain and building shells on a ground mesh.
 
@@ -3208,10 +3210,16 @@ def _build_city_surface_mesh_from_ground_mesh(
         faces[reverse] = faces[reverse][:, [0, 2, 1]]
         aligned_ground_mesh.faces = faces
     builder_ground_mesh = mesh_to_builder_mesh(aligned_ground_mesh)
+    terrain_options = (
+        {"terrain_following_regions": meshing_directives}
+        if follow_terrain and building_surfaces
+        else {}
+    )
     terrain_builder_mesh = _dtcc_builder.build_terrain_surface_mesh_from_ground_mesh(
         builder_ground_mesh,
         builder_dem,
         smoothing,
+        **terrain_options,
     )
     if not building_surfaces:
         terrain_mesh = terrain_builder_mesh.from_cpp()
@@ -3228,6 +3236,7 @@ def _build_city_surface_mesh_from_ground_mesh(
             smoothing,
             merge_meshes,
             float(min_wall_strip),
+            follow_terrain=follow_terrain,
         )
     else:
         builder_meshes = _dtcc_builder.build_city_surface_mesh_from_patch_planes(
@@ -4898,6 +4907,7 @@ def build_city_surface_mesh(
             smoothing=smoothing,
             merge_meshes=merge_meshes,
             min_wall_strip=conditioned_footprints.declared_scale,
+            follow_terrain=True,
         )
         closure = _shell_closure_audit(
             result_mesh if merge_meshes else _welded_mesh(result_mesh),

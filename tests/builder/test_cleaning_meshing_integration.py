@@ -1723,6 +1723,7 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
         )
 
     def fake_build_terrain_surface_mesh_from_ground_mesh(*args, **kwargs):
+        captured["terrain_following_regions"] = kwargs["terrain_following_regions"]
         return object()
 
     def fake_build_surface_mesh_from_terrain_mesh(
@@ -1732,8 +1733,10 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
         smoothing,
         merge_meshes,
         min_wall_strip,
+        follow_terrain,
     ):
         captured["lod_switches"] = building_lod_switches
+        captured["follow_terrain"] = follow_terrain
         return [DummyCppMesh()]
 
     monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
@@ -1794,6 +1797,8 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
     assert mesh.faces.shape[0] >= 1
     # Cleaned footprints are always extruded, whatever geometry they came from.
     assert captured["lod_switches"] == [1, 1]
+    assert captured["terrain_following_regions"] == [1, 1]
+    assert captured["follow_terrain"] is True
     assert captured["backend"] == "triangle"
     assert captured["region_markers"] == [-2, 0, 1]
     assert captured["region_triangle_sizes"] == {0: 4.0, 1: 5.0}

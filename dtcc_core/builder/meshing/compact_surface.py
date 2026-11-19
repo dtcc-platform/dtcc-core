@@ -164,6 +164,7 @@ def compact_surface(
     allow_source_steps=False,
     base_z=None,
     block_bases=None,
+    contact=None,
 ):
     """Mesh shared planar faces using a city attachment or an isolated base.
 
@@ -186,6 +187,7 @@ def compact_surface(
         allow_source_steps=allow_source_steps,
         base_z=base_z,
         block_bases=block_bases,
+        contact=contact,
     )
     # Intrinsic complexity is measured before any terrain tessellation enters.
     intrinsic = [replace(f, rings=[], boundary=[]) for f in building]
@@ -214,6 +216,10 @@ def compact_surface(
     clock = time.perf_counter()
     with progress_range(20, 40, "Reconciling shared LOD2 edges..."):
         registry, graph = geometric_graph(faces)
+    if contact is not None:
+        terrain_locality["contact_edge_splits"] = sum(
+            max(0, len(face.rings[0]) - 3) for face in terrain
+        )
     stage_seconds["shared_boundary_graph"] = time.perf_counter() - clock
     clock = time.perf_counter()
     vertices = np.asarray(registry.vertices)
