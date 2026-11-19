@@ -13,6 +13,7 @@ def test_rectangle_mesh(nx, ny):
     assert isinstance(mesh, Mesh)
     assert mesh.vertices.shape == ((nx + 1) * (ny + 1), 3)
     assert mesh.faces.shape == (2 * nx * ny, 3)
+    assert mesh.faces.dtype == np.int64
     triangles = mesh.vertices[mesh.faces]
     normals = np.cross(
         triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
@@ -22,15 +23,17 @@ def test_rectangle_mesh(nx, ny):
     np.testing.assert_array_equal(mesh.vertices[:, 2], 0)
     restored = Mesh()
     restored.from_proto(mesh.to_proto())
+    np.testing.assert_array_equal(restored.vertices, mesh.vertices)
     np.testing.assert_array_equal(restored.faces, mesh.faces)
 
 
-@pytest.mark.parametrize("nx,ny,nz", [(1, 1, 1), (2, 3, 4)])
+@pytest.mark.parametrize("nx,ny,nz", [(1, 1, 1), (2, 3, 4), (1, 2, 4), (5, 1, 1)])
 def test_box_mesh(nx, ny, nz):
     mesh = dtcc.BoxMesh(nx, ny, nz)
     assert isinstance(mesh, VolumeMesh)
     assert mesh.vertices.shape == ((nx + 1) * (ny + 1) * (nz + 1), 3)
     assert mesh.cells.shape == (6 * nx * ny * nz, 4)
+    assert mesh.cells.dtype == mesh.boundary_faces.dtype == np.int64
     tetrahedra = mesh.vertices[mesh.cells]
     volumes = np.linalg.det(tetrahedra[:, 1:] - tetrahedra[:, :1]) / 6
     assert np.all(volumes > 0)
@@ -53,21 +56,27 @@ def test_box_mesh(nx, ny, nz):
         assert np.all(triangles[mesh.boundary_markers == tag, :, axis] == value)
     # Every interior triangle belongs to exactly two tetrahedra: no cracks.
     faces = mesh.cells[:, [[1, 2, 3], [0, 3, 2], [0, 1, 3], [0, 2, 1]]].reshape(-1, 3)
-    _, counts = np.unique(np.sort(faces, axis=1), axis=0, return_counts=True)
+    unique, counts = np.unique(np.sort(faces, axis=1), axis=0, return_counts=True)
     assert np.all((counts == 1) | (counts == 2))
-    assert (counts == 1).sum() == len(mesh.boundary_faces)
+    boundary = np.sort(mesh.boundary_faces, axis=1)
+    order = np.lexsort((boundary[:, 2], boundary[:, 1], boundary[:, 0]))
+    np.testing.assert_array_equal(boundary[order], unique[counts == 1])
     restored = VolumeMesh()
     restored.from_proto(mesh.to_proto())
+    np.testing.assert_array_equal(restored.vertices, mesh.vertices)
     np.testing.assert_array_equal(restored.cells, mesh.cells)
+    np.testing.assert_array_equal(restored.boundary_faces, mesh.boundary_faces)
     np.testing.assert_array_equal(restored.boundary_markers, mesh.boundary_markers)
 
 
 @pytest.mark.parametrize("value", [0, -1, 1.5, True, "2", None])
 def test_invalid_subdivision_counts(value):
-    with pytest.raises((ValueError, TypeError), match="n[xyz]"):
-        dtcc.RectangleMesh(value, 1)
-    with pytest.raises((ValueError, TypeError), match="n[xyz]"):
-        dtcc.BoxMesh(1, value, 1)
+    for factory, axes in ((dtcc.RectangleMesh, "xy"), (dtcc.BoxMesh, "xyz")):
+        for index, axis in enumerate(axes):
+            counts = [1] * len(axes)
+            counts[index] = value
+            with pytest.raises((ValueError, TypeError), match=f"n{axis}"):
+                factory(*counts)
 
 
 def test_numpy_integer_counts():
