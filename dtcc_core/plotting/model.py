@@ -395,7 +395,19 @@ def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
     return ax
 
 
-def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, show):
+def _plot_model(
+    root,
+    *,
+    ax,
+    lod,
+    representation,
+    field,
+    max_elements,
+    theme,
+    show,
+    projection=None,
+    map_options=None,
+):
     if (
         isinstance(max_elements, bool)
         or not isinstance(max_elements, int)
