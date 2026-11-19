@@ -239,6 +239,8 @@ def test_dataset_value_equals_raw_value_when_nested():
     looped = DatasetValue()
     looped.value = looped
     assert (looped == DatasetValue(looped)) is True
+    assert (looped == DatasetValue(1)) is False
+    assert (looped == 1) is False
     # Arithmetic through NumPy still treats a DatasetValue as a sequence.
     assert np.sum(DatasetValue([1, 2])) == 3
     assert (DatasetValue({"a": DatasetValue(3)}) == {"a": 3}) is True

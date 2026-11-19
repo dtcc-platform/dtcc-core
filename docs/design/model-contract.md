@@ -208,10 +208,10 @@ the Python version's generated `__eq__`. The policy is:
 Models stay unhashable. `DatasetValue` compares as the value it wraps: it
 equals another `DatasetValue` or a raw value with equal contents, also inside
 nested containers. With a NumPy array as the left operand, NumPy compares
-element by element and returns an array. A subclass may define its own `__eq__`; its subclasses inherit that
-instead. `@dataclass(eq=False)` does not remove the shared comparator. Cyclic
-containers and payload objects whose own `==` does not return a bool (such as
-pandas objects) are not supported.
+element by element and returns an array. A subclass may define its own
+`__eq__`; its subclasses inherit that instead. `@dataclass(eq=False)` does not
+remove the shared comparator. Cyclic containers and payload objects whose own
+`==` does not return a bool (such as pandas objects) are not supported.
 
 ### Format evolution and retirement
 

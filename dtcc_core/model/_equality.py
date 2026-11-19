@@ -16,6 +16,9 @@ def values_equal(a, b) -> bool:
     a, b = _unwrap(a), _unwrap(b)
     if a is b:
         return True
+    if _is_wrapper(a) or _is_wrapper(b):
+        # Only a self-wrapping DatasetValue is left wrapped; identity decides.
+        return False
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
         return _arrays_equal(a, b)
     if isinstance(a, (list, tuple)) or isinstance(b, (list, tuple)):
@@ -50,7 +53,8 @@ def _arrays_equal(a, b) -> bool:
 def _unwrap(value):
     """Innermost value of containers that compare as their contents (DatasetValue).
 
-    Stops at a wrapper already seen, so a self-wrapping value cannot loop.
+    Stops at a wrapper already seen and returns it, so a self-wrapping value
+    cannot loop.
     """
     seen = set()
     while (unwrap := getattr(type(value), "_eq_unwrap", None)) is not None:
@@ -59,6 +63,10 @@ def _unwrap(value):
         seen.add(id(value))
         value = unwrap(value)
     return value
+
+
+def _is_wrapper(value) -> bool:
+    return getattr(type(value), "_eq_unwrap", None) is not None
 
 
 def _is_nan(value) -> bool:
