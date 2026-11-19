@@ -20,6 +20,7 @@ and fails when this page differs.
 | `air_quality` | - | `SensorCollection` | yes | `geojson` | none | none |
 | `building_footprints` | - | `FootprintCollection` | yes | `geojson` | none | none |
 | `buildings` | - | `BuildingCollection` | yes | `geojson` | none | none |
+| `built_up` | - | `Raster` | yes | `png`, `tif` | none | none |
 | `buses` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `calibration_grid` | - | `CalibrationGrid` | yes | `geojson` | geojson: crs_resolvable | none |
 | `city` | - | `City` | yes | `geojson` | none | none |
