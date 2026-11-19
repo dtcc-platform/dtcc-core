@@ -8,13 +8,14 @@ import socket
 import threading
 import traceback
 from collections import Counter
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+from dtcc_core.io import http_client
 from dtcc_core.io._http import (
     AsyncHttpClient,
     Budget,
@@ -25,6 +26,7 @@ from dtcc_core.io._http import (
     Request,
     ResponseCache,
     RetryPolicy,
+    Timeout,
 )
 
 
@@ -1115,23 +1117,17 @@ def test_mutated_json_payload_preserves_redirect_error(backend, server, method, 
     run(backend, scenario)
 
 
-@pytest.mark.parametrize("case", ["malformed_status", "proxy_connect_502"])
-def test_protocol_and_proxy_failures_retry_as_connection(backend, case):
-    payload = (
-        b"NOT-HTTP\r\n\r\n"
-        if case == "malformed_status"
-        else b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
-    )
-    connections = 0
+@contextmanager
+def raw_server(handle):
+    """Serve loopback connections one at a time with handle(conn, number)."""
+    served = []
     stop = threading.Event()
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen(8)
     listener.settimeout(0.1)
-    port = listener.getsockname()[1]
 
     def serve():
-        nonlocal connections
         while not stop.is_set():
             try:
                 conn, _ = listener.accept()
@@ -1139,42 +1135,109 @@ def test_protocol_and_proxy_failures_retry_as_connection(backend, case):
                 continue
             except OSError:
                 break
-            connections += 1
+            served.append(conn)
             with conn:
-                conn.settimeout(1.0)
+                conn.settimeout(2.0)
                 try:
-                    conn.recv(4096)
-                    conn.sendall(payload)
+                    handle(conn, len(served))
                 except OSError:
                     pass
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
+    try:
+        yield listener.getsockname()[1], served
+    finally:
+        stop.set()
+        listener.close()
+        thread.join()
 
-    target_url = (
-        f"http://127.0.0.1:{port}/"
+
+@pytest.mark.parametrize("client", ["sync", "async", "native"])
+@pytest.mark.parametrize("case", ["malformed_status", "proxy_connect_502"])
+def test_protocol_and_proxy_failures_retry_as_connection(client, case):
+    payload = (
+        b"NOT-HTTP\r\n\r\n"
         if case == "malformed_status"
-        else "https://example.invalid/"
+        else b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
     )
-    client_kwargs = {"retry": RetryPolicy(retries=2, backoff=0)}
-    if case == "proxy_connect_502":
-        client_kwargs["proxy"] = f"http://127.0.0.1:{port}"
 
-    async def scenario(api):
-        with pytest.raises(HttpTransportError) as caught:
-            await api.request(Request("GET", target_url))
+    def handle(conn, number):
+        conn.recv(4096)
+        conn.sendall(payload)
+
+    with raw_server(handle) as (port, served):
+        if case == "malformed_status":
+            target_url, proxy = f"http://127.0.0.1:{port}/", None
+        else:
+            target_url, proxy = "https://example.invalid/", f"http://127.0.0.1:{port}"
+
+        if client == "native":
+            with http_client(retries=2, proxy=proxy) as native:
+                native._backend._sleep = lambda delay: None
+                with pytest.raises(HttpTransportError) as caught:
+                    native.request(target_url)
+                attempts = native.counters.network_attempts
+        else:
+            errors, counters = [], []
+
+            async def scenario(api):
+                with pytest.raises(HttpTransportError) as raised:
+                    await api.request(Request("GET", target_url))
+                errors.append(raised)
+                counters.append(api.client.counters.network_attempts)
+
+            options = {"retry": RetryPolicy(retries=2, backoff=0)}
+            if proxy:
+                options["proxy"] = proxy
+            run(client, scenario, **options)
+            caught, attempts = errors[0], counters[0]
+
         error = caught.value
         assert (error.kind, error.attempts, error.retry_allowed_by_policy) == (
             "connection",
             3,
             True,
         )
-        assert api.client.counters.network_attempts == 3
+        assert attempts == 3 and len(served) == 3
 
-    try:
-        run(backend, scenario, **client_kwargs)
-        assert connections == 3
-    finally:
-        stop.set()
-        listener.close()
-        thread.join()
+
+def test_async_failed_read_releases_its_connection_before_retry_sleep():
+    # aiohttp keeps a connection after a read timeout until the response is
+    # closed; requests drops it on the error itself, so only async is tested
+    # here. test_http_policy checks the close-before-sleep order on both.
+    first_closed = threading.Event()
+
+    def handle(conn, number):
+        conn.recv(4096)
+        if number == 1:
+            # Send part of the body, then stall until the client closes.
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+            while conn.recv(4096):
+                pass
+            first_closed.set()
+        else:
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+            )
+
+    closed_when_sleeping = []
+
+    async def sleep(delay):
+        closed_when_sleeping.append(await asyncio.to_thread(first_closed.wait, 2))
+
+    with raw_server(handle) as (port, served):
+
+        async def scenario(api):
+            response = await api.request(Request("GET", f"http://127.0.0.1:{port}/"))
+            assert response.body == b"ok"
+
+        run(
+            "async",
+            scenario,
+            timeout=Timeout(read=0.3),
+            retry=RetryPolicy(retries=1, backoff=0),
+            sleep=sleep,
+        )
+        assert len(served) == 2
+    assert closed_when_sleeping == [True]
