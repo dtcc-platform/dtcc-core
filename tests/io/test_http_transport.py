@@ -826,13 +826,18 @@ def test_upload_reader_exception_is_preserved(backend, server, exception_type):
     run(backend, scenario)
 
 
+@pytest.mark.parametrize("complete_body", [False, True])
 @pytest.mark.parametrize("mode", ["buffered", "stream", "error_status"])
-def test_async_reader_error_after_response_headers(mode, monkeypatch):
+def test_async_reader_error_after_response_headers(mode, complete_body, monkeypatch):
     from dtcc_core.io._http._async import _BorrowedStream
 
     release_reader = threading.Event()
     recorded_failure = threading.Event()
-    failure = RuntimeError("late upload failure")
+    failure = (
+        OSError("late upload failure")
+        if complete_body
+        else RuntimeError("late upload failure")
+    )
     original_read = _BorrowedStream.read
 
     def record_failure(self, size=-1):
@@ -854,12 +859,16 @@ def test_async_reader_error_after_response_headers(mode, monkeypatch):
             pass
 
         def do_POST(self):
-            self.send_response(503 if mode == "error_status" else 200)
+            status = (413 if complete_body else 503) if mode == "error_status" else 200
+            self.send_response(status)
             self.send_header("Content-Length", "2")
             self.end_headers()
             self.wfile.flush()
             # The test releases the reader once the client has received the headers.
             assert recorded_failure.wait(5), "upload failure was not recorded"
+            if complete_body:
+                self.wfile.write(b"ok")
+                self.wfile.flush()
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), EarlyResponse)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -881,7 +890,7 @@ def test_async_reader_error_after_response_headers(mode, monkeypatch):
                 f"http://127.0.0.1:{httpd.server_port}/",
                 multipart=(MultipartPart("file", reader, "file.bin"),),
             )
-            with pytest.raises(RuntimeError) as caught:
+            with pytest.raises(type(failure)) as caught:
                 if mode == "stream":
                     async with client.stream(request) as response:
                         _ = [chunk async for chunk in response.iter_bytes()]

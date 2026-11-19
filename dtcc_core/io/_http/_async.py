@@ -207,9 +207,14 @@ class AsyncHttpClient:
             else "request"
         )
 
-    def _error(self, operation, exc, *, phase, status=None):
+    def _raise_local_error(self, operation, response=None):
         if operation.local_errors:
+            if response is not None:
+                response.close()
             raise operation.local_errors[0] from None
+
+    def _error(self, operation, exc, *, phase, status=None):
+        self._raise_local_error(operation)
         return operation.error(self._kind(exc), status=status, phase=phase)
 
     async def _send(self, operation):
@@ -218,7 +223,9 @@ class AsyncHttpClient:
         kwargs = self._kwargs(request, operation.local_errors)
         operation.attempt()
         try:
-            return await self._session.request(request.method, request.url, **kwargs)
+            response = await self._session.request(
+                request.method, request.url, **kwargs
+            )
         except (self._aiohttp.ClientError, TimeoutError) as exc:
             # Only a connect timeout is known to precede sending; the total
             # deadline can fire while waiting for response headers.
@@ -229,10 +236,13 @@ class AsyncHttpClient:
                 else "connect"
             )
             raise self._error(operation, exc, phase=phase) from None
+        self._raise_local_error(operation, response)
+        return response
 
     async def _chunks(self, response, operation, size=65536, *, limited=True):
         iterator = response.content.iter_chunked(size).__aiter__()
         while True:
+            self._raise_local_error(operation)
             operation.before_read()
             try:
                 chunk = await anext(iterator, None)
@@ -240,6 +250,7 @@ class AsyncHttpClient:
                 raise self._error(
                     operation, exc, status=response.status, phase="read"
                 ) from None
+            self._raise_local_error(operation)
             if chunk is None:
                 return
             operation.received(chunk, limited=limited)
@@ -256,6 +267,7 @@ class AsyncHttpClient:
                     break
         except HttpTransportError:
             pass
+        self._raise_local_error(operation)
         return operation.error(
             "http_status", status=response.status, body=bytes(body), phase="read"
         )
