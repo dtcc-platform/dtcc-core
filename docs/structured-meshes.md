@@ -1,6 +1,7 @@
 # Structured meshes
 
-Create an offline mesh without FEniCSx or an external mesher:
+The `RectangleMesh` and `BoxMesh` factory functions create native meshes
+without FEniCSx or an external mesher:
 
 ```python
 from dtcc_core import BoxMesh, RectangleMesh
@@ -18,3 +19,7 @@ inspection, transformations and canonical serialization.
 `BoxMesh` includes outward-oriented boundary triangles with labels xmin=-3,
 xmax=-4, ymin=-5, ymax=-6, zmin=-1 and zmax=-2. `RectangleMesh` is a triangular
 surface mesh; it does not assign volume boundary labels.
+
+The [tagged facets guide](volume-mesh-boundaries.md) describes how `.dtcc`,
+`.dtccpkg` and XDMF preserve boundary labels. VTK/VTU export and `to_cpp()`
+omit them.
