@@ -50,18 +50,23 @@ def _mesh_values(mesh, field):
         raise ValueError("Select exactly one existing face field with field=...")
     f = matches[0]
     values = np.asarray(f.values)
-    if f.association != "face" or len(values) != len(mesh.faces):
+    if f.association != "face" or not values.ndim or len(values) != len(mesh.faces):
         raise ValueError("Field count must match its face association")
     if f.dim != 1 or values.shape not in ((len(mesh.faces),), (len(mesh.faces), 1)):
         raise ValueError("XY face maps require a scalar field (dim=1)")
-    values = values.reshape(-1)
-    if not np.isrealobj(values) or not np.all(np.isfinite(values)):
+    if values.dtype.kind not in "bifu":
         raise ValueError("Face values must be finite real numbers")
-    return f, values
+    return f, values.reshape(-1)
 
 
-def _mesh_xy(mesh):
+def _mesh_geometry(mesh):
     faces, vertices = np.asarray(mesh.faces), np.asarray(mesh.vertices)
+    if (
+        vertices.ndim != 2
+        or vertices.shape[1] != 3
+        or vertices.dtype.kind not in "bifu"
+    ):
+        raise ValueError("Mesh vertices must be real XYZ coordinates")
     if (
         faces.ndim != 2
         or faces.shape[1] != 3
@@ -71,17 +76,24 @@ def _mesh_xy(mesh):
         or faces.max() >= len(vertices)
     ):
         raise ValueError("XY face maps require nonempty valid triangular connectivity")
-    if vertices.ndim != 2 or vertices.shape[1] != 3 or not np.isrealobj(vertices):
-        raise ValueError("Mesh vertices must be real XYZ coordinates")
+    return vertices, faces
+
+
+def _mesh_xy(mesh, vertices, drawn_faces):
     matrix = mesh.transform._validate_affine(mesh.transform.affine)
-    xy = (vertices @ matrix[:3, :3].T + matrix[:3, 3])[:, :2]
-    if not np.all(np.isfinite(xy)):
+    used_vertices = np.zeros(len(vertices), dtype=bool)
+    used_vertices[drawn_faces] = True
+    with np.errstate(over="ignore", invalid="ignore"):
+        projected = vertices[used_vertices] @ matrix[:2, :3].T + matrix[:2, 3]
+    if not np.all(np.isfinite(projected)):
         raise ValueError("Transformed XY coordinates must be finite")
-    triangles = xy[faces]
+    xy = np.full((len(vertices), 2), np.nan, dtype=projected.dtype)
+    xy[used_vertices] = projected
+    triangles = xy[drawn_faces]
     a, b = triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
     if np.any(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0] == 0):
         raise ValueError("Mesh contains degenerate triangles in XY projection")
-    return xy, faces
+    return xy
 
 
 def _perimeter(xy, faces):
@@ -238,7 +250,7 @@ def _plot_face_map(
     show,
 ):
     f, values = _mesh_values(mesh, field)
-    xy, faces = _mesh_xy(mesh)
+    vertices, faces = _mesh_geometry(mesh)
     context = _mask(context_mask, len(faces), "context_mask", False)
     selected = (
         _mask(face_mask, len(faces), "face_mask", True)
@@ -249,7 +261,12 @@ def _plot_face_map(
         raise ValueError("face_mask and context_mask must be disjoint")
     if not selected.any():
         raise ValueError("Select at least one field face")
-    limits = _limits(values[selected], vmin, vmax)
+    selected_values = values[selected]
+    if not np.all(np.isfinite(selected_values)):
+        raise ValueError("Face values must be finite real numbers")
+    drawn_faces = faces[selected | context]
+    xy = _mesh_xy(mesh, vertices, drawn_faces)
+    limits = _limits(selected_values, vmin, vmax)
     if coordinate_unit is not None and (
         not isinstance(coordinate_unit, str) or not coordinate_unit.strip()
     ):
@@ -281,7 +298,7 @@ def _plot_face_map(
     _decorate(
         ax,
         mesh,
-        xy[faces[selected | context]].reshape(-1, 2),
+        xy[drawn_faces].reshape(-1, 2),
         theme=theme,
         title=title if title is not None else f.name,
         coordinate_unit=coordinate_unit,
@@ -290,7 +307,7 @@ def _plot_face_map(
         scale_bar=scale_bar,
     )
     ax.set_gid("face_field_map")
-    if np.all(values[selected] == 0):
+    if np.all(selected_values == 0):
         ax.text(
             0.5,
             0.96,

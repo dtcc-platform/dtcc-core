@@ -15,10 +15,11 @@ preview and `--view tetra` cuts through stored tetrahedral connectivity. See the
 When using `plot(field=...)` directly on that model, select a snapshot Object and
 representation first to avoid combining samples from different times.
 
-`Model.plot()` lazily uses Matplotlib and returns a 3D axes, or a 2D axes for a
-standalone RGB/RGBA Raster. Objects recurse through their children, so a City
-includes building parts, terrain, vegetation,
-furniture, transport, sensor and vehicle locations, and numerical domains.
+`Model.plot()` lazily uses Matplotlib. Standalone RGB/RGBA rasters and triangular
+Mesh face maps with `projection="xy"` use 2D axes. Other previews use 3D axes.
+Objects recurse through their children, so a City includes building parts,
+terrain, vegetation, furniture, transport, sensor and vehicle locations, and
+numerical domains.
 Existing specialized plots on SensorCollection, VehicleCollection, RoadNetwork
 and other classes remain unchanged. No model data or bounds are changed.
 
@@ -125,11 +126,13 @@ Explicit masks must be disjoint, correctly sized, and select at least one field
 face. Omitted faces are not displayed. Empty marker arrays require no special
 handling because markers are not used by this renderer.
 
-Each triangle receives its own scalar value without interpolation. Vector
-fields, non-face associations, inconsistent counts, nonfinite values and
-triangles degenerate in XY fail clearly. `vmin` and `vmax` must be finite and
-strictly increasing when both are supplied; automatic constant-field ranges
-are expanded, and all-zero fields are labelled. The colourbar includes the
+Each coloured triangle receives its own scalar value without interpolation.
+Field type, association, counts and mesh connectivity must be valid throughout
+the input. Values must be finite on field faces. Field and context faces must
+have finite transformed XY coordinates and nondegenerate XY triangles.
+These checks use the masks before display sampling. When both are supplied,
+`vmin` and `vmax` must be finite and strictly increasing. Automatic
+constant-field ranges are expanded, and all-zero fields are labelled. The colourbar includes the
 field name and unit. `cmap` accepts a Matplotlib colormap; the default uses Core
 colours. `ax` accepts a Matplotlib 2D axes; `show=False` suppresses display.
 

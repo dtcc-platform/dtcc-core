@@ -140,6 +140,68 @@ def test_missing_vector_wrong_association_and_count(mesh):
         plot(mesh)
 
 
+@pytest.mark.parametrize("mask", ["context_mask", "face_mask"])
+def test_nonfinite_uncolored_values(mesh, mask):
+    selected = np.array([True, True, False, False])
+    mesh.fields[0].values[~selected] = np.nan
+    options = {mask: ~selected if mask == "context_mask" else selected}
+
+    ax = plot(mesh, **options)
+    layers = {collection.get_gid(): collection for collection in ax.collections}
+    np.testing.assert_array_equal(layers["face_field"].get_array(), [0.0, 0.2])
+    assert layers["face_field"].get_clim() == (0.0, 0.2)
+    if mask == "context_mask":
+        assert len(layers["face_context"].get_paths()) == 2
+
+
+def test_omitted_vertical_wall(mesh):
+    wall_vertex = mesh.vertices[0] + [0.0, 0.0, 1.0]
+    mesh.vertices = np.vstack([mesh.vertices, wall_vertex])
+    mesh.faces[-1] = [0, 1, len(mesh.vertices) - 1]
+
+    ax = plot(mesh, face_mask=[True, True, True, False])
+    assert len(ax.collections[0].get_paths()) == 3
+
+
+@pytest.mark.parametrize("unused_value", [np.nan, np.inf])
+def test_unused_nonfinite_vertex(mesh, unused_value):
+    mesh.vertices = np.vstack([mesh.vertices, [unused_value, 0.0, 0.0]])
+
+    with np.errstate(invalid="raise"):
+        ax = plot(mesh)
+    assert len(ax.collections[0].get_paths()) == 4
+
+
+def test_nonfinite_colored_value_is_rejected(mesh):
+    mesh.fields[0].values[0] = np.nan
+    with pytest.raises(ValueError, match="Face values must be finite real numbers"):
+        plot(mesh, face_mask=[True, False, False, False])
+
+
+def test_nonnumeric_field_values_are_rejected(mesh):
+    mesh.fields[0].values = np.array([0.0, None, 1.0, 2.0], dtype=object)
+    with pytest.raises(ValueError, match="Face values must be finite real numbers"):
+        plot(mesh)
+
+
+def test_collinear_colored_triangle_is_rejected(mesh):
+    mesh.vertices[2] = (mesh.vertices[0] + mesh.vertices[1]) / 2
+    with pytest.raises(ValueError, match="degenerate triangles in XY"):
+        plot(mesh, face_mask=[True, False, False, False])
+
+
+def test_nonfinite_context_vertex_is_rejected(mesh):
+    mesh.vertices[4, 0] = np.nan
+    with pytest.raises(ValueError, match="Transformed XY coordinates must be finite"):
+        plot(mesh, context_mask=[False, False, True, True])
+
+
+def test_invalid_connectivity_in_omitted_face_is_rejected(mesh):
+    mesh.faces[-1, -1] = len(mesh.vertices)
+    with pytest.raises(ValueError, match="valid triangular connectivity"):
+        plot(mesh, face_mask=[True, True, True, False])
+
+
 def test_axes_projection_and_transform_errors(mesh):
     ax = require_matplotlib().figure().add_subplot(projection="3d")
     with pytest.raises(ValueError, match="2D axes"):

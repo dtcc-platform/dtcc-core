@@ -93,8 +93,8 @@ class Model(ABC):
     ):
         """Quick Matplotlib preview; return the axes for further customization.
 
-        RGB/RGBA rasters use a georeferenced 2D image preview; other models use
-        a 3D preview.
+        Standalone RGB/RGBA rasters and triangular Mesh face maps with
+        ``projection="xy"`` use 2D axes. Other previews use 3D axes.
 
         Objects select one representation each and traverse their children.
         Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name
@@ -105,8 +105,10 @@ class Model(ABC):
         Use ``projection="xy"`` on a triangular Mesh to fill scalar face values.
         ``context_mask`` selects neutral faces excluded from the colour range;
         ``face_mask`` selects field faces (default: all non-context faces).
-        Both masks are boolean arrays in face order. ``vmin``/``vmax`` share a
-        colour range. ``title``, ``cmap``, ``xlabel`` and ``ylabel`` customize maps.
+        Both masks are boolean arrays in face order. Only field faces need finite
+        scalar values. Field and context faces need valid XY triangles.
+        ``vmin``/``vmax`` share a colour range. ``title``, ``cmap``, ``xlabel`` and
+        ``ylabel`` customize maps.
         ``coordinate_unit`` explicitly labels coordinate units without conversion;
         ``scale_bar=True`` requires it. No coordinate units are assumed.
 
