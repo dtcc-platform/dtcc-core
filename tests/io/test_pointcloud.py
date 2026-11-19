@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from dtcc_core import builder, io
+from dtcc_core.io.info import info_pointcloud
 from dtcc_core.model import Bounds, PointCloud
 
 
@@ -84,6 +85,53 @@ def test_save_pointcloud(point_cloud):
         assert len(point_cloud.classification) == len(loaded_pc.classification)
     finally:
         outpath.unlink()
+
+
+def test_save_pointcloud_csv_round_trips_points_and_classification(tmp_path):
+    rng = np.random.default_rng(0)
+    points = rng.random((10, 3)) * 1000.0
+    classification = np.arange(10, dtype=np.uint8) % 3 + 1
+    pc = PointCloud(points=points, classification=classification)
+    outpath = tmp_path / "cloud.csv"
+
+    io.save_pointcloud(pc, outpath)
+    loaded = io.load_pointcloud(outpath)
+
+    np.testing.assert_array_equal(loaded.points, points)
+    np.testing.assert_array_equal(loaded.classification, classification)
+
+
+def test_save_pointcloud_csv_without_classification_writes_xyz(tmp_path):
+    points = np.array([[1.5, 2.5, 3.5]])
+    outpath = tmp_path / "cloud.csv"
+
+    io.save_pointcloud(PointCloud(points=points), outpath)
+    loaded = io.load_pointcloud(outpath)
+
+    assert np.loadtxt(outpath, delimiter=",", ndmin=2).shape == (1, 3)
+    np.testing.assert_array_equal(loaded.points, points)
+
+
+def test_load_pointcloud_csv_points_only_ignores_classification_column(tmp_path):
+    outpath = tmp_path / "cloud.csv"
+    np.savetxt(outpath, [[0.0, 0.0, 0.0, 6.0], [1.0, 1.0, 1.0, 2.0]], delimiter=",")
+
+    assert list(io.load_pointcloud(outpath).classification) == [6, 2]
+    assert list(io.load_pointcloud(outpath, points_only=True).classification) == [
+        1,
+        1,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("1,2,3\n", (1, 1.0, 1.0)), ("1,2,3\n4,5,6\n", (2, 1.0, 4.0))],
+)
+def test_info_pointcloud_csv(tmp_path, text, expected):
+    path = tmp_path / "points.csv"
+    path.write_text(text)
+    info = info_pointcloud(path)
+    assert (info["points"], info["x_min"], info["x_max"]) == expected
 
 
 @pytest.mark.parametrize("file_count", [1, 2])

@@ -6,10 +6,11 @@ import tempfile
 
 import meshio
 import numpy as np
+import pygltflib
 import pytest
 
 from dtcc_core import io
-from dtcc_core.model import City, Field, VolumeMesh
+from dtcc_core.model import City, Field, Mesh, VolumeMesh
 
 
 @pytest.fixture
@@ -147,6 +148,66 @@ def test_save_mesh_only(basic_mesh, file_extension):
             bin_path.unlink()
         if path.exists():
             path.unlink()
+
+
+def _read_gltf_arrays(path):
+    gltf = pygltflib.GLTF2().load(str(path))
+    if path.suffix == ".glb":
+        blob = gltf.binary_blob()
+    else:
+        blob = (path.parent / gltf.buffers[0].uri).read_bytes()
+    index_accessor, position_accessor = gltf.accessors
+    index_view = gltf.bufferViews[index_accessor.bufferView]
+    position_view = gltf.bufferViews[position_accessor.bufferView]
+    assert index_accessor.componentType == pygltflib.UNSIGNED_INT
+    assert position_accessor.componentType == pygltflib.FLOAT
+    assert index_view.byteLength == 4 * index_accessor.count
+    assert position_view.byteLength == 12 * position_accessor.count
+    indices = np.frombuffer(
+        blob, np.uint32, index_accessor.count, index_view.byteOffset
+    )
+    positions = np.frombuffer(
+        blob, np.float32, 3 * position_accessor.count, position_view.byteOffset
+    ).reshape(-1, 3)
+    assert np.allclose(positions.min(axis=0), position_accessor.min)
+    assert np.allclose(positions.max(axis=0), position_accessor.max)
+    return indices, positions, np.array(gltf.nodes[0].translation)
+
+
+@pytest.mark.parametrize("file_extension", [".glb", ".gltf"])
+def test_save_gltf_round_trip(basic_mesh, tmp_path, file_extension):
+    mesh = Mesh(
+        vertices=basic_mesh.vertices * 10.0 + [319370.0, 6397790.0, 12.0],
+        faces=basic_mesh.faces,
+    )
+    path = tmp_path / f"mesh{file_extension}"
+    if file_extension == ".gltf":
+        with pytest.warns(UserWarning, match=r"saved to a \.bin file"):
+            mesh.save(path)
+    else:
+        mesh.save(path)
+
+    indices, positions, translation = _read_gltf_arrays(path)
+
+    assert np.array_equal(indices.reshape(-1, 3), mesh.faces)
+    y_up = positions.astype(np.float64) + translation
+    z_up = np.column_stack([y_up[:, 0], -y_up[:, 2], y_up[:, 1]])
+    assert np.allclose(z_up, mesh.vertices, rtol=0.0, atol=1e-3)
+
+
+@pytest.mark.parametrize("bad_index", [-1, 24])
+def test_save_gltf_rejects_out_of_range_index(basic_mesh, tmp_path, bad_index):
+    faces = basic_mesh.faces.copy()
+    faces[0, 0] = bad_index
+    mesh = Mesh(vertices=basic_mesh.vertices, faces=faces)
+    with pytest.raises(ValueError, match="face indices"):
+        mesh.save(tmp_path / "mesh.glb")
+
+
+def test_save_gltf_rejects_mesh_without_faces(basic_mesh, tmp_path):
+    mesh = Mesh(vertices=basic_mesh.vertices, faces=np.zeros((0, 3), dtype=int))
+    with pytest.raises(ValueError, match="no faces"):
+        mesh.save(tmp_path / "mesh.glb")
 
 
 # Specialized mesh tests

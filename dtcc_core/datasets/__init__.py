@@ -32,6 +32,7 @@ from .buildings import BuildingDataset
 from .city import CityDataset
 from .terrain_surface_mesh import TerrainSurfaceMeshDataset
 from .city_surface_mesh import CitySurfaceMeshDataset
+from .printable_city_tiles import PrintableCityTilesDataset
 from .city_flat_mesh import CityFlatMeshDataset
 from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
@@ -41,6 +42,7 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
+from .satellite_imagery import SatelliteImageryDataset
 from .space_syntax import SpaceSyntaxDataset
 from .transit_vehicles import (
     TransitVehiclesDataset,
@@ -75,6 +77,7 @@ city = get_dataset("city")
 
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
+printable_city_tiles = get_dataset("printable_city_tiles")
 city_flat_mesh = get_dataset("city_flat_mesh")
 city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")
@@ -83,6 +86,7 @@ weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
+satellite_imagery = get_dataset("satellite_imagery")
 space_syntax = get_dataset("space_syntax")
 transit_vehicles = get_dataset("transit_vehicles")
 buses = get_dataset("buses")
