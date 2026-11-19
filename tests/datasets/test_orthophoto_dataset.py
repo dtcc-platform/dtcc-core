@@ -3,6 +3,7 @@ import gc
 import importlib
 import json
 import math
+import shutil
 import struct
 import traceback
 import warnings
@@ -37,7 +38,7 @@ from dtcc_core.io import raster_tiles
 from dtcc_core.io.data import cache as data_cache
 from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
-from dtcc_core.model import Bounds, Raster, exchange
+from dtcc_core.model import Bounds, Raster
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
 from tests.datasets.test_dataset_publish import RecordingUploader
 
@@ -1320,7 +1321,6 @@ def test_tile_export_is_refused_before_any_request(no_http, tmp_path):
 
 
 NO_SAVER = "Cannot save object: RasterTileCollection. No IO save method"
-NOT_CANONICAL = "Canonical object RasterTileCollection is unsupported"
 
 # Each path's own refusal: the exception class and a pattern of its message.
 TILE_EXPORTS = {
@@ -1338,16 +1338,6 @@ TILE_EXPORTS = {
         lambda tiles, out: export_model_package(tiles, out / "pkg", format="json"),
         ValueError,
         f"Could not export RasterTileCollection as 'json': {NO_SAVER}",
-    ),
-    "canonical package": (
-        lambda tiles, out: export_model_package(tiles, out / "pkg", canonical=True),
-        NotImplementedError,
-        NOT_CANONICAL,
-    ),
-    "canonical encoding": (
-        lambda tiles, out: exchange.dumps(tiles),
-        NotImplementedError,
-        NOT_CANONICAL,
     ),
     "bytes": (
         lambda tiles, out: DatasetDescriptor.export_to_bytes(tiles, "tif"),
@@ -1377,6 +1367,29 @@ def test_tile_collection_export_is_refused_on_every_path(
     assert type(info.value) is expected
     assert str(data_cache.cache_dir) not in str(info.value)
     assert [path for path in out.rglob("*") if path.is_file()] == []
+
+
+@pytest.mark.parametrize("target", ["pkg", "pkg.dtccpkg"])
+def test_tile_collection_exports_a_package_that_outlives_the_cache(
+    server, tmp_path, monkeypatch, no_network, target
+):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    tiles = call(product="tiles")
+    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    expected = [tile.load() for tile in tiles]
+    package = tiles.export(tmp_path / "out" / target, canonical=True)
+    assert str(data_cache.cache_dir) not in package.manifest.model_dump_json()
+    shutil.rmtree(data_cache.cache_dir)
+    restored = load_model_package(tmp_path / "out" / target)
+    again = tmp_path / "again.dtccpkg"
+    restored.export(again, canonical=True)
+    for loaded in (restored, load_model_package(again)):
+        assert [tile.id for tile in loaded] == [tile.id for tile in tiles]
+        for tile, raster in zip(loaded, expected, strict=True):
+            np.testing.assert_array_equal(tile.load().data, raster.data)
+            assert tile.load().georef == raster.georef
+            np.testing.assert_equal(tile.load().nodata, raster.nodata)
+        assert loaded.dataset_context == tiles.dataset_context
 
 
 # Progress

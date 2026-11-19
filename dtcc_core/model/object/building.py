@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from numbers import Real
 from typing import Literal
 
+import numpy as np
 from shapely.ops import unary_union
 
-from ..geometry import Surface
+from ..geometry import MultiSurface, Surface
 from ..logging import warning
-from .object import GeometryType, Object
+from .object import GeometryType, Object, _normalize_geometry_type
 
 
 @dataclass(repr=False)
@@ -77,10 +78,29 @@ class Building(Object):
         -------
         Surface or None
             The footprint as a surface, or ``None`` when the building has no
-            usable LOD geometry.
+            usable LOD geometry. The footprint is expressed in the building's
+            parent frame: the building's own transform is applied to its
+            coordinates and the footprint has an identity affine.
+
+        Raises
+        ------
+        ValueError
+            If a geometry, component surface or building part below the
+            building has a non-identity transform, or if the building, its
+            geometry, its component surfaces or its parts declare conflicting
+            CRSs.
         """
+        from ...io.geojson import _members, exported_coordinates
+
         selected_geom_type = GeometryType.LOD0 if geom_type is None else geom_type
-        geom = self.flatten_geometry(selected_geom_type)
+        source = self
+        if any(
+            not np.array_equal(node.transform.affine, np.eye(4))
+            for node in (self, *_members(self))
+        ):
+            source = exported_coordinates(self)
+        srs = _geometry_srs(source, selected_geom_type)
+        geom = source.flatten_geometry(selected_geom_type)
         if geom is not None and not _is_footprint_compatible(geom):
             warning(f"Building {self.id} geometry cannot produce a footprint.")
             return None
@@ -105,6 +125,7 @@ class Building(Object):
 
         surface = Surface()
         surface.from_polygon(footprint, _resolve_footprint_z(geom, z))
+        surface.transform.srs = srs
         return surface
 
 
@@ -119,6 +140,49 @@ class BuildingPart(Object):
     measured_height = Building.measured_height
     height = Building.height
     estimated_height = Building.estimated_height
+
+
+def _geometry_srs(obj: Object, geom_type: GeometryType) -> str:
+    """Return the srs of the geometry ``flatten_geometry`` selects.
+
+    ``flatten_geometry`` copies geometry without its transform whenever the
+    object has children, so the srs is read from the source: the object's own
+    srs, and the srs of the geometries it merges (for LOD0 the object's own
+    geometry when it has one, otherwise the object's own geometry and every
+    descendant geometry of that type, with the srs of each descendant object
+    and of each component surface of a ``MultiSurface``). Blank values are
+    ignored and the remaining ones must denote the same CRS.
+
+    Raises
+    ------
+    ValueError
+        If the merged geometries declare different CRSs.
+    """
+    from pyproj import CRS
+
+    declared = [srs for srs in _geometry_srs_values(obj, geom_type) if srs]
+    for srs in declared[1:]:
+        if CRS.from_user_input(srs) != CRS.from_user_input(declared[0]):
+            raise ValueError(
+                f"Conflicting CRS declarations on Building {obj.id}: "
+                f"{declared[0]!r} and {srs!r}"
+            )
+    return declared[0] if declared else ""
+
+
+def _geometry_srs_values(obj: Object, geom_type: GeometryType) -> list[str]:
+    geom = obj.get_geometry(geom_type)
+    values = [obj.transform.srs]
+    if geom is not None:
+        values.append(geom.transform.srs)
+    if isinstance(geom, MultiSurface):
+        values.extend(surface.transform.srs for surface in geom.surfaces)
+    if geom is not None and _normalize_geometry_type(geom_type) == GeometryType.LOD0:
+        return values
+    for children in obj.children.values():
+        for child in children:
+            values.extend(_geometry_srs_values(child, geom_type))
+    return values
 
 
 def _resolve_footprint_z(

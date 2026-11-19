@@ -217,8 +217,9 @@ stay distinct; only some label band 4 as alpha for GIS viewers. The dataset's ow
 export writes a `<stem>.manifest.json` sidecar whose `dataset_context` holds the
 call's provenance, health and warnings. A legacy package drops health and warns
 when the status is not `complete`. An empty result writes no TIFF on any path.
-Tile collections cannot be exported or published; use the original files from
-`tile.path`.
+Tile collections export as canonical packages (`tiles.export(path,
+canonical=True)`) whose tiles reload with `tile.load()` after the cache is gone;
+publishing them is refused, and `build_mosaic` reads local cache tiles only.
 
 ## Progress
 
