@@ -27,6 +27,7 @@ from dtcc_core.model import (
     FootprintCollection,
     Mesh,
     PointCloud,
+    Raster,
     RoadNetwork,
     TreeCollection,
 )
@@ -115,6 +116,18 @@ CASES = [
             area.attributes.get("population_total") is not None for area in deso.areas
         ),
         kwargs={"statistics": ["population"]},
+    ),
+    LiveDatasetCase(
+        dataset="built_up",
+        upstream="GHSL built-up surface (JRC)",
+        expected_type=Raster,
+        is_populated=lambda raster: raster.data.size > 0 and raster.data.max() > 0,
+    ),
+    LiveDatasetCase(
+        dataset="satellite_imagery",
+        upstream="Digital Earth Sweden (STAC + WMS)",
+        expected_type=Raster,
+        is_populated=lambda raster: raster.data.size > 0,
     ),
 ]
 
