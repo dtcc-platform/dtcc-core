@@ -148,7 +148,8 @@ jobs:
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke \
             builder/test_cleaning_meshing_integration.py::test_build_city_volume_mesh_smoke_auto_lod_resolution \
             builder/test_cleaning_meshing_integration.py::test_city_volume_mesh_propagates_tetgen_failure \
-            datasets/test_city_volume_mesh_dataset.py
+            datasets/test_city_volume_mesh_dataset.py \
+            'datasets/test_export_matrix.py::test_canonical_only_product_round_trips[city_volume_mesh]'
         shell: bash
 
   python-compatibility:
