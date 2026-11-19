@@ -97,6 +97,16 @@ def test_missing_required_contract_fields_fail_loudly():
     assert ("descriptor", "supported_formats") in failing_fields
 
 
+def test_canonical_exports_without_serialized_formats_pass_qa():
+    report = audit_registered_datasets(include="printable_city_tiles")
+    findings = {
+        (finding.section, finding.field): finding for finding in report.findings
+    }
+    assert findings[("descriptor", "supported_formats")].status == "not_applicable"
+    assert findings[("metadata", "formats")].status == "not_applicable"
+    assert report.failures() == ()
+
+
 def test_report_formatters_return_markdown_and_json():
     report = audit_registered_datasets(include="smoke")
 

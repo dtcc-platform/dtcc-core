@@ -36,7 +36,7 @@ from dtcc_core.plotting.style import (
     show_plot,
 )
 
-from .dataset import DatasetBaseArgs, DatasetDescriptor
+from .dataset import DatasetBaseArgs, DatasetDescriptor, geojson_bytes
 from .presentation import (
     PREVIEW_COLOR_RAMP_AXES_BOUNDS,
     PREVIEW_STORY_AXES_BOUNDS,
@@ -98,8 +98,10 @@ class SmokeArgs(DatasetBaseArgs):
     crs: str | None = PydanticField(
         "EPSG:3006",
         description=(
-            "Coordinate reference system declared in GeoJSON outputs for GIS "
-            "readers. Set to None to omit the legacy GeoJSON CRS member."
+            "Coordinate reference system of the request bounds, declared as the "
+            "CRS of the slice and streamline products and of product='field' "
+            "GeoJSON. Slice and streamline GeoJSON is converted from this CRS to "
+            "EPSG:4326, so it requires a value."
         ),
     )
     include_z: bool = PydanticField(
@@ -272,6 +274,16 @@ class SmokeArgs(DatasetBaseArgs):
             raise ValueError("product='field' requires resolution <= 64")
         if self.format == "mp4" and self.transparent:
             raise ValueError("format='mp4' does not support transparent backgrounds")
+        if (
+            self.product in ("slice", "streamlines")
+            and self.format == "geojson"
+            and self.crs is None
+        ):
+            raise ValueError(
+                f"product={self.product!r} with format='geojson' requires a crs: "
+                "the product is converted to EPSG:4326 from the declared CRS of "
+                "the request bounds"
+            )
         return self
 
 
@@ -295,6 +307,60 @@ class SmokeDataset(DatasetDescriptor):
     data_category = "synthetic"
     result_kind = "vector_field"
     python_return_type = "dtcc_core.model.VolumeMesh"
+    export_capabilities = [
+        {
+            "product": "field",
+            "canonical": True,
+            "web_formats": [],
+            "constraints": {},
+            "options": {},
+            "exclusions": [
+                {
+                    "formats": ["geojson", "png", "tif"],
+                    "reason": "3D-only product: no map-placed or RFC 7946 web form",
+                }
+            ],
+        },
+        {
+            "product": "slice",
+            "canonical": True,
+            "web_formats": ["geojson", "png", "tif"],
+            "constraints": {
+                "geojson": {"arguments": {}, "preconditions": ["crs_resolvable"]},
+                "png": {
+                    "arguments": {"slice_axis": "z"},
+                    "preconditions": [
+                        "translation_only_root_transform",
+                        "crs_resolvable",
+                    ],
+                },
+                "tif": {
+                    "arguments": {"slice_axis": "z"},
+                    "preconditions": [
+                        "translation_only_root_transform",
+                        "crs_resolvable",
+                    ],
+                },
+            },
+            "options": {
+                "field": {"formats": ["png", "tif"], "default": "speed"},
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "Field unit"},
+            },
+            "exclusions": [],
+        },
+        {
+            "product": "streamlines",
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {
+                "geojson": {"arguments": {}, "preconditions": ["crs_resolvable"]},
+            },
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     timeout_hint = 2
     provider = [
         {
@@ -470,9 +536,7 @@ class SmokeDataset(DatasetDescriptor):
                     _product_factory(bounds, args),
                     _video_options(args),
                 )
-            return _json_bytes(
-                field_slice.to_geojson(include_z=args.include_z, crs=args.crs)
-            )
+            return geojson_bytes(field_slice, include_z=args.include_z)
 
         if args.product == "streamlines":
             if args.format not in (None, "geojson", "png", "mp4"):
@@ -493,9 +557,7 @@ class SmokeDataset(DatasetDescriptor):
                     _product_factory(bounds, args),
                     _video_options(args),
                 )
-            return _json_bytes(
-                streamlines.to_geojson(include_z=args.include_z, crs=args.crs)
-            )
+            return geojson_bytes(streamlines, include_z=args.include_z)
 
         raise ValueError(f"Unsupported smoke product: {args.product}")
 
@@ -1527,6 +1589,7 @@ def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     )
     field_slice.add_field(
         Field(
+            association="sample",
             name="velocity",
             unit="m/s",
             description="Synthetic analytical velocity sampled on the slice plane.",
@@ -1536,6 +1599,7 @@ def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     )
     field_slice.add_field(
         Field(
+            association="sample",
             name="speed",
             unit="m/s",
             description="Magnitude of the synthetic analytical velocity field.",
@@ -1545,6 +1609,7 @@ def _field_slice(bounds: Bounds, args: SmokeArgs) -> FieldSlice:
     )
     field_slice.add_field(
         Field(
+            association="sample",
             name="pressure",
             unit="Pa",
             description="Synthetic gauge pressure sampled on the slice plane.",
@@ -1583,6 +1648,7 @@ def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollect
         linestring = LineString(vertices=physical_line)
         linestring.add_field(
             Field(
+                association="vertex",
                 name="velocity",
                 unit="m/s",
                 description="Synthetic analytical velocity sampled on streamline vertices.",
@@ -1592,6 +1658,7 @@ def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollect
         )
         linestring.add_field(
             Field(
+                association="vertex",
                 name="speed",
                 unit="m/s",
                 description="Magnitude of the synthetic analytical velocity field.",
@@ -1601,6 +1668,7 @@ def _streamline_collection(bounds: Bounds, args: SmokeArgs) -> StreamlineCollect
         )
         linestring.add_field(
             Field(
+                association="vertex",
                 name="pressure",
                 unit="Pa",
                 description="Synthetic gauge pressure sampled on streamline vertices.",

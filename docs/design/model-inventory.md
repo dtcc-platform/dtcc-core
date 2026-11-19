@@ -8,7 +8,9 @@ Status: 12 September 2026, after the exterior-city milestone; wire **6**,
 standard schema **0.9.0**.
 This is the current inventory; the earlier phase-1 serialization tables are
 historical. It covers all 36 exported Model subclasses: 27 supported concrete
-roots, eight explicitly unsupported result/container types and abstract Geometry.
+roots, six root-only result wrappers, two explicitly unsupported result/container
+types and abstract Geometry, plus a seventh root-only result wrapper,
+RasterTileCollection, which is not exported.
 Model itself and module-visible Polygon are noted separately below.
 
 The wire authority is [dtcc.proto](../../dtcc_core/schemas/dtcc.proto), generated as
@@ -17,7 +19,9 @@ The wire authority is [dtcc.proto](../../dtcc_core/schemas/dtcc.proto), generate
 Earlier standard schemas are preserved in Git history, outside the checkout and
 runtime bundle. Default evaluation requires an
 available schema version; it does not migrate old property names. Every admitted
-concrete native type has an explicit 0.9.0 schema binding.
+concrete native type has an explicit 0.9.0 schema binding, except the seven root-only
+result wrappers: they have no schema binding and validate as a generic `Object` root
+with typed members.
 A binding to a generic class is not validation of every possible domain meaning.
 The [terrain/transportation crosswalk](terrain-transportation-crosswalk.md) audits
 their properties and distinguishes historical gaps from the subsequent implementation.
@@ -50,10 +54,10 @@ bounds and the remaining global transform-composition limits.
 | SensorCollection | Shared state; child stations retain concrete type | SensorCollection / generic Object rules | Observation metadata not covered by the current city vocabulary |
 | VehicleCollection | Shared state; child vehicles retain concrete type | VehicleCollection / generic Object rules | Live snapshot; temporal/moving-object semantics remain open |
 | DeSO | Shared state; area attributes and explicitly associated fields | DeSO / generic Object rules | Statistical area collection, not automatically LandUse |
-| BuildingCollection | **Unsupported**: buildings list | No binding | Decide whether this is a result wrapper or durable model root |
-| FootprintCollection | **Unsupported**: surfaces, source IDs/indices | No binding | Preserve source identity if admitting it; footprints are representations, not a new city class |
-| TreeCollection | **Unsupported**: trees list | No binding | Result-wrapper decision remains |
-| CalibrationGrid | **Unsupported**: bounds/divisions/CRS/features/metadata | No binding | Computational result; not a thematic CityGML feature by default |
+| BuildingCollection | Root-only result wrapper (kind 14): exchanged as a transient `Object` with ID `collection`; children are the buildings in order | No binding; root validates as a generic `Object` with typed Building members | Wrapper that carries its own kind on the wire; restored as BuildingCollection. Slots with no destination in the wrapper (root transform, semantic and profile labels, relations) must be default; the root carries no representations |
+| FootprintCollection | Root-only result wrapper (kind 15): transient `Object` with ID `collection`, one synthetic `MultiSurface` representation `footprints` (identity transform, no fields or regions) and attributes `source_ids` and `source_indices` | No binding; root validates as a generic `Object` | Source identity is preserved; footprints are representations, not a new city class. Synthetic slots must be default, and the representation's LOD and role must be unset |
+| TreeCollection | Root-only result wrapper (kind 13): transient `Object` with ID `collection`; children are the trees in order | No binding; root validates as a generic `Object` with typed Tree members | Wrapper that carries its own kind on the wire; restored as TreeCollection. Synthetic root slots must be default |
+| CalibrationGrid | Root-only result wrapper (kind 16): transient `Object` with ID `collection`, one `Bounds` representation `bounds` and attributes `divisions`, `crs`, `features`, `name` and `metadata` | No binding; root validates as a generic `Object` | Computational result; not a thematic CityGML feature by default. Synthetic root slots must be default, and the representation's LOD and role must be unset |
 
 ## Geometry, values and support
 
@@ -83,8 +87,9 @@ derived caches.
 | Raster | Data array, six affine coefficients, nodata, CRS | Generic Entity; Terrain can associate schema-declared elevation interpretation by representation ID. Native DEM support is not a CityGML RasterRelief or CityJSON conversion |
 | Bounds | Six finite ordered bounds | Generic Entity; standalone bounds or explicit representation, not cached Object extent |
 | Transform | SRS and affine 4x4 matrix | Generic Entity; local/global transform composition remains a separate model concern |
-| FieldSlice | **Unsupported**: PointCloud state plus slice/time/domain/metadata | No binding; must preserve all slice context before admission |
-| StreamlineCollection | **Unsupported**: lines, seeds/integration parameters/time/domain/metadata | No binding; do not serialize only its lines |
+| FieldSlice | Root-only result wrapper (kind 17): transient `Object` with ID `collection`, one `PointCloud` representation `samples` that is the slice's own geometry (points, classification, intensity and return arrays, the slice transform and every attached Field), a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `slice_axis`, `slice_position`, `resolution`, `axes`, `name`, `time`, `period`, `crs`, `include_z` and `metadata` | No binding; root validates as a generic `Object` and is restored as FieldSlice, never a plain PointCloud. Synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
+| RasterTileCollection | Root-only result wrapper (kind 19), not exported from `dtcc_core.model`: transient `Object` with ID `collection` and one attribute `tiles`, a list of records `id`, `collection`, `datetime` (ISO 8601 string), `extent` (`xmin`, `ymin`, `xmax`, `ymax`, `zmin`, `zmax`), `crs`, `spektraltyp`, `resolution` or null, `size_bytes` or null and `artifact`. `artifact` is `artifacts/tiles/<collection>/<index>-<id>.tif`, with collection and id reduced to `[A-Za-z0-9_-]` and index the tile's position; local cache paths are never written | No binding; root validates as a generic `Object`. A reference must equal that form and pass the portable package-path check; restored tiles hold the reference as `path` and refuse `load()` without a package binding. Synthetic root slots must be default; no representations |
+| StreamlineCollection | Root-only result wrapper (kind 18): transient `Object` with ID `collection`, one synthetic `MultiLineString` representation `lines` whose LineString children keep their own transforms and per-vertex Fields, a `Bounds` representation `domain` when `domain_bounds` is set, and attributes `seed_axis`, `seed_position`, `requested_line_count`, `streamline_steps`, `streamline_step_size`, `time`, `period`, `crs`, `include_z`, `axes`, `name` and `metadata` | No binding; root validates as a generic `Object`. The `lines` carrier must have an identity transform, no fields and no regions; synthetic root slots must be default and representation LOD and role unset; `default_artifact_format` is a class default outside canonical state |
 | DatasetCollection | **Unsupported**: arbitrary items | No binding; define durable collection meaning first |
 | DatasetValue | **Unsupported**: arbitrary Python value | No binding; do not invent a universal Python-object serializer |
 
@@ -159,10 +164,10 @@ CityGML theme or external adapter must be implemented in this milestone.
    Additional themes require an explicit workflow and acceptance scope. New
    semantic subtypes can use YAML where the generic native carriers suffice;
    no CityGML-shaped Python hierarchy is required.
-3. The eight unsupported wrappers/results fail explicitly. A future durable
-   workflow must decide whether to unwrap an existing model, retain a convenience
-   result, or admit additional authoritative state. Downcasting merely to claim
-   serialization coverage is not acceptable.
+3. The two unsupported wrappers/results (DatasetCollection, DatasetValue) fail
+   explicitly. A future durable workflow must decide whether to unwrap an existing
+   model, retain a convenience result, or admit additional authoritative state.
+   Downcasting merely to claim serialization coverage is not acceptable.
 4. Canonical v3 packages work through `export(canonical=True)`; default artifact-only
    v2 packages, downstream consumers and other external I/O adapters require
    separately bounded adoption work. Native and strict CityJSON default validation

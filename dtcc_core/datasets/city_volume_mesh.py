@@ -162,6 +162,21 @@ class CityVolumeMeshDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.VolumeMesh"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": [],
+            "constraints": {},
+            "options": {},
+            "exclusions": [
+                {
+                    "formats": ["geojson", "png", "tif"],
+                    "reason": "3D-only product: no map-placed or RFC 7946 web form",
+                }
+            ],
+        },
+    ]
     multi_file_formats = ("xdmf",)
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
