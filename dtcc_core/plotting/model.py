@@ -257,7 +257,19 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show):
     return ax
 
 
-def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, show):
+def _plot_model(
+    root,
+    *,
+    ax,
+    lod,
+    representation,
+    field,
+    max_elements,
+    theme,
+    show,
+    projection=None,
+    map_options=None,
+):
     if (
         isinstance(max_elements, bool)
         or not isinstance(max_elements, int)
@@ -271,6 +283,28 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
     ]:
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f"{name} must be a nonempty string")
+    if projection not in (None, "xy"):
+        raise ValueError("projection must be None or 'xy'")
+    if projection == "xy":
+        if lod is not None or representation is not None:
+            raise ValueError(
+                "XY face maps require a standalone Mesh without Object selectors"
+            )
+        from .face_map import _plot_face_map
+
+        return _plot_face_map(
+            root,
+            ax=ax,
+            field=field,
+            max_elements=max_elements,
+            theme=theme,
+            show=show,
+            **(map_options or {}),
+        )
+    if map_options and any(
+        value is not None and value is not False for value in map_options.values()
+    ):
+        raise ValueError("Face-map options require projection='xy'")
     plt = require_matplotlib("model previews")
     from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 

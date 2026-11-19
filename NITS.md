@@ -8,3 +8,5 @@ Entry format; the symbol and PR number are optional:
     - `path/to/file.py` (`symbol`): what is wrong; why it was left open. (#PR)
 
 - `dtcc_core/datasets/transport/vasttrafik.py` (`_fetch_token`, `_fetch_positions`): a failing live run under pytest's default or `-l` traceback prints these frames' credential arguments; the live workflow runs with `--tb=short`, which does not, so it was left open. (#139)
+- `dtcc_core/plotting/face_map.py` (`_layers`): The sampling note can overlap the scale bar, mention absent context and omit that field faces were sampled. This affects annotation clarity. (#197)
+- `dtcc_core/plotting/face_map.py` (`_limits`): An invalid range with one explicit limit does not identify the automatic bound in the error message. The invalid range is rejected. (#197)
