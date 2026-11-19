@@ -45,6 +45,7 @@ requires a graphical environment.
 
 ## Examples and documentation
 
+- [Structured meshes](docs/structured-meshes.md): unit-square and unit-cube mesh helpers.
 - [Demo catalog](demos/README.md): datasets and city-building workflows.
 - [Installation guide](docs/installation.md): compiler settings and optional backends.
 - [Model inspection](docs/model-display.md) and [plotting](docs/model-preview.md).

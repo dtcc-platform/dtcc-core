@@ -544,9 +544,15 @@ def _validate_upload_package(
         # Reuse the canonical persistence boundary, including model admission,
         # provenance and artifact integrity, before sending a stored package.
         try:
-            load_model_package(manifest_file.parent)
+            model = load_model_package(manifest_file.parent)
         except (ValueError, TypeError, NotImplementedError) as error:
             raise _package_error(f"Invalid canonical package: {error}") from error
+        from ..model.values.raster_tiles import RasterTileCollection
+
+        if isinstance(model, RasterTileCollection):
+            raise _package_error(
+                "Publishing a RasterTileCollection package is not supported."
+            )
         return _validate_v2_package(manifest_file, files, manifest_payload)
     if schema_version == MANIFEST_V2_SCHEMA_VERSION:
         return _validate_v2_package(manifest_file, files, manifest_payload)

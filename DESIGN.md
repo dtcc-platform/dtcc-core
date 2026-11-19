@@ -14,7 +14,7 @@ Context and Package contracts. Broadly useful, lightweight simulation may live
 here; specialized solvers and heavy numerical dependencies belong in DTCC Sim.
 Specialized meshing kernels may live in `dtcc-mesher`.
 
-[DTCC Twin](https://github.com/dtcc-platform/dtcc-twin/blob/develop/DESIGN.md)
+[DTCC Twin](https://github.com/dtcc-platform/dtcc-twin)
 owns application orchestration, Workspaces, Package and Table Catalog operation,
 Table Models, releases and installations. Core supplies their shared contracts,
 not application storage, credentials, distribution or audience policy.
@@ -39,8 +39,9 @@ types, relationships, geometry, topology, coordinate precision, CRS, transforms,
 fields and associations, units, markers, classifications, typed attributes and
 temporal or scenario axes.
 
-Artifacts identify schema version and root type; readers reject unsupported
-data. Documented canonical normalization is allowed; silent loss is not.
+Artifacts identify the schema version and root type. Readers reject unsupported
+data. Documented canonical normalization may be acceptable. Round trips must
+preserve semantics, structure, concrete types and precision without silent loss.
 Derived formats supplement canonical data. Dataset Context belongs on the
 in-memory result and in the Package manifest, except facts intrinsic to model
 interpretation, which belong in the model itself.
@@ -66,8 +67,9 @@ speculative abstractions and competing semantic models.
 ### Lean boundaries
 
 Keep application UX, deployment, credentials and specialized solver stacks
-outside Core. Optional backends must not be required merely to use model types.
-Compatibility layers are transitional, not permanent parallel APIs.
+outside Core. Isolate optional and heavyweight capabilities and load them only
+when used. Model types must be usable without those backends.
+Compatibility layers support migrations and retire when consumers have moved.
 
 ### Efficient by design
 
@@ -82,16 +84,21 @@ measurement justifies them. Preserve correctness and API clarity.
 - **Datasets:** named capabilities returning models with source context.
 - **Presentation:** inspection, plotting and viewing without changing meaning.
 
-Dependencies point toward the model. Raw I/O remains usable directly; imports
-in Dataset or Twin workflows use versioned import Dataset Definitions recording
-the request, actual parser, sources, provenance, terms and health.
+Dependencies point toward the model. Raw I/O remains usable directly. Imports
+in Dataset or Twin workflows use versioned import Dataset Definitions. The
+request and context record the declared input, actual sources, parser,
+provenance, terms, health and any retained source artifact.
 
 ## Dataset contract
 
-A Dataset Definition is a versioned, reusable capability. A validated Dataset
-Request produces a Dataset Realization: a native model with attached Context.
-Format is a delivery choice, not the product's meaning. Core and Sim register
-descriptors through Core; Twin's Capability Catalog is a discovery view.
+A Dataset Definition is a named, versioned, reusable capability exposed as
+`Dataset` in Python. A validated Dataset Request produces a Dataset Realization,
+a native model with attached Context. For example, `dtcc.datasets.city` is the
+definition and `dtcc.datasets.city(bounds=...)` returns a City with Context.
+The export format determines how the product is delivered.
+
+Core and Sim register definitions through the Core registry. Twin's Capability
+Catalog discovers those registered definitions at runtime.
 
 Context separates identity, discovery metadata, actual provenance, presentation
 semantics, request parameters, and health/warnings. Presentation describes the

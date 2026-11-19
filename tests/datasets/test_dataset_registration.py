@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 
 try:
@@ -332,6 +334,21 @@ def test_city_footprints_is_not_publicly_registered():
     assert "city_footprints" not in available
     with pytest.raises(KeyError):
         datasets.get_dataset("city_footprints")
+
+
+def test_remote_dataset_client_is_not_provided():
+    """Datasets run in-process; Core has no client for remote dataset services."""
+    removed = [
+        "RemoteDatasetDescriptor",
+        "RemoteValidationError",
+        "register_remote_service",
+        "register_remote_descriptors_from_cache",
+        "get_cached_discoveries",
+    ]
+
+    assert [name for name in removed if hasattr(datasets, name)] == []
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("dtcc_core.datasets.remote")
 
 
 # Backward Compatibility Tests

@@ -63,6 +63,10 @@ executable body line to be verifiable; docstring-only functions and native
 functions without Python source cannot be checked this way. This check does not
 measure native C++ coverage, all model methods or call counts.
 
+CI runs pull requests on Ubuntu only and the merge commit on macOS and Windows
+as well. Add the `full-ci` label to a pull request to run all three platforms
+on it; the label stays on, so later pushes run them too.
+
 ## Demos
 
 Follow the [demo guidelines](docs/demo-guidelines.md); the

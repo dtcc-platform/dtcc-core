@@ -13,9 +13,11 @@ Plots and viewers open directly; close each window to continue. `.view()` needs
 
 ## Dataset examples
 
-Examples request a model, inspect it, then plot or view it. Most use the
-`gbg_500m_2026_07` table-model bounds; sparse station and vehicle examples use
-a larger Gothenburg region. Service examples require network access.
+Examples request a model, inspect it, then plot, view, or export it. Most local
+geographic examples use the `gbg_500m_2026_07` table-model bounds. Sparse station
+and vehicle queries use a 45 km Gothenburg window. The built-up area and
+satellite imagery examples use 4 km and 3 km windows, respectively. Service
+examples require network access.
 
 | Demo | Dataset story | Preview |
 |---|---|---|
@@ -25,6 +27,8 @@ a larger Gothenburg region. Service examples require network access.
 | [dataset_roads.py](dataset_roads.py) | OpenStreetMap road network | `roads.plot(column="highway")` |
 | [dataset_space_syntax.py](dataset_space_syntax.py) | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | [dataset_deso.py](dataset_deso.py) | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
+| [dataset_built_up.py](dataset_built_up.py) | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg | `built_up_1975.plot()` / `built_up_2020.plot()` |
+| [dataset_satellite_imagery.py](dataset_satellite_imagery.py) | Sentinel-2 true-colour image from Digital Earth Sweden | `imagery.plot()` |
 | [dataset_weather.py](dataset_weather.py) | SMHI weather stations | `weather.plot("air_temperature")` |
 | [dataset_air_quality.py](dataset_air_quality.py) | SMHI air-quality stations | `air_quality.plot("NO2")` |
 | [dataset_hydrology.py](dataset_hydrology.py) | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |
@@ -34,6 +38,7 @@ a larger Gothenburg region. Service examples require network access.
 | [dataset_trees.py](dataset_trees.py) | Point-cloud-derived trees | `trees.plot()` |
 | [dataset_terrain_surface_mesh.py](dataset_terrain_surface_mesh.py) | Terrain surface mesh | `terrain.plot()` / `.view()` |
 | [dataset_city_surface_mesh.py](dataset_city_surface_mesh.py) | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
+| [dataset_printable_city_tiles.py](dataset_printable_city_tiles.py) | Four Gothenburg city tiles and the magnetic base | STLs and `layout.json` in `output/gothenburg-stls/` |
 | [dataset_city_flat_mesh.py](dataset_city_flat_mesh.py) | Flat mesh with footprint subdomains | `flat_mesh.plot()` / `.view()` |
 | [dataset_city_volume_mesh.py](dataset_city_volume_mesh.py) | Air-volume mesh; see limitations below | `volume_mesh.plot()` / `.view()` |
 | [dataset_city.py](dataset_city.py) | Terrain and catalogue LOD2 city model | `city.plot()` / `.view()` |
