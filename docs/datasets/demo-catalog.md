@@ -6,21 +6,27 @@ tangible-table profiles deploy concrete artifacts.
 
 ## Curated Demos
 
-Geographic geometry demos use a 250 × 250 m Chalmers Johanneberg domain,
+Local geographic demos use a 250 × 250 m Chalmers Johanneberg domain,
 centred at EPSG:3006 `(319970, 6397910)`, with bounds
-`(319845, 6397785, 320095, 6398035)`. The city model and LOD2 surface/volume
-examples share this area. Volume meshing uses an 80 m height and 12.5 m target
-edge length. City surface and flat mesh examples use a 10 m target; the terrain
-surface mesh example uses a 25 m target.
+`(319845, 6397785, 320095, 6398035)`. The city model, LOD2 surface and volume
+meshes, and synthetic smoke share this area. Volume meshing uses an 80 m height
+and a 12.5 m target edge length. City surface and flat mesh examples use a
+10 m target. The terrain surface mesh dataset demo uses a 25 m target.
+The explicit terrain builder demos, including the footprint-conforming
+example, use a 10 m target.
 
 Sparse station and transit-vehicle queries use a 45 km window around the same
 centre, `(297470, 6375410, 342470, 6420410)`, because the geometry domain has
 no weather, sea-level or discharge stations. Live buses use a 2 km window
 centred on Chalmers. Observation availability depends on the provider and date.
-Supplied CityJSON and synthetic geometry examples use their native domains.
-The calibration grid uses the 500 × 500 m physical table bounds
-`(319720, 6397660, 320220, 6398160)`, with 40 divisions for 1 cm spacing on the
-printed model.
+The bundled CityJSON and hand-built LOD1 block use their own geometry.
+
+The calibration grid and printable city tiles use the 500 × 500 m physical
+table bounds `(319720, 6397660, 320220, 6398160)`. The grid uses 40 divisions
+for 1 cm spacing on the printed model, and four 200 mm tiles at 1:1250 cover
+the table. The satellite imagery demo uses a 3 × 3 km window in south-east
+Gothenburg, with bounds `(317000, 6394000, 320000, 6397000)`, to show enough
+10 m pixels.
 
 | Demo | Dataset story | Preview |
 |---|---|---|
