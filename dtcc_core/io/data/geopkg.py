@@ -11,6 +11,7 @@ import requests
 from platformdirs import user_cache_dir
 
 from .logging import debug, info, warning
+from .tls import download_ssl_context
 
 CACHE_DIR = user_cache_dir(appname="dtcc-data")
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -197,7 +198,8 @@ async def download_all_gpkg_files(base_url, filenames, output_dir="downloaded_gp
     base_url/get/lidar/<filename> using aiohttp, skipping any local cache hits.
     """
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=download_ssl_context())
+    async with aiohttp.ClientSession(connector=connector) as session:
         tasks = []
         for fname in filenames:
             tasks.append(download_gpkg_file(session, base_url, fname, output_dir))

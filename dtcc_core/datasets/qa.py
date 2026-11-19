@@ -91,8 +91,7 @@ def audited_datasets(
 ) -> dict[str, DatasetDescriptor]:
     """Return public built-in ``dtcc-core`` datasets selected for static QA.
 
-    Test datasets, remote descriptors, and third-party registrations are not
-    part of this audit. The first implementation pass is intentionally scoped
+    Test datasets and third-party registrations are not part of this audit. The first implementation pass is intentionally scoped
     to built-in dataset definitions shipped by ``dtcc-core``.
     """
 
@@ -146,7 +145,19 @@ def audit_dataset(dataset: DatasetDescriptor) -> DatasetQAReport:
     if descriptor is None:
         return DatasetQAReport(tuple(findings), dataset_count=1)
 
-    _audit_descriptor(dataset_name, descriptor, findings)
+    serialization = descriptor.get("serialization")
+    exports = descriptor.get("export")
+    formats_missing_status: FieldStatus = "missing"
+    if (
+        descriptor.get("supported_formats") == []
+        and isinstance(serialization, dict)
+        and serialization.get("format_parameter") is False
+        and isinstance(exports, list)
+        and exports
+        and all(isinstance(entry, dict) and entry.get("canonical") for entry in exports)
+    ):
+        formats_missing_status = "not_applicable"
+    _audit_descriptor(dataset_name, descriptor, findings, formats_missing_status)
     schema = descriptor.get("args_schema")
     required_args = _required_static_args(schema)
     extra_required_args = sorted(required_args - _ALLOWED_STATIC_REQUIRED_ARGS)
@@ -200,7 +211,7 @@ def audit_dataset(dataset: DatasetDescriptor) -> DatasetQAReport:
         return DatasetQAReport(tuple(findings), dataset_count=1)
 
     _add_json_finding(findings, dataset_name, "contract", "context_json", context)
-    _audit_context(dataset_name, context, findings)
+    _audit_context(dataset_name, context, findings, formats_missing_status)
     return DatasetQAReport(tuple(findings), dataset_count=1)
 
 
@@ -331,6 +342,7 @@ def _audit_descriptor(
     dataset_name: str,
     descriptor: dict[str, Any],
     findings: list[DatasetQAFinding],
+    formats_missing_status: FieldStatus,
 ) -> None:
     _add_json_finding(findings, dataset_name, "contract", "descriptor_json", descriptor)
     for field in (
@@ -349,6 +361,9 @@ def _audit_descriptor(
             "descriptor",
             field,
             descriptor.get(field),
+            missing_status=(
+                formats_missing_status if field == "supported_formats" else "missing"
+            ),
         )
 
     schema = descriptor.get("args_schema")
@@ -370,6 +385,7 @@ def _audit_context(
     dataset_name: str,
     context: Any,
     findings: list[DatasetQAFinding],
+    formats_missing_status: FieldStatus,
 ) -> None:
     for field in ("name", "title"):
         _add_value_finding(
@@ -397,6 +413,7 @@ def _audit_context(
             "metadata",
             field,
             _get_path(context, "metadata", field),
+            missing_status=formats_missing_status if field == "formats" else "missing",
             detect_markers=field in {"source", "license"},
         )
 
@@ -705,10 +722,7 @@ def _dataset_label(dataset: DatasetDescriptor) -> str:
 
 def _is_builtin_public_dataset(dataset: DatasetDescriptor) -> bool:
     module = dataset.__class__.__module__
-    return (
-        module.startswith("dtcc_core.datasets.")
-        and module != "dtcc_core.datasets.remote"
-    )
+    return module.startswith("dtcc_core.datasets.")
 
 
 def _normalize_patterns(patterns: str | Sequence[str] | None) -> tuple[str, ...]:

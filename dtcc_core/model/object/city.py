@@ -3,7 +3,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from .. import geometry
 from ..logging import info, warning
@@ -16,7 +16,11 @@ from ..mixins.city import (
 )
 from ..values.raster import Raster
 from .building import Building
-from .dataset_collections import BuildingCollection, FootprintCollection
+from .dataset_collections import (
+    BuildingCollection,
+    FootprintCollection,
+    _buildings_geojson,
+)
 from .object import GeometryType, Object
 from .terrain import Terrain
 from .tree import Tree
@@ -32,6 +36,8 @@ class City(
     Object,
 ):
     """Represents a city, the top-level container class for city models."""
+
+    web_geojson = True
 
     @property
     def buildings(self) -> list[Building]:
@@ -149,6 +155,30 @@ class City(
         geometry type.
         """
         return self.building_collection().footprints(geom_type, z=z)
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the building footprints as a GeoJSON FeatureCollection.
+
+        Each building with a LOD0 footprint becomes one ``Polygon`` feature with
+        its holes kept; the feature ``id`` is the building id and the properties
+        are the building attributes. Buildings without a footprint are skipped
+        and counted in ``metadata.skipped``.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import exported_coordinates
+
+        model = exported_coordinates(self)
+        return _buildings_geojson(model, model.buildings, crs)
 
     def replace_buildings(self, buildings: list[Building]):
         """Replace all buildings in city with new list of buildings."""

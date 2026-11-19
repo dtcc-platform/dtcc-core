@@ -37,6 +37,16 @@ class RoadsDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "road_network"
     python_return_type = "dtcc_core.model.RoadNetwork"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     provider = [provider_entry("openstreetmap", role="source_provider")]
     source = [
         {

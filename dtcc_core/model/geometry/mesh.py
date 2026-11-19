@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 
 import numpy as np
+import shapely
 
 from ..mixins.mesh.mixins import MeshProcessingMixin, VolumeMeshProcessingMixin
 from .geometry import Bounds, Geometry
@@ -28,6 +29,8 @@ class Mesh(MeshProcessingMixin, Geometry):
         An array of markers or labels associated with the faces.
 
     """
+
+    web_geojson = True
 
     vertices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
     faces: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
@@ -134,6 +137,97 @@ class Mesh(MeshProcessingMixin, Geometry):
             surface.vertices = self.vertices[f]
             multisurface.surfaces.append(surface)
         return multisurface
+
+    def to_geojson(self, crs: str | None = None) -> dict:
+        """Return a flat mesh as a GeoJSON FeatureCollection of MultiPolygons.
+
+        The triangles that share a face marker are dissolved into one
+        ``MultiPolygon`` feature with the properties ``marker`` and
+        ``face_count``; features are ordered by marker. A mesh without markers
+        gives one feature whose ``marker`` is null. The mesh must be flat: all
+        z values must be equal within 1e-9 in the exported frame, which is the
+        mesh with its root transform applied once to a copy. The mesh itself is
+        not modified. Positions are 2D ``[x, y]``; the constant z is not emitted.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+
+        Raises
+        ------
+        ValueError
+            If z varies in the exported frame, if ``markers`` is neither empty
+            nor one per face, if a marker's faces dissolve to no polygon, or if
+            the source CRS cannot be resolved.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            polygon_rings,
+            positions,
+            resolve_source_crs,
+        )
+
+        model = exported_coordinates(self)
+        source_crs = resolve_source_crs(model, [])
+        z = model.vertices[:, 2] if len(model.vertices) else np.empty(0)
+        if len(z) and z.max() - z.min() > 1e-9:
+            raise ValueError(
+                "Mesh.to_geojson requires a flat mesh: z varies by "
+                f"{z.max() - z.min()} in the exported frame (tolerance 1e-9)"
+            )
+        if len(model.markers) == 0:
+            groups = [(None, model.faces)] if len(model.faces) else []
+        elif len(model.markers) == len(model.faces):
+            groups = [
+                (marker, model.faces[model.markers == marker])
+                for marker in np.unique(model.markers)
+            ]
+        else:
+            raise ValueError(
+                f"Mesh markers must be empty or one per face: {len(model.markers)} "
+                f"markers for {len(model.faces)} faces"
+            )
+
+        features = []
+        for marker, faces in groups:
+            triangles = shapely.polygons(model.vertices[faces][:, :, :2])
+            parts = [
+                part
+                for part in shapely.get_parts(
+                    shapely.get_parts(shapely.unary_union(triangles))
+                )
+                if part.geom_type == "Polygon" and part.area > 0
+            ]
+            if not parts:
+                raise ValueError(f"Mesh faces with marker {marker!r} have no area")
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "MultiPolygon",
+                        "coordinates": [
+                            polygon_rings(
+                                positions(part.exterior.coords, source_crs, crs),
+                                [
+                                    positions(ring.coords, source_crs, crs)
+                                    for ring in part.interiors
+                                ],
+                            )
+                            for part in parts
+                        ],
+                    },
+                    "properties": {"marker": marker, "face_count": len(faces)},
+                }
+            )
+        return feature_collection(features, source_crs=source_crs, crs=crs)
 
 
 @dataclass(repr=False)
