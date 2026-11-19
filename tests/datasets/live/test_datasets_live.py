@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import pytest
 
 import dtcc_core.datasets as datasets
@@ -121,13 +122,18 @@ CASES = [
         dataset="built_up",
         upstream="GHSL built-up surface (JRC)",
         expected_type=Raster,
-        is_populated=lambda raster: raster.data.size > 0 and raster.data.max() > 0,
+        # Cells outside the GHSL extent are NaN; central Gothenburg is built up.
+        is_populated=lambda raster: np.nanmax(raster.data) > 0,
     ),
     LiveDatasetCase(
         dataset="satellite_imagery",
         upstream="Digital Earth Sweden (STAC + WMS)",
         expected_type=Raster,
-        is_populated=lambda raster: raster.data.size > 0,
+        # Band 4 is alpha: some pixels must hold imagery.
+        is_populated=lambda raster: bool((raster.data[..., 3] > 0).any()),
+        # Accept any cloud cover, so the date search finds a recent
+        # acquisition also in the cloudy winter months.
+        kwargs={"max_cloud": 100},
     ),
 ]
 

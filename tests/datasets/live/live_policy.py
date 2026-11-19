@@ -1,6 +1,7 @@
 """Failure policy shared by the live dataset tests.
 
-Transient upstream failures (connection errors, timeouts, HTTP 5xx and 429)
+Transient upstream failures (connection errors, timeouts, HTTP 5xx and 429,
+also when GDAL reports them for a remote raster)
 skip the case: they do not show that a dataset contract broke. Every other
 error fails it, including HTTP 4xx, TLS and URL errors, and malformed payloads.
 Download helpers often wrap the original error with ``raise ... from``, so the
@@ -14,6 +15,7 @@ import re
 import aiohttp
 import pytest
 import requests
+from rasterio.errors import RasterioError
 
 from dtcc_core.datasets.dataset import DatasetUpstreamError, redact_url_secrets
 
@@ -32,6 +34,24 @@ _TRANSIENT_REQUEST_TEXT = re.compile(
     r"|too many (?:5\d\d|429) error responses",
     re.IGNORECASE,
 )
+
+
+# GDAL /vsicurl/ errors, raised by rasterio when it reads a remote file such
+# as the GHSL zips: "HTTP response code: 503" or "CURL error: <curl message>".
+_GDAL_HTTP_STATUS = re.compile(r"HTTP response code: (\d{3})\b")
+_GDAL_TRANSIENT_CURL = re.compile(
+    r"CURL error: .*(?:timed out|Timeout was reached|Could not resolve host"
+    r"|Couldn't connect|Failed to connect|Connection reset|Recv failure"
+    r"|Empty reply)",
+    re.IGNORECASE,
+)
+
+try:
+    from rasterio._err import CPLE_BaseError
+except ImportError:  # pragma: no cover - depends on the rasterio build
+    _GDAL_ERRORS: tuple[type[BaseException], ...] = (RasterioError,)
+else:
+    _GDAL_ERRORS = (RasterioError, CPLE_BaseError)
 
 
 def _is_transient_status(status: int | None) -> bool:
@@ -88,6 +108,8 @@ def _is_transient_single(exc: BaseException) -> bool | None:
         return True
     if isinstance(exc, aiohttp.ClientResponseError):
         return _is_transient_status(exc.status)
+    if isinstance(exc, _GDAL_ERRORS):
+        return _gdal_error_is_transient(str(exc))
     status = getattr(exc, "status", None)
     if isinstance(status, int):
         return _is_transient_status(status)
@@ -99,6 +121,14 @@ def _is_transient_single(exc: BaseException) -> bool | None:
         if match:
             return _is_transient_status(int(match.group(1)))
     return None
+
+
+def _gdal_error_is_transient(message: str) -> bool:
+    """Classify a GDAL remote-read error by its HTTP status or curl message."""
+    match = _GDAL_HTTP_STATUS.search(message)
+    if match:
+        return _is_transient_status(int(match.group(1)))
+    return bool(_GDAL_TRANSIENT_CURL.search(message))
 
 
 def is_transient_live_failure(exc: BaseException) -> bool:

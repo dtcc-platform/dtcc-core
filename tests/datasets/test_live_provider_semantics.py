@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 import requests
+from rasterio.errors import RasterioIOError
 
 from dtcc_core.datasets.dataset import DatasetDescriptor, DatasetUpstreamError
 from tests.datasets.live.live_policy import (
@@ -100,6 +101,21 @@ def _http_error(
             requests.Timeout("read timed out"),
         ),
         TimeoutError(),
+        _wrapped(
+            RuntimeError(
+                "Failed to read GHSL data from https://jrc.example/GHS.zip: "
+                "HTTP response code: 503"
+            ),
+            RasterioIOError("HTTP response code: 503"),
+        ),
+        _wrapped(
+            RuntimeError(
+                "Failed to read GHSL data from https://jrc.example/GHS.zip: "
+                "CURL error: Timeout was reached"
+            ),
+            RasterioIOError("CURL error: Operation timed out after 30001 ms"),
+        ),
+        RasterioIOError("CURL error: Could not resolve host: jrc.example"),
         DatasetUpstreamError(
             dataset="transit_vehicles",
             operation="fetch",
@@ -121,6 +137,9 @@ def _http_error(
         "wrapped_http_502",
         "wrapped_timeout",
         "asyncio_timeout",
+        "gdal_http_503",
+        "gdal_curl_timeout",
+        "gdal_dns",
         "typed_http_429",
     ],
 )
@@ -159,6 +178,17 @@ def test_transient_untyped_failures_skip(exc: BaseException) -> None:
         ),
         RuntimeError("All Overpass endpoints failed: Exceeded 30 redirects."),
         _context_only(KeyError("stations"), requests.Timeout("read timed out")),
+        _wrapped(
+            RuntimeError(
+                "Failed to read GHSL data from https://jrc.example/GHS.zip: "
+                "HTTP response code: 404"
+            ),
+            RasterioIOError("HTTP response code: 404"),
+        ),
+        RasterioIOError("CURL error: SSL certificate problem: certificate has expired"),
+        RasterioIOError(
+            "'/vsizip//vsicurl/https://jrc.example/GHS.zip' not recognized"
+        ),
     ],
     ids=[
         "http_404",
@@ -173,6 +203,9 @@ def test_transient_untyped_failures_skip(exc: BaseException) -> None:
         "overpass_all_ssl_error",
         "overpass_all_redirects",
         "fallback_error_while_handling_timeout",
+        "gdal_http_404",
+        "gdal_ssl_error",
+        "gdal_unreadable_file",
     ],
 )
 def test_other_failures_fail(exc: BaseException) -> None:
