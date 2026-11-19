@@ -199,6 +199,9 @@ class AsyncHttpClient:
             return "timeout"
         if isinstance(exc, self._aiohttp.ClientConnectorCertificateError):
             return "certificate"
+        # With raise_for_status=False and allow_redirects=False, aiohttp raises
+        # ClientResponseError only for proxy CONNECT failures and malformed
+        # replies, never for an HTTP status; enabling either would change that.
         if isinstance(
             exc,
             (
@@ -211,6 +214,13 @@ class AsyncHttpClient:
         return "request"
 
     def _raise_local_error(self, operation, response=None):
+        """Raise an upload reader failure in place of any network outcome.
+
+        aiohttp sends the upload while the reply is read, so a reader failure
+        is only seen by polling: call this after the send, around every body
+        read, and before returning a status error. A failure after the last
+        chunk has arrived is not detected.
+        """
         if operation.local_errors:
             if response is not None:
                 response.close()
