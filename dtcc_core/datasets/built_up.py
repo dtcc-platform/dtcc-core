@@ -51,6 +51,20 @@ class BuiltUpDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.Raster"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "m2 per cell"},
+            },
+            "exclusions": [],
+        }
+    ]
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("jrc", role="source_provider"),
@@ -134,7 +148,7 @@ class BuiltUpDataset(DatasetDescriptor):
         "preferred_geometry": "raster",
         "default_crs": "EPSG:3006",
         "value_range": [0, 10000],
-        "unit": "m2 per cell",
+        "value_units": "m2 per cell",
     }
     presentation_warnings = [
         "GHSL credit and citation must accompany redistributed data.",

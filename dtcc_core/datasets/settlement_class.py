@@ -48,6 +48,20 @@ class SettlementClassDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.Raster"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": None},
+            },
+            "exclusions": [],
+        }
+    ]
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("jrc", role="source_provider"),
