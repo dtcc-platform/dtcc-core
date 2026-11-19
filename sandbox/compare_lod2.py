@@ -154,13 +154,18 @@ def save_vtu(name, vertices, faces, *, allow_empty=False, **fields):
     log(f"Saved {path.name}: {len(vertices):,} vertices, {len(faces):,} triangles")
 
 
-def load_reference(bounds):
+def read_reference(region, *, data_dir=None):
+    """Read complete reference buildings covered by a polygon in LOCAL_CRS.
+
+    Return a meshio mesh and source metadata without writing any files.
+    """
+    data_dir = DATA_DIR if data_dir is None else Path(data_dir).expanduser()
     groups = {}
     inactive = 0
     for filename, kind in (("roofs_buildings_export.shp", 0),
                            ("walls_buildings_export.shp", 1),
                            ("new_consolidated_buildings_export.shp", 2)):
-        path = DATA_DIR / "3D-Byggnader" / filename
+        path = data_dir / "3D-Byggnader" / filename
         with fiona.open(path) as source:
             check_crs(source.crs_wkt, path)
             for feature in source:
@@ -173,7 +178,6 @@ def load_reference(bounds):
                 group['records'].append(dict(file=filename, feature_id=feature.id, properties=properties))
                 group['faces'].extend((rings, kind) for rings in polygon_rings(feature.geometry))
     # Whole features only, so boundary buildings are not cut or reconstructed from partial roofs.
-    region = box(*bounds)
     groups = [g for g in groups.values() if region.covers(box(*_group_bounds(g)))]
     parts, owners, kinds, records, failures, deviations = [], [], [], [], [], []
     for owner, group in enumerate(groups):
@@ -189,10 +193,20 @@ def load_reference(bounds):
             kinds.extend([kind] * len(faces))
             deviations.append(deviation)
     vertices, faces = concatenate(parts)
-    save_vtu('reference', vertices, faces, reference_id=owners, source_kind=kinds)
-    return vertices, faces, dict(buildings=len(groups), inactive_features_excluded=inactive,
+    mesh = meshio.Mesh(vertices, [("triangle", faces)],
+                       cell_data={"reference_id": [np.asarray(owners)],
+                                  "source_kind": [np.asarray(kinds)]})
+    return mesh, dict(buildings=len(groups), inactive_features_excluded=inactive,
         omitted_faces=failures, nonplanar_faces_over_1cm=int(np.sum(np.asarray(deviations) > .01)),
         maximum_planarity_deviation_m=max(deviations), sources=records)
+
+
+def load_reference(bounds):
+    mesh, metadata = read_reference(box(*bounds))
+    faces = mesh.cells_dict['triangle']
+    save_vtu('reference', mesh.points, faces,
+             **{name: values[0] for name, values in mesh.cell_data.items()})
+    return mesh.points, faces, metadata
 
 
 def _group_bounds(group):
