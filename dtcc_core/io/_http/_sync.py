@@ -295,20 +295,25 @@ class HttpClient:
             return cached
         while True:
             response = self._open(operation)
+            status, headers, error = None, {}, None
             try:
+                status = response.status_code
+                headers = headers_lower(response.headers)
                 body = b"".join(self._chunks(response, operation))
-            except HttpTransportError as error:
-                if not operation.retry(error, "read"):
-                    raise
-                self._sleep(operation.delay(headers_lower(response.headers)))
-                continue
+            except HttpTransportError as exc:
+                error = exc
             finally:
                 response.close()
+            if error is not None:
+                if not operation.retry(error, "read"):
+                    raise error from None
+                self._sleep(operation.delay(headers))
+                continue
             operation.delivered(len(body))
             result = Response(
-                response.status_code,
+                status,
                 operation.request.target,
-                headers_lower(response.headers),
+                headers,
                 body,
                 operation.request,
             )

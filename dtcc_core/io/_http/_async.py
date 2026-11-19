@@ -332,21 +332,26 @@ class AsyncHttpClient:
             return cached
         while True:
             response = await self._open(operation)
+            status, headers, error = None, {}, None
             try:
+                status = response.status
+                headers = headers_lower(response.headers)
                 chunks = [chunk async for chunk in self._chunks(response, operation)]
                 body = b"".join(chunks)
-            except HttpTransportError as error:
-                if not operation.retry(error, "read"):
-                    raise
-                await self._sleep(operation.delay(headers_lower(response.headers)))
-                continue
+            except HttpTransportError as exc:
+                error = exc
             finally:
                 response.close()
+            if error is not None:
+                if not operation.retry(error, "read"):
+                    raise error from None
+                await self._sleep(operation.delay(headers))
+                continue
             operation.delivered(len(body))
             result = Response(
-                response.status,
+                status,
                 operation.request.target,
-                headers_lower(response.headers),
+                headers,
                 body,
                 operation.request,
             )

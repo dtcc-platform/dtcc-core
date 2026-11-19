@@ -937,3 +937,66 @@ def test_cache_hit_over_delivery_budget_has_no_phase():
     with pytest.raises(HttpTransportError) as caught:
         state.cached(operation)
     assert (caught.value.kind, caught.value.phase) == ("resource_limit", None)
+
+
+@pytest.mark.parametrize("backend", ["sync", "async"])
+def test_failed_buffered_read_closes_response_before_retry_sleep(monkeypatch, backend):
+    import aiohttp
+
+    closed_when_sleeping = []
+    if backend == "sync":
+        session = requests.Session()
+        first = FakeResponse([b"partial", requests.ConnectionError("reset")])
+        second = FakeResponse([b"ok"])
+        responses = iter([first, second])
+        monkeypatch.setattr(
+            session.get_adapter("https://"),
+            "send",
+            lambda *args, **kwargs: next(responses),
+        )
+        monkeypatch.setattr(requests, "Session", lambda: session)
+
+        def sleep(delay):
+            closed_when_sleeping.append((first.closed, delay))
+
+        with HttpClient(retry=RetryPolicy(retries=1, backoff=0.5), sleep=sleep) as c:
+            result = c.request(Request("GET", "https://example.test/"))
+        assert result.body == b"ok" and second.closed
+    else:
+
+        class AsyncResponse:
+            def __init__(self, chunks):
+                self.status, self.headers, self.closed = 200, {}, False
+                self._chunks = chunks
+                self.content = self
+
+            async def iter_chunked(self, size):
+                for chunk in self._chunks:
+                    if isinstance(chunk, BaseException):
+                        raise chunk
+                    yield chunk
+
+            def close(self):
+                self.closed = True
+
+        first = AsyncResponse([b"partial", aiohttp.ClientPayloadError("reset")])
+        second = AsyncResponse([b"ok"])
+        responses = iter([first, second])
+
+        async def request(*args, **kwargs):
+            return next(responses)
+
+        monkeypatch.setattr(aiohttp.ClientSession, "request", request)
+
+        async def sleep(delay):
+            closed_when_sleeping.append((first.closed, delay))
+
+        async def scenario():
+            async with AsyncHttpClient(
+                retry=RetryPolicy(retries=1, backoff=0.5), sleep=sleep
+            ) as client:
+                return await client.request(Request("GET", "https://example.test/"))
+
+        result = asyncio.run(scenario())
+        assert result.body == b"ok" and second.closed
+    assert closed_when_sleeping == [(True, 0.5)]
