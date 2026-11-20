@@ -93,8 +93,9 @@ class Model(ABC):
     ):
         """Quick Matplotlib preview; return the axes for further customization.
 
-        Standalone RGB/RGBA rasters and triangular Mesh face maps with
-        ``projection="xy"`` use 2D axes. Other previews use 3D axes.
+        RGB/RGBA rasters, and class rasters from datasets that declare class
+        colours, use a georeferenced 2D image preview; other models use a 3D
+        preview.
 
         Objects select one representation each and traverse their children.
         Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name

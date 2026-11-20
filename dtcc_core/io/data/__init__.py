@@ -13,7 +13,7 @@ from .wrapper import (
 )
 from .digitalearth import list_available_dates
 from .deso import attach_deso_statistics, download_deso, download_deso_statistics
-from .ghsl import download_built_up
+from .ghsl import download_built_up, download_settlement_class
 from .cache import empty_cache
 
 __all__ = [
@@ -27,5 +27,6 @@ __all__ = [
     "download_deso_statistics",
     "attach_deso_statistics",
     "download_built_up",
+    "download_settlement_class",
     "empty_cache",
 ]
