@@ -212,8 +212,8 @@ cleaned regions, terrain attachment, candidate roof admission, common 3D face
 boundaries, generic triangulation and bounded refinement have distinct contracts.
 Cleaned outlines are authoritative. Roof ridges, steps and affine height crossings
 are mandatory constraints; physical height steps retain separate vertices.
-Exposed walls are constructed directly from the incident affine profiles and
-block foundation. A complete intermediate building shell is not required.
+Exposed walls descend from the incident affine roofs to the shared terrain
+profile. Elevation steps between roofs use the two incident roof profiles.
 
 One bounded quality policy coordinates optional roof-edge samples across every
 incident roof/wall face. Its caps are 2 interior points per face, 8 points per
@@ -231,10 +231,11 @@ Quality and fit accuracy are separate from topological validity.
 
 Rejected individual fits use the source's declared grouped LOD1 level. This is
 different from an accepted `flat` candidate estimated from observations. Candidate
-transfer is validated against its cleaned domain. Admission checks all affine
-extrema against the actual terrain foundation. Inadmissible candidates select
-the declared source model before shared-face construction, recording the reason;
-planes are never lifted or clamped.
+transfer is validated against its cleaned domain. Admission checks the roof against
+the piecewise-linear terrain on the exposed seam. Inadmissible candidates select
+the declared flat source roof before shared-face construction and record the
+reason. Assembly raises a geometry error if the declared roof also touches or
+crosses the terrain.
 
 Accepted roofs cannot change because triangulation or assembly fails. There is
 one assembly attempt, no whole-block flat retry and no alternate recovery chain.
@@ -242,7 +243,7 @@ Failures carry their responsible stage and available block/source/face/edge IDs.
 Invalid meshes are never returned as successful refinement stops.
 
 `stage_audit["roof_catalogue"]` contains source fitting and admission outcomes,
-subdivision changes, partition diagnostics, terrain bases, assembly timings,
+subdivision changes, partition diagnostics, terrain clearance, assembly timings,
 strict topology checks, quality by face kind and final marker mappings. Roof
 marker `N+m` refers to patch `m`; wall marker `m` refers to its owner patch or a
 representative contributor of the same source. Shared-face semantic regions

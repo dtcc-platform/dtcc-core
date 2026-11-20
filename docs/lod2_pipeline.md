@@ -19,10 +19,11 @@ must pass closed PLC validation before TetGen generates a volume.
    makes numerical normalization only. Planar valence does not trigger source
    ownership changes.
 3. **Roof admission.** Fitting and transfer produce candidates. Insufficient
-   evidence, failed transfer or a plane below the block's terrain foundation can
-   select the declared flat model, with a reason, before assembly. Affine extrema
-   are checked over domain ring vertices. No roof is lifted or clamped. Accepted
-   planes remain unchanged. Affine height crossings are then noded before the
+   evidence, failed transfer or a plane that meets the ground can select the
+   declared flat model, with a reason, before assembly. At the exterior seam,
+   clearance is checked at every breakpoint of the roof and ground profiles.
+   If the declared roof also lacks clearance, assembly raises a geometry error.
+   Affine height crossings are then noded before the
    explicit junction-modelling stage. At each multiway junction, cyclic incident
    roof/terrain sectors are classified over every interval between distinct
    canonical heights. More than two exposed vertical sheets identifies a
@@ -79,13 +80,13 @@ city-specific epsilon. Face validation requires boundary deviation below the
 and actual perimeters to bound area change, and allows only local floating-point
 roundoff for overlap. Plane residuals remain bounded by 100 nm.
 
-Terrain triangulation receives only the outside of the cleaned occupied regions;
-roof interiors are never triangulated to reconstruct another building shell.
-DEM sampling receives world coordinates and returns heights onto the same local
-XY vertices. Each block foundation is the minimum of the clamped bilinear DEM
-over its occupied region and sampled contact. The minimum includes DEM nodes and
-quadratic boundary extrema between grid lines. Contact heights are fixed at that
-base. Terrain smoothing changes heights only and freezes contacts.
+Terrain triangulation covers the outside of the cleaned occupied regions.
+DEM sampling uses world coordinates and returns heights onto the same local
+XY vertices. Exterior and courtyard walls use the piecewise-linear boundary
+of that terrain. A roof breakpoint on a terrain edge takes its height by
+interpolation along the existing 3D edge. The shared edge graph inserts that
+breakpoint into the terrain face and the wall. Terrain smoothing changes
+heights only and freezes the contact samples. Isolated shells use a scalar base.
 
 ## Bounded quality refinement
 

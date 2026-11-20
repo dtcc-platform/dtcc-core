@@ -55,7 +55,7 @@ def junction_half_widths(directions, radius, clearance):
     )
 
 
-def _stars(patches, base):
+def _stars(patches, base, contact):
     segments, incident = [], defaultdict(set)
     edges = set()
     for p in patches:
@@ -113,7 +113,10 @@ def _stars(patches, base):
         present = set(sectors) - {None}
         values = [(float(patches[i].height(origin)), i) for i in sorted(present)]
         canonical = canonical_profile_heights(values, slopes)
-        heights = [base if i is None else canonical[i] for i in sectors]
+        grade = (
+            contact.height_at(xy) if contact is not None and None in sectors else base
+        )
+        heights = [grade if i is None else canonical[i] for i in sectors]
         topology = height_interval_topology(heights)
         stars.append(
             dict(
@@ -129,7 +132,7 @@ def _stars(patches, base):
     return stars, segments
 
 
-def regularize_roof_junctions(patches, *, bases, detail):
+def regularize_roof_junctions(patches, *, bases, detail, contact=None):
     """Change only nonmanifold admitted stars, before any mesh is generated.
 
     One bounded central rectangle separates alternating height
@@ -143,7 +146,8 @@ def regularize_roof_junctions(patches, *, bases, detail):
     result = []
     audits = {}
     for block, parts in grouped.items():
-        stars, _ = _stars(parts, bases[block])
+        base = bases[block] if contact is None else None
+        stars, _ = _stars(parts, base, contact)
         polygons = [p.polygon for p in parts]
         union = shapely.union_all(polygons)
         centres = []
@@ -231,21 +235,19 @@ def regularize_roof_junctions(patches, *, bases, detail):
                 for i, pieces in sorted(owned.items())
                 for piece in pieces
             ]
-            for i, pieces in owned.items():
-                for piece in pieces:
-                    if (
-                        min(
-                            float(np.min(parts[i].height(np.asarray(r.coords))))
-                            for r in [piece.exterior, *piece.interiors]
-                        )
-                        <= bases[block] + COINCIDENCE
+            if contact is None:
+                for patch in edited:
+                    if any(
+                        np.min(patch.height(np.asarray(ring.coords)))
+                        <= base + COINCIDENCE
+                        for ring in [patch.polygon.exterior, *patch.polygon.interiors]
                     ):
                         raise RoofAssemblyError(
                             "Junction ownership intersects an admitted roof foundation",
                             block_ids=[block],
                         )
             edited = node_interfaces(edited, canonical=True)
-            after, _ = _stars(edited, bases[block])
+            after, _ = _stars(edited, base, contact)
             invalid = [star for star in after if not star["manifold"]]
             if invalid:
                 raise RoofAssemblyError(
