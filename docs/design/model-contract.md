@@ -173,6 +173,46 @@ canonical package path meets the declared local v3 boundary. Default artifact-on
 v2 packages and downstream consumers have not all adopted this broader package
 requirement; there is no retained legacy native model codec.
 
+### Python equality
+
+`==` on two model instances returns one bool. Every `Model` subclass except
+`DatasetValue`, plus `SemanticRegion`, `GeometryRepresentation` and `RasterTile`,
+uses one shared comparator (`model/_equality.py`). `Model.__init_subclass__`
+installs it before the dataclass decorator runs, so behavior does not depend on
+the Python version's generated `__eq__`. The policy is:
+
+- **Same concrete type.** A Mesh never equals a PointCloud or a Mesh subclass.
+  Object IDs are compared, so independently created Objects differ by default.
+- **Exact values.** No tolerance. Compare numerically with `np.allclose` or
+  `np.testing` when rounding matters.
+- **Arrays need identical shape and dtype.** NumPy broadcasting does not apply:
+  a `(1,)` array differs from `(1, 1)`, and `int32` faces differ from `int64`
+  faces. Native exchange preserves dtype, so a saved and reloaded model compares
+  equal. Scalars compare by value, as in Python (`1 == 1.0`).
+- **Missing equals missing.** NaN (and NaT in date arrays) equals NaN in the
+  same array position, including record-array fields, and in scalars such as
+  `Raster.nodata`.
+- **Nested values** (lists, tuples, mappings, object arrays, child models) are
+  compared recursively with the same rules; a list never equals a tuple, while
+  a namedtuple equals a plain tuple of the same values.
+- **Bounds caches are ignored.** `_bounds` on Geometry and Object is declared
+  `compare=False`. It holds a coordinate-derived cache or, for an Object, a
+  local override set through `bounds`, so two Cities with different
+  user-set bounds still compare equal. Grid and VolumeGrid domains are
+  intrinsic and are compared; an unset domain compares as its default from the
+  cell counts, without being set.
+- **Only dataclass fields.** Dataset Context, schema declarations and other
+  instance attributes are not compared. Fields declared `compare=False` are
+  skipped.
+
+Models stay unhashable. `DatasetValue` compares as the value it wraps: it
+equals another `DatasetValue` or a raw value with equal contents, also inside
+nested containers. With a NumPy array as the left operand, NumPy compares
+element by element and returns an array. A subclass may define its own
+`__eq__`; its subclasses inherit that instead. `@dataclass(eq=False)` does not
+remove the shared comparator. Cyclic containers and payload objects whose own
+`==` does not return a bool (such as pandas objects) are not supported.
+
 ### Format evolution and retirement
 
 The user explicitly chose a breaking replacement on 11 September 2026. The sole
