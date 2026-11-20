@@ -60,11 +60,11 @@ from .object.dataset_collections import (
 )
 from .object.landuse import LanduseClasses
 from .object.object import _validate_attributes
-from .values import Field, Raster
+from .values import Field, Raster, TimeSeries
 from .values.raster_tiles import RasterTile, RasterTileCollection
 
 FORMAT = "dtcc-model"
-VERSION = 6
+VERSION = 7
 READ_VERSIONS = {VERSION}
 # Protobuf's cross-implementation ceiling applies to one serialized message.
 # https://protobuf.dev/programming-guides/proto-limits/#total-size-of-the-message
@@ -114,6 +114,7 @@ SUPPORTED_ROOTS = (
     *COLLECTION_KINDS,
     *GEOMETRIES,
     Field,
+    TimeSeries,
     Raster,
     Bounds,
     Transform,
@@ -232,6 +233,24 @@ def _field(value, owner=None):
     _array(value.values, "Field.values")
     for key in ("name", "unit", "description"):
         _text(getattr(value, key), f"Field.{key}")
+    _value_association(value, owner, len(value.values))
+
+
+def _time_series(value, owner=None):
+    if type(value) is not TimeSeries:
+        raise NotImplementedError(
+            f"Canonical TimeSeries subtype {type(value).__name__} is unsupported"
+        )
+    for key in ("name", "unit", "description", "role"):
+        _text(getattr(value, key), f"TimeSeries.{key}")
+    if not 1 <= value.dim <= 2**32 - 1:
+        raise ValueError("TimeSeries.dim must be a positive uint32")
+    _array(value.values, "TimeSeries.values", dimensions=3)
+    value._check_data(value.times, value.values)
+    _value_association(value, owner, value.values.shape[1])
+
+
+def _value_association(value, owner, count):
     if value.association not in {
         "vertex",
         "edge",
@@ -241,7 +260,7 @@ def _field(value, owner=None):
         "geometry",
     }:
         raise ValueError(
-            f"Field {value.name!r} requires an explicit vertex/edge/face/cell/sample/geometry association"
+            f"{type(value).__name__} {value.name!r} requires an explicit vertex/edge/face/cell/sample/geometry association"
         )
     if owner is not None:
         if value.dataset_context is not None:
@@ -274,12 +293,9 @@ def _field(value, owner=None):
         else:
             counts = {"sample": 1}
         counts["geometry"] = 1
-        if (
-            value.association not in counts
-            or len(value.values) != counts[value.association]
-        ):
+        if value.association not in counts or count != counts[value.association]:
             raise ValueError(
-                f"Field {value.name!r} association/count does not match {type(owner).__name__}"
+                f"{type(value).__name__} {value.name!r} association/count does not match {type(owner).__name__}"
             )
 
 
@@ -451,6 +467,10 @@ def _geometry(value, *, root=False, depth=0):
         raise ValueError("Geometry.fields must be a list")
     for attached in value.fields:
         _field(attached, value)
+    if not isinstance(value.time_series, list):
+        raise ValueError("Geometry.time_series must be a list")
+    for attached in value.time_series:
+        _time_series(attached, value)
 
 
 def _ring(ring, *, empty=False):
@@ -622,10 +642,15 @@ def _footprint_collection(obj):
         ("source_ids", "source_indices"),
     )
     carrier = obj.geometry["footprints"].geometry
-    if not _identity(carrier.transform) or carrier.fields or carrier.regions:
+    if (
+        not _identity(carrier.transform)
+        or carrier.fields
+        or carrier.time_series
+        or carrier.regions
+    ):
         raise ValueError(
             "FootprintCollection carrier MultiSurface must have an identity "
-            "transform, no fields and no regions"
+            "transform, no fields, time series or regions"
         )
     source_ids = obj.attributes["source_ids"]
     source_indices = obj.attributes["source_indices"]
@@ -737,6 +762,7 @@ def _field_slice(obj):
         num_returns=samples.num_returns,
         transform=samples.transform,
         fields=samples.fields,
+        time_series=samples.time_series,
         regions=samples.regions,
         slice_axis=attributes["slice_axis"],
         slice_position=attributes["slice_position"],
@@ -776,10 +802,15 @@ def _streamline_collection(obj):
         {"domain": Bounds},
     )
     carrier = obj.geometry["lines"].geometry
-    if not _identity(carrier.transform) or carrier.fields or carrier.regions:
+    if (
+        not _identity(carrier.transform)
+        or carrier.fields
+        or carrier.time_series
+        or carrier.regions
+    ):
         raise ValueError(
             "StreamlineCollection carrier MultiLineString must have an identity "
-            "transform, no fields and no regions"
+            "transform, no fields, time series or regions"
         )
     attributes = obj.attributes
     _simulation_attributes(
@@ -971,6 +1002,7 @@ def _transient(model):
                     num_returns=model.num_returns,
                     transform=model.transform,
                     fields=model.fields,
+                    time_series=model.time_series,
                     regions=model.regions,
                 )
             )
@@ -1039,6 +1071,9 @@ def validate(model):
     A root-only Dataset wrapper is validated as its transient Object.
     """
     model = _transient(model)
+    if type(model) is TimeSeries:
+        _time_series(model)
+        return
     if type(model) is Field:
         _field(model)
         return
@@ -1229,14 +1264,19 @@ def _decode_value(pb, strings, depth=0):
 
 
 def _encode_array(array):
+    pb = wire.Array()
+    _fill_array(array, pb)
+    return pb
+
+
+def _fill_array(array, pb):
+    """Write an array into an existing message, so its bytes are copied once."""
     if array.nbytes > MAX_PROTOBUF_BYTES:
         raise ValueError("Array cannot fit in a Protobuf message smaller than 2 GiB")
     normalized = array.astype(array.dtype.newbyteorder("<"), copy=False)
-    return wire.Array(
-        dtype=normalized.dtype.str,
-        shape=array.shape,
-        data=normalized.tobytes(order="C"),
-    )
+    pb.dtype = normalized.dtype.str
+    pb.shape[:] = array.shape
+    pb.data = normalized.tobytes(order="C")
 
 
 def _decode_array(pb):
@@ -1322,10 +1362,46 @@ def _decode_field(pb, strings):
     )
 
 
+def _fill_time_series(value, pb):
+    """Write a series into an existing message without an intermediate copy."""
+    pb.SetInParent()
+    pb.name = value.name
+    pb.unit = value.unit
+    pb.description = value.description
+    _fill_array(value.values, pb.values)
+    pb.dim = value.dim
+    pb.association = value.association
+    _fill_array(value.times.view(np.int64), pb.times)
+    pb.role = value.role
+
+
+def _decode_time_series(pb, strings):
+    if pb.times.dtype != "<i8" or len(pb.times.shape) != 1:
+        raise ValueError("TimeSeries.times must be a 1D <i8 nanosecond array")
+    values = _decode_array(pb.values)
+    # Wire shapes are canonical; reject the shorthand accepted by the constructor.
+    if values.ndim != (2 if pb.dim == 1 else 3):
+        raise ValueError("TimeSeries.values shape must match dim")
+    series = TimeSeries(
+        name=_decode_text(pb.name, strings),
+        unit=_decode_text(pb.unit, strings),
+        description=_decode_text(pb.description, strings),
+        dim=pb.dim,
+        association=_decode_text(pb.association, strings),
+        role=_decode_text(pb.role, strings),
+    )
+    # The decoded arrays are fresh, so the series adopts them without a copy.
+    times = _decode_array(pb.times).view("datetime64[ns]")
+    series._set_data(times, values, copy=False)
+    return series
+
+
 def _encode_geometry(value, pb):
     """Fill the destination message without copying complete geometry subtrees."""
     pb.transform.CopyFrom(_encode_transform(value.transform))
     pb.fields.extend(_encode_field(x) for x in value.fields)
+    for series in value.time_series:
+        _fill_time_series(series, pb.time_series.add())
     if type(value) is Mesh:
         for name in ("vertices", "faces", "markers", "normals"):
             getattr(pb.mesh, name).CopyFrom(_encode_array(getattr(value, name)))
@@ -1409,6 +1485,7 @@ def _decode_geometry(pb, strings, depth=0):
     metadata = dict(
         transform=_decode_transform(pb.transform, strings),
         fields=[_decode_field(x, strings) for x in pb.fields],
+        time_series=[_decode_time_series(x, strings) for x in pb.time_series],
         regions=[
             SemanticRegion(
                 semantic_type=_decode_text(r.semantic_type, strings),
@@ -1669,6 +1746,8 @@ def _encode_model(model, *, validate_schema=True):
         pb.object.kind = COLLECTION_KINDS[type(model)]
     elif type(model) in OBJECT_KINDS:
         _encode_object(model, pb.object)
+    elif type(model) is TimeSeries:
+        _fill_time_series(model, pb.time_series)
     elif type(model) is Field:
         pb.field.CopyFrom(_encode_field(model))
     elif type(model) is Raster:
@@ -1738,6 +1817,8 @@ def _decode_model(data, *, validate_schema=True):
         model = _decode_object(pb.object, strings)
     elif root == "geometry":
         model = _decode_geometry(pb.geometry, strings)
+    elif root == "time_series":
+        model = _decode_time_series(pb.time_series, strings)
     elif root == "field":
         model = _decode_field(pb.field, strings)
     elif root == "raster":

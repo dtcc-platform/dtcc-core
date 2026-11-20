@@ -21,6 +21,37 @@ def field_section(fields):
     )
 
 
+def time_series_section(series):
+    return (
+        "Time series",
+        (
+            "Name",
+            "Unit",
+            "Association",
+            "Role",
+            "Shape",
+            "Start",
+            "End",
+            "Type",
+            "Description",
+        ),
+        [
+            (
+                s.name,
+                s.unit,
+                s.association,
+                s.role,
+                s.values.shape,
+                s.start,
+                s.end,
+                s.values.dtype,
+                s.description,
+            )
+            for s in series
+        ],
+    )
+
+
 def sample_section(title, models):
     rows = [(i, repr(model)) for i, model in enumerate(islice(models, 20))]
     if len(models) > 20:
@@ -55,6 +86,12 @@ def print_tree(model, label, *, indent="", verbose=False, max_depth=None):
         elif isinstance(node, Geometry) and verbose:
             for field in node.fields:
                 yield f"field {field.name!r} ({field.unit}): {field.description}", None
+            for series in node.time_series:
+                details = ", ".join(x for x in (series.unit, series.role) if x)
+                yield (
+                    f"time series {series.name!r} ({details}): {series.description}",
+                    None,
+                )
 
     def walk(node, text, prefix, branch, depth):
         children = iter(entries(node))

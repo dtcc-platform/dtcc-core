@@ -108,7 +108,14 @@ loss is not.
 Canonical model artifacts identify their schema version and concrete root model
 type. Readers validate compatibility and fail clearly on unsupported data.
 Derived render and presentation formats may supplement canonical model data but
-never replace it. Dataset Context remains attached to the in-memory realization
+never replace it. Ordinary mesh and GeoJSON exports write their documented subset
+of the model. Unsupported attachments such as time series are omitted from these
+exports without changing the source model. Adding time series does not prevent a
+geometry or map export. Save as `.dtcc` to preserve the temporal data. Explicitly
+strict exchange, including `CityJSON(strict=True)`, rejects data without a faithful
+mapping before writing.
+
+Dataset Context remains attached to the in-memory realization
 and is snapshotted in a Package manifest rather than encoded into the model
 artifact unless a fact is intrinsic to interpreting the model itself.
 
