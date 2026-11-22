@@ -1,16 +1,25 @@
 name: Claude review
 
-# Reviews every non-draft pull request against REVIEW.md. The @claude mention
-# workflow in claude.yml stays for follow-up questions. Needs the Claude GitHub
-# App installed and ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN as a secret.
-# Pull requests from forks have no access to secrets, so they are skipped.
+# Reviews a pull request against REVIEW.md when it is opened ready for review
+# or marked ready, not on later pushes. There are two ways to ask for another
+# pass, and neither reruns CI:
+# - Mark the pull request as draft, then ready again. This workflow reviews
+#   what changed since its last review (nothing, if no commits were added),
+#   and GitHub requests review from the code owners.
+# - Someone with write access comments "@claude review the commits since your
+#   last review, following REVIEW.md". The @claude mention workflow in
+#   claude.yml answers it in one comment.
+# Needs the Claude GitHub App installed and ANTHROPIC_API_KEY or
+# CLAUDE_CODE_OAUTH_TOKEN as a secret. Pull requests from forks have no access
+# to secrets, so they are skipped.
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review]
 
-# Reviews of one pull request run one at a time: a running review finishes, so
-# the next one can start from its comment; a push replaces a run still waiting.
+# Runs of this workflow on one pull request run one at a time: a running review
+# finishes, so the next one can start from its comment; a newer review replaces
+# one still waiting.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: false
@@ -57,9 +66,15 @@ jobs:
             description with `gh pr view`. Check the diff against the PR's
             Testing, Risk and How to revert answers. Leave inline comments
             for findings and one top-level comment with the finding count or
-            "no issues". On a synchronize event, review only the commits
-            added since your last review comment; their diff comes from
-            `gh api repos/${{ github.repository }}/compare/<old>...<new>`.
+            "no issues", ending with the line
+            `Reviewed up to ${{ github.event.pull_request.head.sha }}`.
+            If earlier top-level comments of yours end with a
+            "Reviewed up to" line, review only what changed since the
+            commit in the latest of them:
+            `gh api repos/${{ github.repository }}/compare/<that commit>...${{ github.event.pull_request.head.sha }}`.
+            If that request fails, its status is not "ahead" or
+            "identical", or no earlier comment has the line, review the
+            full diff.
 
             REVIEW.md on ${{ github.event.repository.default_branch }}:
 
