@@ -19,6 +19,12 @@ def values_equal(a, b) -> bool:
     if _is_wrapper(a) or _is_wrapper(b):
         # Only a self-wrapping DatasetValue is left wrapped; identity decides.
         return False
+    if isinstance(a, np.void) or isinstance(b, np.void):
+        return (
+            isinstance(a, np.void)
+            and isinstance(b, np.void)
+            and _arrays_equal(np.asarray(a), np.asarray(b))
+        )
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
         return _arrays_equal(a, b)
     if isinstance(a, (list, tuple)) or isinstance(b, (list, tuple)):
@@ -33,19 +39,29 @@ def values_equal(a, b) -> bool:
         )
     if isinstance(a, Mapping) and isinstance(b, Mapping):
         return a.keys() == b.keys() and all(values_equal(a[k], b[k]) for k in a)
-    if _is_nan(a) and _is_nan(b):
-        return True
+    if _is_nat(a) and _is_nat(b):
+        return type(a) is type(b)
+    if _is_inexact(a) and _is_inexact(b):
+        return _parts_equal(a.real, b.real) and _parts_equal(a.imag, b.imag)
     return bool(a == b)
 
 
 def _arrays_equal(a, b) -> bool:
     if type(a) is not type(b) or a.shape != b.shape or a.dtype != b.dtype:
         return False
-    if a.dtype.names:
-        return all(_arrays_equal(a[name], b[name]) for name in a.dtype.names)
+    if a.dtype.names is not None:
+        # A masked record's field can be a plain scalar, so compare as values.
+        return all(values_equal(a[name], b[name]) for name in a.dtype.names)
+    if isinstance(a, np.ma.MaskedArray):
+        mask = np.ma.getmaskarray(a)
+        if not np.array_equal(mask, np.ma.getmaskarray(b)):
+            return False
+        return _arrays_equal(a.data[~mask], b.data[~mask])
     if a.dtype.hasobject:
         return all(values_equal(x, y) for x, y in zip(a.flat, b.flat, strict=True))
-    if a.dtype.kind in "fcmM":
+    if a.dtype.kind == "c":
+        return _arrays_equal(a.real, b.real) and _arrays_equal(a.imag, b.imag)
+    if a.dtype.kind in "fmM":
         return bool(np.array_equal(a, b, equal_nan=True))
     return bool(np.array_equal(a, b))
 
@@ -69,10 +85,17 @@ def _is_wrapper(value) -> bool:
     return getattr(type(value), "_eq_unwrap", None) is not None
 
 
-def _is_nan(value) -> bool:
-    if isinstance(value, (float, complex, np.floating, np.complexfloating)):
-        return bool(np.isnan(value))
-    return False
+def _is_nat(value) -> bool:
+    return isinstance(value, (np.datetime64, np.timedelta64)) and bool(np.isnat(value))
+
+
+def _is_inexact(value) -> bool:
+    return isinstance(value, (float, complex, np.floating, np.complexfloating))
+
+
+def _parts_equal(a, b) -> bool:
+    """Compare real numbers exactly, with NaN equal to NaN."""
+    return bool(a == b or (np.isnan(a) and np.isnan(b)))
 
 
 def model_equal(self, other):

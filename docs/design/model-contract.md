@@ -187,11 +187,22 @@ the Python version's generated `__eq__`. The policy is:
   `np.testing` when rounding matters.
 - **Arrays need identical shape and dtype.** NumPy broadcasting does not apply:
   a `(1,)` array differs from `(1, 1)`, and `int32` faces differ from `int64`
-  faces. Native exchange preserves dtype, so a saved and reloaded model compares
-  equal. Scalars compare by value, as in Python (`1 == 1.0`).
+  faces. Array subclasses count as different types. Scalars compare by value,
+  as in Python (`1 == 1.0`).
+- **Native exchange keeps values, shape and numeric type.** It writes arrays in
+  little-endian byte order and reloads them as plain `ndarray`s, and it rejects
+  dtypes the wire format does not support, such as complex and `float16`. A model
+  holding plain native-endian arrays of supported dtypes compares equal after a
+  save and reload. One holding
+  big-endian arrays or array subclasses such as `memmap` or `MaskedArray` does
+  not, because the reloaded representation differs. `VolumeGrid.z_levels` that
+  are not a `MaskedArray` are the exception, since they compare in float64.
 - **Missing equals missing.** NaN (and NaT in date arrays) equals NaN in the
   same array position, including record-array fields, and in scalars such as
-  `Raster.nodata`.
+  `Raster.nodata`. The real and imaginary parts of a complex value are compared
+  separately, so a NaN in one part does not hide a difference in the other.
+- **Masks are compared.** Masked arrays are equal when their masks match and
+  their unmasked values are equal. Values under a mask are ignored.
 - **Nested values** (lists, tuples, mappings, object arrays, child models) are
   compared recursively with the same rules; a list never equals a tuple, while
   a namedtuple equals a plain tuple of the same values.
@@ -200,7 +211,13 @@ the Python version's generated `__eq__`. The policy is:
   local override set through `bounds`, so two Cities with different
   user-set bounds still compare equal. Grid and VolumeGrid domains are
   intrinsic and are compared; an unset domain compares as its default from the
-  cell counts, without being set.
+  cell counts and any `z_levels`, without being set.
+- **Layer boundaries compare in float64.** Real one-dimensional
+  `VolumeGrid.z_levels` that float64 holds exactly and that are not a
+  `MaskedArray` compare by their float64 values, whatever dtype they were
+  assigned in. Other assigned values compare
+  under the rules above. `None` differs from explicit levels, even when the
+  spacing is the same.
 - **Only dataclass fields.** Dataset Context, schema declarations and other
   instance attributes are not compared. Fields declared `compare=False` are
   skipped.
