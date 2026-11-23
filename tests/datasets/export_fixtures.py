@@ -300,6 +300,25 @@ def _built_up_raster(variant, directory):
     )
 
 
+def _settlement_class_raster(variant, directory):
+    """Settlement class codes per 1 km cell, including nodata."""
+    from dtcc_core.io.data.ghsl import SETTLEMENT_CLASS_NODATA
+
+    if variant == "empty":
+        return Raster()
+    data = np.array([[30, 21], [11, SETTLEMENT_CLASS_NODATA]], dtype=np.int16)
+    if variant == "all_invalid":
+        data[:] = SETTLEMENT_CLASS_NODATA
+    elif variant != "populated":
+        _unknown(variant)
+    return Raster(
+        data=data,
+        georef=Affine(1000.0, 0.0, X0, 0.0, -1000.0, Y0),
+        crs="EPSG:3006",
+        nodata=SETTLEMENT_CLASS_NODATA,
+    )
+
+
 def _orthophoto_raster(variant, directory):
     """A uint8 RGBA mosaic."""
     if variant == "empty":
@@ -425,4 +444,5 @@ PRODUCTS = {
     ("orthophoto", "raster"): _orthophoto_raster,
     ("orthophoto", "tiles"): _orthophoto_tiles,
     ("satellite_imagery", None): _orthophoto_raster,
+    ("settlement_class", None): _settlement_class_raster,
 }

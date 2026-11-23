@@ -74,7 +74,7 @@ Follow the [demo guidelines](docs/demo-guidelines.md); the
 repository root, for example `uv run python demos/dataset_city.py`.
 Plots and viewers open directly; close them to continue.
 
-Run static checks and the small offline example with `uv run pytest tests/demos`.
+Run static checks and the small offline workflows with `uv run pytest tests/demos`.
 Opt in to workflow execution with:
 
 ```bash
