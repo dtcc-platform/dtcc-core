@@ -1,3 +1,18 @@
+from ._http_client import http_client
+from ._http import (
+    HttpTransportError,
+    HttpLimitError,
+    ResponseCache,
+    HttpClient,
+    AsyncHttpClient,
+    Request,
+    Response,
+    Timeout,
+    RetryPolicy,
+    RedirectPolicy,
+    Budget,
+    MultipartPart,
+)
 from . import pointcloud
 from . import meshes
 from .model import load_model, save_model
@@ -13,6 +28,7 @@ from . import roadnetwork
 from . import landuse
 from . import pointcloud_directory
 from . import trees
+from . import geojson
 from .cityjson import cityjson
 from .cityjson import write_cityjson
 
@@ -21,6 +37,7 @@ from .data import (
     download_pointcloud,
     download_footprints,
     download_roadnetwork,
+    download_imagery,
     empty_cache,
 )
 
@@ -69,6 +86,19 @@ VolumeMesh.add_methods(save_mesh, "save")
 RoadNetwork.add_methods(roadnetwork.to_dataframe, "to_df")
 
 __all__ = [
+    "http_client",
+    "HttpClient",
+    "AsyncHttpClient",
+    "Request",
+    "Response",
+    "Timeout",
+    "RetryPolicy",
+    "RedirectPolicy",
+    "Budget",
+    "MultipartPart",
+    "HttpTransportError",
+    "HttpLimitError",
+    "ResponseCache",
     "load_3dbag",
     "load_model",
     "save_model",
@@ -89,5 +119,6 @@ __all__ = [
     "download_pointcloud",
     "download_footprints",
     "download_roadnetwork",
+    "download_imagery",
     "empty_cache",
 ]

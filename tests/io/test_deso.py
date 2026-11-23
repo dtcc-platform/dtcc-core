@@ -311,3 +311,18 @@ def test_download_deso_filters_converts_and_reuses_cached_geopackage(
         deso_data.download_deso_geodataframe(bounds, use_cache=False)
     assert cache_path.read_bytes() == response.content
     assert not list((tmp_path / "cache").rglob("*.part"))
+
+
+def test_filter_deso_geodataframe_accepts_a_point():
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from dtcc_core.io.data.deso import filter_deso_geodataframe
+
+    gdf = gpd.GeoDataFrame(
+        {"desokod": ["A", "B"]},
+        geometry=[box(0, 0, 10, 10), box(20, 20, 30, 30)],
+        crs="EPSG:3006",
+    )
+
+    assert filter_deso_geodataframe(gdf, (5, 5, 5, 5))["desokod"].tolist() == ["A"]

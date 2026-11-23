@@ -1,3 +1,4 @@
+import copy
 import json
 import tempfile
 from abc import ABC, abstractmethod
@@ -225,6 +226,10 @@ class DatasetDescriptor(ABC):
     python_return_type: str = "object"
     timeout_hint: int | None = None
     multi_file_formats: Sequence[str] = ()
+    # One entry per product: canonical package support, the web formats of
+    # export(canonical=True, format=...), their Dataset argument and data
+    # precondition constraints, export options, and exclusions with reasons.
+    export_capabilities: Sequence[dict[str, Any]] = ()
 
     def __init_subclass__(cls, register=True, **kwargs):
         """
@@ -253,7 +258,7 @@ class DatasetDescriptor(ABC):
         args = self.validate(kwargs)
         result = self.build(args)
         result = self.prepare_result(result, args)
-        context = self.create_context(args)
+        context = self._context_for_result(result, args)
         return attach_dataset_context(result, context)
 
     def validate(self, kwargs):
@@ -275,6 +280,10 @@ class DatasetDescriptor(ABC):
         containers without changing internal build/export code paths.
         """
         return result
+
+    def _context_for_result(self, result, args) -> DatasetContext:
+        """Build context for a realized result and its validated request."""
+        return self.create_context(args)
 
     # TODO(Dataset v2): keep DatasetDescriptor during migration; Dataset is a
     # public alias below so new code can use the Dataset name without breaking
@@ -583,6 +592,7 @@ class DatasetDescriptor(ABC):
             "supported_formats": formats,
             "formats": self.format_metadata(),
             "multi_file_formats": list(getattr(self, "multi_file_formats", ())),
+            "export": copy.deepcopy(list(self.export_capabilities)),
             "timeout_hint": getattr(self, "timeout_hint", None),
             "serialization": {
                 "python_object_when_format_omitted": True,
@@ -1098,6 +1108,12 @@ class DatasetDescriptor(ABC):
             else:
                 obj.save(tmpfile, **save_kwargs)
             return Path(tmpfile).read_bytes()
+
+
+def geojson_bytes(model, **options) -> bytes:
+    """Serialize ``model.to_geojson(crs="EPSG:4326", **options)`` as compact JSON."""
+    payload = model.to_geojson(crs="EPSG:4326", **options)
+    return json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 Dataset = DatasetDescriptor

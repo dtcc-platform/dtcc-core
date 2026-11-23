@@ -393,4 +393,5 @@ def _surface(z_values: tuple[float, float, float, float]) -> Surface:
             [0.0, 2.0, z_values[3]],
         ]
     )
+    surface.transform.srs = "EPSG:3006"
     return surface

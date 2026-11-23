@@ -1,13 +1,28 @@
 name: Claude review
 
-# Reviews every non-draft pull request against REVIEW.md. The @claude mention
-# workflow in claude.yml stays for follow-up questions. Needs the Claude GitHub
-# App installed and ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN as a secret.
-# Pull requests from forks have no access to secrets, so they are skipped.
+# Reviews a pull request against REVIEW.md when it is opened ready for review
+# or marked ready, not on later pushes. There are two ways to ask for another
+# pass, and neither reruns CI:
+# - Mark the pull request as draft, then ready again. This workflow reviews
+#   what changed since its last review (nothing, if no commits were added),
+#   and GitHub requests review from the code owners.
+# - Someone with write access comments "@claude review the commits since your
+#   last review, following REVIEW.md". The @claude mention workflow in
+#   claude.yml answers it in one comment.
+# Needs the Claude GitHub App installed and ANTHROPIC_API_KEY or
+# CLAUDE_CODE_OAUTH_TOKEN as a secret. Pull requests from forks have no access
+# to secrets, so they are skipped.
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review]
+
+# Runs of this workflow on one pull request run one at a time: a running review
+# finishes, so the next one can start from its comment; a newer review replaces
+# one still waiting.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -26,22 +41,47 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The action checks out the PR head before reviewing, so REVIEW.md
+      # would be the author's copy, or missing on a branch that predates it.
+      - name: Read REVIEW.md from the default branch
+        id: rules
+        env:
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --depth=1 origin "$BASE"
+          { echo 'review_md<<REVIEW_EOF'; git show FETCH_HEAD:REVIEW.md; echo 'REVIEW_EOF'; } >> "$GITHUB_OUTPUT"
+
       - name: Review the pull request
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Review this pull request following REVIEW.md in the repository root:
-            its "What failure looks like here", "Ignore", "How to review" and
-            "How to report" sections. Check the diff against the PR's Testing,
-            Risk and How to revert answers. Leave inline comments for findings
-            and one top-level comment with the finding count or "no issues".
-            On a synchronize event, review only the commits added since your
-            last review comment.
+            Review this pull request following the REVIEW.md below: its
+            "What failure looks like here", "Ignore", "How to review" and
+            "How to report" sections. Get the diff with `gh pr diff` and the
+            description with `gh pr view`. Check the diff against the PR's
+            Testing, Risk and How to revert answers. Leave an inline comment
+            for each important finding on a line in the diff, and none for
+            nits. Then leave one top-level comment: first any important
+            finding with no line in the diff to attach to, such as one about
+            the PR description, labelled important; then each nit as its file
+            and line and what is wrong; then the total number of important
+            findings and of nits, or "no issues"; and last the line
+            `Reviewed up to ${{ github.event.pull_request.head.sha }}`.
+            If earlier top-level comments of yours end with a
+            "Reviewed up to" line, review only what changed since the
+            commit in the latest of them:
+            `gh api repos/${{ github.repository }}/compare/<that commit>...${{ github.event.pull_request.head.sha }}`.
+            If that request fails, its status is not "ahead" or
+            "identical", or no earlier comment has the line, review the
+            full diff.
+
+            REVIEW.md on ${{ github.event.repository.default_branch }}:
+
+            ${{ steps.rules.outputs.review_md }}
           claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api repos/dtcc-platform/dtcc-core/compare/*)"
