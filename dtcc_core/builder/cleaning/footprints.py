@@ -103,7 +103,8 @@ class UnresolvedFootprintCleaningError(ValueError):
     """Bounded cleaning found no acceptable result for a valid input.
 
     This reports that the fixed search was exhausted, not that no conforming
-    result exists.
+    result exists. Strict cleaning at zero detail, which does no search,
+    raises it for overlapping footprints instead (reason ``overlap``).
 
     Parameters
     ----------
@@ -116,8 +117,17 @@ class UnresolvedFootprintCleaningError(ValueError):
         self.diagnostics = diagnostics
         groups = diagnostics.get("unresolved_groups", [])
         identifiers = [str(row.get("group")) for row in groups[:8]]
-        suffix = f"; unresolved groups: {', '.join(identifiers)}" if identifiers else ""
-        super().__init__(f"Footprint cleaning did not find a conforming result{suffix}")
+        if groups and all(row.get("reason") == "overlap" for row in groups):
+            message = (
+                "Footprints overlap at zero detail, which strict cleaning does "
+                f"not accept: {', '.join(identifiers)}"
+            )
+        else:
+            suffix = (
+                f"; unresolved groups: {', '.join(identifiers)}" if identifiers else ""
+            )
+            message = f"Footprint cleaning did not find a conforming result{suffix}"
+        super().__init__(message)
 
 
 def residual_separation_warning(observation, delta):
