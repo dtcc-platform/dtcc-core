@@ -64,9 +64,13 @@ jobs:
             "What failure looks like here", "Ignore", "How to review" and
             "How to report" sections. Get the diff with `gh pr diff` and the
             description with `gh pr view`. Check the diff against the PR's
-            Testing, Risk and How to revert answers. Leave inline comments
-            for findings and one top-level comment with the finding count or
-            "no issues", ending with the line
+            Testing, Risk and How to revert answers. Leave an inline comment
+            for each important finding and none for nits. Then leave one
+            top-level comment: first any important finding with no line in
+            the diff to attach to, such as one about the PR description,
+            labelled important; then each nit as its file and line and what
+            is wrong; then the number of important findings and of nits, or
+            "no issues"; and last the line
             `Reviewed up to ${{ github.event.pull_request.head.sha }}`.
             If earlier top-level comments of yours end with a
             "Reviewed up to" line, review only what changed since the
