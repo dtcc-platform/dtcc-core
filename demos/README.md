@@ -6,6 +6,30 @@ Run scripts from the repository root, for example:
 python demos/build_lod1_buildings.py
 ```
 
+Local geographic demos, including city meshing and
+[synthetic smoke](dataset_smoke.py), use a 250 × 250 m box at Chalmers
+Johanneberg, centred at EPSG:3006 `(319970, 6397910)` with bounds
+`(319845, 6397785, 320095, 6398035)`. Regional station and vehicle queries use
+a 45 km window around that centre. Live buses use a 2 km window.
+
+The [calibration grid](dataset_calibration_grid.py) and
+[printable city tiles](dataset_printable_city_tiles.py) use the 500 × 500 m
+physical table bounds. The [satellite imagery demo](dataset_satellite_imagery.py)
+uses a 3 × 3 km window to show enough 10 m pixels. The bundled CityJSON and
+hand-built LOD1 block use their own geometry.
+To construct a building directly, run [Building from a footprint](building_from_footprint.py),
+an offline courtyard example with meshing and native model saving. See the
+[constructor guide](../docs/buildings-from-footprints.md) for inputs, height
+updates and CityJSON persistence.
+Its figure compares the footprint and extrusion and labels ground and roof heights.
+
+[Footprints from LOD1](footprints_from_lod1.py) runs the reverse workflow on an
+offline podium/tower solid, retaining both roof levels through cleaning and
+rebuilding. See the [conversion guide](../docs/buildings-from-lod1.md) for
+supported geometry, copying, provenance and error handling.
+Its figure compares the source solid, roof-coloured footprints and rebuilt LoD1
+parts without the block's aggregate footprint plane.
+
 For footprint cleaning and building meshing, follow this short tour:
 
 1. [Original footprints](dataset_building_footprints.py) — a dataset call and plot.
@@ -23,8 +47,9 @@ LOD1 remains the API default; `lod="lod2"` selects catalogue reconstruction,
 and `lod2_method="ransac"` selects RANSAC. Both methods support isolated and joint surface meshing. Rejected roof fits fall back to LOD1. See [LOD2 reconstruction](../docs/roof_catalogue.md).
 
 For terrain alone, compare [the dataset call](dataset_terrain_surface_mesh.py)
-with [explicit construction](build_terrain_surface_mesh.py), then try
-[footprint-conforming terrain](build_terrain_with_footprints.py).
+at a 25 m mesh target with [explicit construction](build_terrain_surface_mesh.py)
+and [footprint-conforming terrain](build_terrain_with_footprints.py), both at
+10 m.
 For CityJSON, [view the detailed source](view_cityjson.py) before
 [triangulating twelve supplied LOD2 buildings](build_cityjson_surface_mesh.py), retaining their roofs and exporting `output/cityjson_lod2_surface_mesh.vtu`.
 

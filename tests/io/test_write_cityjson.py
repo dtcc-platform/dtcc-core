@@ -198,7 +198,7 @@ class TestObjectConversion:
         # Check that geometry was added
         assert len(obj_data["geometry"]) == 1
         assert obj_data["geometry"][0]["type"] == "MultiSurface"
-        assert obj_data["geometry"][0]["lod"] == 2.0
+        assert obj_data["geometry"][0]["lod"] == "2"
         assert len(vertices) == 3
 
 
@@ -289,7 +289,7 @@ class TestCityConversion:
         assert building_data["attributes"]["height"] == 10.0
         assert building_data["attributes"]["function"] == "residential"
         assert len(building_data["geometry"]) == 1
-        assert building_data["geometry"][0]["lod"] == 2.0
+        assert building_data["geometry"][0]["lod"] == "2"
 
         # Check vertices were added
         assert len(result["vertices"]) == 8  # 8 unique vertices
@@ -488,5 +488,5 @@ class TestEdgeCases:
         assert len(building_data["geometry"]) == 2
 
         lods = [geom["lod"] for geom in building_data["geometry"]]
-        assert 1.0 in lods
-        assert 2.0 in lods
+        assert "1" in lods
+        assert "2" in lods

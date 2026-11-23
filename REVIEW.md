@@ -40,6 +40,8 @@ a Ruff rule or a test instead of a line here.
 - A weakened, skipped, or deleted check is a finding, including a new entry
   under `[tool.ruff.lint.per-file-ignores]`.
 - Leave style and cleanup to Ruff; report bugs.
+- A diff that fixes an item in `NITS.md` or `RISKS.md` but keeps its line is a
+  nit.
 
 ## How to report
 

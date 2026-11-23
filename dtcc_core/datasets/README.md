@@ -62,7 +62,7 @@ Every dataset is a `DatasetDescriptor` with:
 - `name`: stable registry name, used as `datasets.<name>()`.
 - `description`: human-readable description.
 - `ArgsModel`: Pydantic model describing accepted parameters.
-- `data_category`: one of `raw`, `derived`, `synthetic`, `simulation`, `remote`, or
+- `data_category`: one of `raw`, `derived`, `synthetic`, `simulation`, or
   `unknown`.
 - `result_kind`: coarse Python result kind such as `mesh`, `point_cloud`,
   `sensor_collection`, `city_model`, or `road_network`.
@@ -71,6 +71,12 @@ Every dataset is a `DatasetDescriptor` with:
 - `timeout_hint`: optional expected upper bound in seconds for service UIs.
 - `multi_file_formats`: serialized formats that usually produce companion
   files, such as `xdmf`.
+- `export_capabilities`: one entry per product: whether it exports as a
+  canonical package, its web formats for `export(canonical=True, format=...)`,
+  the constraints per format (Dataset `arguments` and data `preconditions`),
+  its export options with their formats and defaults, and `exclusions` with
+  reasons. `describe()["export"]` returns it, and `datasets.info()` lists the
+  web formats per product, a `*` marking a format that carries a constraint.
 
 The shared API is:
 
@@ -143,17 +149,21 @@ Current Built-In Datasets
 | Dataset | Category | Python result when `format=None` | Serialized formats | Notes |
 | --- | --- | --- | --- | --- |
 | `point_cloud` | raw | `PointCloud` | `copc`, `las`, `laz` | Lantmäteriet/DTCC backend point cloud with classification presets and optional outlier removal. |
-| `orthophoto` | raw | `Raster` (RGBA); `RasterTileCollection` with `product="tiles"` | `tif` | Lantmäteriet orthophotos through the DTCC LM tile server; needs `server_url` or `DTCC_ORTHOPHOTO_URL`. See [the orthophoto guide](../../docs/datasets/orthophoto.md). |
+| `orthophoto` | raw | `Raster` (RGBA); `RasterTileCollection` with `product="tiles"` | `tif` | Lantmäteriet orthophotos through the DTCC LM tile server; needs `server_url` or `DTCC_ORTHOPHOTO_URL`. Tiles export as canonical packages (`export(path, canonical=True)`) that carry the tile files and reload after the cache is gone. See [the orthophoto guide](../../docs/datasets/orthophoto.md). |
 | `building_footprints` | raw | `FootprintCollection` | `geojson`, `gpkg`, `shp.zip` | Provider/cache footprints for context and table alignment; use `crs="EPSG:3006"` for table GeoJSON. |
 | `buildings` | derived | `BuildingCollection` | `obj`, `stl` | LoD1 block buildings from selected footprints and point-cloud-derived heights. |
+| `built_up` | raw | `Raster` | `tif` | GHSL GHS-BUILT-S R2023A built-up surface in m² per 100 m cell for any epoch 1975-2030 (2025/2030 projected), total or non-residential; reprojection preserves area totals. |
 | `city` | derived | `City` | `cityjson`, `json` | Terrain plus LoD1 buildings; both serialized paths currently produce CityJSON-compatible JSON bytes. |
-| `terrain_surface_mesh` | derived | `Mesh` or `Raster` | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
+| `terrain_surface_mesh` | derived | `Mesh` by default (`obj`, `stl`); `Raster` with `product="raster"` (`tif`) | `tif`, `obj`, `stl` | Point-cloud-derived terrain raster or mesh with outlier, adaptive meshing, smoothing, and mesher controls. |
 | `city_flat_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Flat z=0 2D mesh with conditioned LOD0 building subdomains. |
 | `city_surface_mesh` | derived | `Mesh` | `obj`, `stl`, `vtu` | Terrain plus generalized building surface mesh for visualization or preprocessing. |
+| `printable_city_tiles` | derived | `Object` | — | Magnetic city tiles and a matching base. Call `export_stl(folder=...)` on the assembly for print files or `export(path, canonical=True)` for a package. See [the printable city tiles guide](../../docs/datasets/printable-city-tiles.md). |
 | `city_volume_mesh` | derived | `VolumeMesh` | `xdmf`, `vtu` | TetGen-backed tetrahedral computational-domain mesh; `xdmf` is a multi-file format. |
-| `trees` | derived | `TreeCollection` | `tif`, `gpkg`, `geojson` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
+| `trees` | derived | `TreeCollection`; `Raster` with `product="raster"` | `gpkg`, `geojson`; `tif` with `product="raster"` | Tree points or canopy-height raster derived from point-cloud vegetation returns. |
 | `roads` | raw | `RoadNetwork` | `pb` | OpenStreetMap/Overpass road network in EPSG:3006 with highway-tag semantics, cache/live source caveats, and ODbL review status. |
+| `satellite_imagery` | raw | `Raster` | `tif`, `png` | Digital Earth Sweden (RISE) Sentinel-2 RGBA imagery in EPSG:3006 at 10 m, defaulting to the newest clear acquisition, with style and cloud-cover options. Rendered images, not measurements. See [satellite imagery](../../docs/datasets/satellite-imagery.md). |
 | `space_syntax` | derived | `RoadNetwork` | `pb` | RoadNetwork enriched with dual-segment graph measures: connectivity, reach, mean depth, integration, choice, radius/cost metadata, and component labels. |
+| `settlement_class` | raw | `Raster` | `tif` | GHSL GHS-SMOD R2023A Degree of Urbanisation class per 1 km cell (30 urban centre ... 11 very low density rural, 10 water) for any epoch 1975-2030 (2025/2030 projected). |
 | `transit_vehicles` | raw | `VehicleCollection` | `pb` | Live Trafiklab/Västtrafik vehicle snapshot with provider metadata, credential guidance, mode filtering, timestamps, speed/bearing fields, and partial-result health. |
 | `buses` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("bus",))`. |
 | `trams` | raw | `VehicleCollection` | `pb` | Mode-preset shortcut for `transit_vehicles(..., modes=("tram",))`. |
@@ -167,6 +177,19 @@ Current Built-In Datasets
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI HydroObs latest-day station observations with catchment metadata, units, value timestamps, and quality codes. |
 | `ocean` | raw | `SensorCollection` | `pb` | SMHI OcObs latest-hour station/platform observations with units, period timestamps, quality codes, and parameter metadata. |
 | `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, household, car, and employment statistics. |
+
+Dataset-level `format="geojson"` for `deso`, `calibration_grid`, and
+`smoke` with `product="slice"` or `product="streamlines"` is the model's
+`to_geojson(crs="EPSG:4326")` conversion: WGS84 longitude/latitude with no
+`crs` member. `calibration_grid` and the smoke slice and streamline products
+convert from the `crs` argument, the frame of the request bounds, so
+`format="geojson"` requires a `crs` value for them. `trees` and
+`building_footprints` GeoJSON comes from the io writers, which also write
+WGS84 by default. `smoke` with `product="field"` GeoJSON keeps native
+coordinates and names the declared `crs`.
+
+Per-product canonical and web export support is listed in
+[the export coverage guide](../../docs/datasets/export-coverage.md).
 
 Smoke Dataset
 -------------
@@ -221,9 +244,11 @@ MP4 remains available through the dataset-level serialized path:
         format="mp4",
     )
 
-The GeoJSON outputs declare `EPSG:3006` by default for QGIS/GDAL compatibility.
-Set `crs=None` to omit that declaration, or `include_z=False` to write 2D
-coordinates for viewers that do not handle GeoJSON Z coordinates.
+`crs` (default `EPSG:3006`) is the frame of the request bounds and the CRS the
+slice and streamline products declare. Their GeoJSON is converted from it to
+`EPSG:4326`; `product="field"` GeoJSON keeps native coordinates and names it.
+`include_z=False` writes 2D coordinates for viewers that do not handle GeoJSON
+Z coordinates.
 
 Object-First Packages
 ---------------------
@@ -449,6 +474,15 @@ For a generated download:
    protobuf, or an unsupported download-only artifact.
 6. Use `dataset.export(path, ...)` when Atlas needs both the serialized data
    file and a manifest sidecar for that concrete request.
+7. Read `describe()["export"]` for what each product's result supports as a
+   canonical package and as a web format (map-placed PNG/GeoTIFF or RFC 7946
+   GeoJSON), the constraints and options of each format, and the reasons a
+   product has no web format.
+
+For printable city tiles, `describe()["stl_export"]` sets `target` to
+`"result"`. Call the listed `export_stl(folder=...)` method on the assembly
+returned by the dataset. Its canonical package includes the printable files
+and `artifacts/preview.geojson`.
 
 Creating Custom Datasets
 ------------------------
