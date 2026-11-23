@@ -1,8 +1,9 @@
-"""Horizontal coordinate reprojection with attached field values unchanged.
+"""Horizontal coordinate reprojection with field and time series values unchanged.
 
-Coordinates must already be in the declared source frame. Fields retain their
-values, associations, units and component conventions; vector fields warn on a
-CRS change because components are not rotated or rescaled. Semantic regions,
+Coordinates must already be in the declared source frame. Fields and time
+series retain their values, associations, units and component conventions.
+Vector attachments emit a warning when the CRS changes because reprojection
+leaves their components in the source frame. Semantic regions,
 normals, local affine transforms and DatasetContext still require explicit
 transformation rules. Z values are retained, not reprojected.
 """
@@ -77,9 +78,14 @@ def _check_reprojection_state(value):
         raise NotImplementedError(
             "DatasetContext requires an explicit reprojection/provenance update"
         )
-    if any(field.dim > 1 for field in getattr(value, "fields", ())):
+    vector_types = [
+        label
+        for attribute, label in (("fields", "field"), ("time_series", "time series"))
+        if any(item.dim > 1 for item in getattr(value, attribute, ()))
+    ]
+    if vector_types:
         warnings.warn(
-            "Vector field components are preserved unchanged. Their orientation "
+            f"Vector {' and '.join(vector_types)} components are preserved unchanged. Their orientation "
             "and units are not transformed to the target coordinate system.",
             UserWarning,
             stacklevel=3,
@@ -117,8 +123,8 @@ def reproject_array(points: np.ndarray, src_crs: str, target_crs: str) -> np.nda
 def reproject_surface(surface: Surface, src_crs: str, target_crs: str) -> Surface:
     """Reproject a surface and its holes on a copy, keeping field values unchanged.
 
-    Field units and associations are preserved. Vector components are not
-    transformed; vector fields emit a UserWarning when the CRS changes.
+    Field and time series values, units and associations are preserved.
+    Vector attachments emit a UserWarning when the CRS changes.
     """
     source, target = _crs_pair(surface, src_crs, target_crs)
     if source == target:
@@ -137,10 +143,8 @@ def reproject_mesh(
 ) -> Mesh | VolumeMesh:
     """Reproject a triangle or volume mesh on a copy, keeping field values unchanged.
 
-    Connectivity, markers, field units and associations are preserved. Vector
-    components are not rotated or rescaled; vector fields emit a UserWarning
-    when the CRS changes. Z is unchanged. This does not convert field components
-    into the target coordinate basis or resample the field within elements.
+    Connectivity, markers, fields and time series are preserved. Vector
+    attachments emit a UserWarning when the CRS changes. Z is unchanged.
     """
     source, target = _crs_pair(mesh, src_crs, target_crs)
     if source == target:
@@ -158,8 +162,8 @@ def reproject_multisurface(
 ) -> MultiSurface:
     """Reproject constituent surfaces, keeping parent and surface fields unchanged.
 
-    Field units and associations are preserved. Vector components are not
-    transformed; vector fields emit a UserWarning when the CRS changes.
+    Field and time series values, units and associations are preserved.
+    Vector attachments emit a UserWarning when the CRS changes.
     """
     source, target = _crs_pair(multisurface, src_crs, target_crs)
     if source == target:
@@ -177,8 +181,8 @@ def reproject_multisurface(
 def reproject_object(obj: Object, src_crs: str, target_crs: str) -> Object:
     """Reproject one object's representations, keeping their field values unchanged.
 
-    Field units and associations are preserved. Vector components are not
-    transformed; vector fields emit a UserWarning when the CRS changes.
+    Field and time series values, units and associations are preserved.
+    Vector attachments emit a UserWarning when the CRS changes.
     Nested object frames remain unsupported.
     """
     source, target = _crs_pair(obj, src_crs, target_crs)
@@ -229,8 +233,8 @@ def reproject_pointcloud(
 ) -> PointCloud:
     """Reproject a point cloud without modifying or sharing mutable source state.
 
-    Field values, units and associations are preserved. Vector components are
-    not transformed; vector fields emit a UserWarning when the CRS changes.
+    Field and time series values, units and associations are preserved.
+    Vector attachments emit a UserWarning when the CRS changes.
     Supply the source CRS or declare it in transform.srs. Conflicts fail unless
     override_geometry_crs=True explicitly selects the supplied source. Local
     affine transforms and metadata needing transformation rules are unsupported.
