@@ -57,6 +57,9 @@ Finally, [volume meshing](dataset_city_volume_mesh.py) builds the air volume aro
 LOD2 buildings and exports `output/city_volume_mesh.vtu` for ParaView. It reuses
 the joint surface pipeline and requires TetGen;
 the [catalog](../docs/datasets/demo-catalog.md) describes the known quality limitations.
+The offline [corner-repair demo](repair_boundary_corners.py) exports the original
+and repaired tetrahedra as VTU files. Apply **Shrink** in ParaView to see the four
+child cells and the new interior vertex.
 
 Close each plot or viewer to continue. `.view()` requires `dtcc-viewer` and a graphical display.
 Generated files go in `output/` relative to the working directory; dtcc-core creates it automatically.

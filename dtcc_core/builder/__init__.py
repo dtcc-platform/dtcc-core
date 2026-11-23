@@ -87,6 +87,9 @@ from .meshing.surface_refinement import SurfaceRefinementOptions
 from .meshing.boundary_conformance import conform_boundary
 
 __all__ = [
+    "BoundaryCornerReport",
+    "find_boundary_corners",
+    "repair_boundary_corners",
     "BoxMesh",
     "RectangleMesh",
     "extract_roof_points",
@@ -127,3 +130,9 @@ __all__ = [
 ]
 
 from .meshing.compact_surface import CompactSurfaceOptions
+
+from .meshing.volume_corners import (
+    BoundaryCornerReport,
+    find_boundary_corners,
+    repair_boundary_corners,
+)
