@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import ANY, Mock, patch
 
 import pytest
 from pydantic import ValidationError
 
 import dtcc_core.datasets as datasets
+from dtcc_core.common.progress import phase_timing
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_volume_mesh import (
     CityVolumeMeshArgs,
@@ -76,6 +78,7 @@ def test_city_volume_mesh_default_build_returns_volume_mesh(
         min_building_area=15.0,
         smoothing=0,
         boundary_face_markers=True,
+        repair_boundary_corners=False,
         tetgen_switches={"extra": ""},
         report_mesh_quality=True,
         show_footprints=False,
@@ -112,6 +115,7 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
         min_building_detail=1.25,
         min_building_area=19.0,
         boundary_face_markers=False,
+        repair_boundary_corners=True,
         max_volume=12.5,
         mesher="dtcc_mesher",
         tetgen_extra="VV",
@@ -135,6 +139,7 @@ def test_city_volume_mesh_build_from_city_forwards_advanced_args(
     assert kwargs["min_building_detail"] == 1.25
     assert kwargs["min_building_area"] == 19.0
     assert kwargs["boundary_face_markers"] is False
+    assert kwargs["repair_boundary_corners"] is True
     assert kwargs["mesher"] == "dtcc_mesher"
     assert kwargs["max_volume"] == 12.5
     assert kwargs["tetgen_switches"] == {
@@ -268,3 +273,250 @@ def test_city_volume_mesh_context_documents_tetgen_and_boundary_markers():
     assert manifest.presentation.limitations
     assert manifest.request.parameters["domain_height"] == 95.0
     assert manifest.request.parameters["tetgen_extra"] == "VV"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("entry", ["dataset", "city"])
+def test_repair_request_forwarding_context_and_identity(monkeypatch, enabled, entry):
+    import numpy as np
+
+    from dtcc_core.model import City, VolumeMesh
+
+    calls = []
+
+    def build(city, **kwargs):
+        calls.append(kwargs)
+        mesh = VolumeMesh(
+            vertices=np.zeros((5, 3)), cells=np.zeros((4, 4), dtype=np.int64)
+        )
+        if enabled:
+            mesh.boundary_corner_repair = {
+                "operation": "repair_boundary_corners",
+                "requested": True,
+                "detected_corners": 4,
+                "repaired_corners": 4,
+                "detected_parent_cells": 1,
+                "repaired_parent_cells": 1,
+                "num_vertices": 5,
+                "num_cells": 4,
+            }
+        return mesh
+
+    monkeypatch.setattr("dtcc_core.builder.build_city_volume_mesh", build)
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.tetgen._require_tetgen", lambda: None
+    )
+    from importlib import import_module
+
+    module = import_module("dtcc_core.datasets.city_volume_mesh")
+    monkeypatch.setattr(module, "prepare_city_from_bounds", lambda *a, **kw: City())
+    dataset = CityVolumeMeshDataset()
+    kwargs = dict(
+        bounds=[0, 0, 10, 10], repair_boundary_corners=enabled, max_volume=12.5
+    )
+    result = (
+        dataset(**kwargs)
+        if entry == "dataset"
+        else dataset.build_from_city(City(), **kwargs)
+    )
+    assert len(calls) == 1
+    assert calls[0]["repair_boundary_corners"] is enabled
+    if entry == "city":
+        assert result.dataset_context is None
+        assert hasattr(result, "boundary_corner_repair") is enabled
+        return
+    context = result.dataset_context
+    assert context.request.parameters["repair_boundary_corners"] is enabled
+    assert context.request.parameters["max_volume"] == 12.5
+    records = [
+        step
+        for step in context.provenance.processing_steps
+        if isinstance(step, dict) and step.get("operation") == "repair_boundary_corners"
+    ]
+    if enabled:
+        assert len(records) == 1
+        assert records[0]["num_cells"] == result.num_cells
+        assert records[0]["requested"] is True
+    else:
+        assert records == []
+    other = dataset.create_context(
+        dataset.validate({**kwargs, "repair_boundary_corners": not enabled})
+    )
+    assert context.request.model_dump_json() != other.request.model_dump_json()
+    schema = dataset.show_options()["properties"]["repair_boundary_corners"]
+    assert schema["type"] == "boolean" and schema["default"] is False
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_repair_export_sidecar_is_result_aware_and_builds_once(
+    monkeypatch, tmp_path, enabled
+):
+    from dtcc_core.model import City, VolumeMesh
+
+    dataset = CityVolumeMeshDataset()
+    city = City()
+    mesh = VolumeMesh()
+    if enabled:
+        mesh.boundary_corner_repair = {
+            "operation": "repair_boundary_corners",
+            "requested": True,
+            "num_cells": 4,
+            "boundary_markers": [-1],
+        }
+    monkeypatch.setattr(
+        "dtcc_core.builder.meshing.tetgen._require_tetgen", lambda: None
+    )
+    build = Mock(return_value=mesh)
+    monkeypatch.setattr(dataset, "_build_mesh_from_city", build)
+    phases = []
+
+    @contextmanager
+    def capture_phase(name):
+        phases.append(name)
+        try:
+            yield
+        finally:
+            phases.pop()
+
+    def serialize(mesh_to_export, export_format):
+        assert phases == ["export"]
+        return b"mesh"
+
+    export = Mock(side_effect=serialize)
+    monkeypatch.setattr(dataset, "export_to_bytes", export)
+    path = tmp_path / "mesh.vtu"
+    with (
+        phase_timing(capture_phase),
+        patch(
+            "dtcc_core.datasets.city_volume_mesh.prepare_city_from_bounds",
+            return_value=city,
+        ),
+    ):
+        result = dataset.export(
+            path, bounds=[0, 0, 10, 10], repair_boundary_corners=enabled
+        )
+
+    assert path.read_bytes() == b"mesh"
+    build.assert_called_once()
+    assert build.call_args.args[0] is city
+    assert build.call_args.args[1].repair_boundary_corners is enabled
+    export.assert_called_once_with(mesh, "vtu")
+    if enabled:
+        mesh.boundary_corner_repair["boundary_markers"].append(2)
+        assert mesh.dataset_context.provenance.processing_steps[-1][
+            "boundary_markers"
+        ] == [-1]
+    context = result.manifest["dataset_context"]
+    assert context["request"]["parameters"]["format"] == "vtu"
+    assert context["request"]["parameters"]["repair_boundary_corners"] is enabled
+    records = [
+        step
+        for step in context["provenance"]["processing_steps"]
+        if isinstance(step, dict) and step.get("operation") == "repair_boundary_corners"
+    ]
+    if enabled:
+        assert len(records) == 1 and records[0]["num_cells"] == 4
+    else:
+        assert records == []
+
+
+@pytest.mark.parametrize("value", [None, 2, "maybe"])
+def test_repair_flag_rejects_invalid_boolean(value):
+    with pytest.raises(ValidationError):
+        CityVolumeMeshArgs(bounds=[0, 0, 10, 10], repair_boundary_corners=value)
+
+
+@pytest.mark.parametrize(
+    "value,expected", [(1, True), (0, False), ("true", True), ("false", False)]
+)
+def test_repair_flag_uses_dataset_boolean_coercion(value, expected):
+    args = CityVolumeMeshArgs(
+        bounds=[0, 0, 10, 10], repair_boundary_corners=value, remove_outliers=value
+    )
+    assert args.repair_boundary_corners is expected
+    assert args.remove_outliers is expected
+
+
+def test_city_dataset_inherits_context_attachment_after_preparation(monkeypatch):
+    from dtcc_core.datasets.dataset import DatasetDescriptor
+    from dtcc_core.model import VolumeMesh
+
+    assert CityVolumeMeshDataset.__call__ is DatasetDescriptor.__call__
+    dataset = CityVolumeMeshDataset()
+    built, prepared = VolumeMesh(), VolumeMesh()
+    prepared.boundary_corner_repair = {
+        "operation": "repair_boundary_corners",
+        "requested": True,
+        "num_cells": 12,
+    }
+    build = Mock(return_value=built)
+    prepare = Mock(return_value=prepared)
+    context = Mock(wraps=dataset.create_context)
+    monkeypatch.setattr(dataset, "build", build)
+    monkeypatch.setattr(dataset, "prepare_result", prepare)
+    monkeypatch.setattr(dataset, "create_context", context)
+    result = dataset(bounds=[0, 0, 10, 10], repair_boundary_corners=True)
+    assert result is prepared
+    build.assert_called_once()
+    args = build.call_args.args[0]
+    prepare.assert_called_once_with(built, args)
+    context.assert_called_once_with(args)
+    assert result.dataset_context.request.parameters["repair_boundary_corners"] is True
+    assert result.provenance.processing_steps[-1]["num_cells"] == 12
+    assert built.dataset_context is None
+
+
+def test_city_dataset_keeps_byte_results_unchanged(monkeypatch):
+    dataset = CityVolumeMeshDataset()
+    monkeypatch.setattr(dataset, "build", Mock(return_value=b"volume-mesh"))
+    assert dataset(bounds=[0, 0, 10, 10], format="vtu") == b"volume-mesh"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_direct_city_build_preserves_native_mesh_contract(monkeypatch, enabled):
+    import numpy as np
+
+    from dtcc_core.model import City, VolumeMesh
+
+    dataset = CityVolumeMeshDataset()
+    mesh = VolumeMesh(
+        vertices=np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        ),
+        cells=np.array([[0, 1, 2, 3]]),
+    )
+    if enabled:
+        mesh = mesh.repair_boundary_corners()
+    build = Mock(return_value=mesh)
+    monkeypatch.setattr("dtcc_core.builder.build_city_volume_mesh", build)
+    result = dataset.build_from_city(
+        City(), bounds=[1, 2, 3, 4], repair_boundary_corners=enabled
+    )
+    assert result is mesh
+    assert result.dataset_context is None
+    assert result.to_cpp() is not None
+    assert build.call_args.kwargs["max_mesh_size"] == 25.0
+    assert build.call_args.kwargs["domain_height"] == 80.0
+    assert build.call_args.kwargs["repair_boundary_corners"] is enabled
+    if enabled:
+        assert result.boundary_corner_repair["repaired_parent_cells"] == 1
+
+
+def test_direct_city_wrapper_preserves_builder_result_frame(monkeypatch):
+    from dtcc_core import BoxMesh
+    from dtcc_core.model import City, VolumeMesh
+
+    city = City()
+    city.transform.srs = "EPSG:32632"
+    mesh = BoxMesh(1, 1, 1)
+    mesh.transform.srs = city.transform.srs
+    build = Mock(return_value=mesh)
+    monkeypatch.setattr("dtcc_core.builder.build_city_volume_mesh", build)
+    result = CityVolumeMeshDataset().build_from_city(city, bounds=[1, 2, 3, 4])
+    assert result.dataset_context is None
+    assert result.transform.srs == city.transform.srs
+    assert build.call_args.args[0] is city
+    restored = VolumeMesh()
+    restored.from_proto(result.to_proto())
+    assert restored.transform.srs == city.transform.srs
+    assert restored.dataset_context is None

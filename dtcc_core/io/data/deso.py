@@ -20,6 +20,7 @@ from dtcc_core.model import (
     Surface,
 )
 
+from .bbox import as_bounds
 from .cache import cache_dir
 from .logging import info, warning
 
@@ -175,7 +176,7 @@ def download_deso_geodataframe(
             f"Supported years: {SCB_DESO_SUPPORTED_YEARS}."
         )
 
-    bounds = _ensure_bounds(bounds)
+    bounds = as_bounds(bounds)
     cache_path = _cache_path(bounds, year)
     if use_cache and cache_path.exists():
         info(f"Using cached DeSO {year} data from {cache_path}")
@@ -211,7 +212,7 @@ def download_deso_geodataframe(
 
 def filter_deso_geodataframe(gdf, bounds: Bounds):
     """Filter a DeSO GeoDataFrame to features intersecting bounds."""
-    bounds = _ensure_bounds(bounds)
+    bounds = as_bounds(bounds)
     bbox = box(bounds.xmin, bounds.ymin, bounds.xmax, bounds.ymax)
     return gdf[gdf.geometry.intersects(bbox)].copy()
 
@@ -235,7 +236,7 @@ def deso_from_geodataframe(
     }
     deso.transform.srs = "EPSG:3006"
     if bounds is not None:
-        deso.bounds = _ensure_bounds(bounds)
+        deso.bounds = as_bounds(bounds)
 
     for _, row in gdf.iterrows():
         geometry = _geometry_to_multisurface(row.geometry)
@@ -562,14 +563,6 @@ def _to_python_value(value):
     return value
 
 
-def _ensure_bounds(bounds: Bounds | tuple | list) -> Bounds:
-    if isinstance(bounds, Bounds):
-        return bounds
-    if isinstance(bounds, (tuple, list)):
-        return Bounds(xmin=bounds[0], ymin=bounds[1], xmax=bounds[2], ymax=bounds[3])
-    raise TypeError("bounds must be a dtcc_core.model.Bounds or a bbox tuple/list.")
-
-
 def _wfs_url(bounds: Bounds | None, year: int) -> str:
     params = (
         f"service=WFS&version=1.1.0&request=GetFeature"
@@ -577,14 +570,14 @@ def _wfs_url(bounds: Bounds | None, year: int) -> str:
         f"&outputFormat=geopackage&srsName=EPSG%3A3006"
     )
     if bounds is not None:
-        bounds = _ensure_bounds(bounds)
+        bounds = as_bounds(bounds)
         bbox = f"{bounds.xmin},{bounds.ymin},{bounds.xmax},{bounds.ymax},EPSG:3006"
         params += f"&bbox={bbox}"
     return f"{SCB_DESO_WFS_URL}?{params}"
 
 
 def _cache_path(bounds: Bounds, year: int) -> Path:
-    bounds = _ensure_bounds(bounds)
+    bounds = as_bounds(bounds)
     xmin, ymin, xmax, ymax = (round(value) for value in bounds.tuple)
     return (
         Path(cache_dir)

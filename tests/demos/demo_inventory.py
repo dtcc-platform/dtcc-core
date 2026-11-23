@@ -3,6 +3,7 @@
 DATASET_DEMOS = (
     "dataset_air_quality.py",
     "dataset_building_footprints.py",
+    "dataset_built_up.py",
     "dataset_buses.py",
     "dataset_calibration_grid.py",
     "dataset_city.py",
@@ -14,6 +15,7 @@ DATASET_DEMOS = (
     "dataset_hydrology.py",
     "dataset_ocean.py",
     "dataset_roads.py",
+    "dataset_settlement_class.py",
     "dataset_satellite_imagery.py",
     "dataset_smoke.py",
     "dataset_space_syntax.py",
@@ -30,8 +32,11 @@ WORKFLOW_DEMOS = (
     "build_terrain_raster.py",
     "build_terrain_surface_mesh.py",
     "build_terrain_with_footprints.py",
+    "building_from_footprint.py",
     "clean_building_footprints.py",
     "create_cityjson.py",
+    "repair_boundary_corners.py",
+    "footprints_from_lod1.py",
     "view_cityjson.py",
     "view_pointcloud.py",
 )

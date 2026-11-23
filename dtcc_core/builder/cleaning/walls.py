@@ -769,10 +769,12 @@ def _input_partition(sources, rank):
         part = _polygonal(part)
         if not part.is_empty and part.area > 0:
             partition[label] = part
+        # A union on the grid can keep a collapsed sliver as a line, which the
+        # next overlay on the grid rejects as mixed-dimension input.
         taken = (
             geometry
             if taken is None
-            else shapely.union(taken, geometry, grid_size=GRID)
+            else _polygonal(shapely.union(taken, geometry, grid_size=GRID))
         )
     return partition
 
@@ -992,7 +994,7 @@ def _exact_cells(region, partition, epsilon, rank) -> tuple[Cells, bool]:
     if len(relevant) <= 1:
         label = next(iter(relevant), min(partition, key=rank.__getitem__))
         return [(region, label)], False
-    occupied = _union(relevant.values())
+    occupied = _polygonal(_union(relevant.values()))
     gap = region.difference(occupied, grid_size=GRID)
     linework = [region.boundary]
     for geometry in relevant.values():

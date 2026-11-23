@@ -2,7 +2,12 @@
 
 import dtcc_core as dtcc
 
-bounds = dtcc.Bounds(297470, 6375410, 342470, 6420410)
+center_x = 319970.0
+center_y = 6397910.0
+L = 45000.0
+bounds = dtcc.Bounds(
+    center_x - L / 2, center_y - L / 2, center_x + L / 2, center_y + L / 2
+)
 
 ocean = dtcc.datasets.ocean(
     bounds=bounds,

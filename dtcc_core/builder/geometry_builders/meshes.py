@@ -5197,6 +5197,7 @@ def build_city_volume_mesh(
     top_cap_max_mesh_size: float | None = None,
     max_volume: float | None = None,
     isolated: bool = False,
+    repair_boundary_corners: bool = False,
 ) -> VolumeMesh:
     """
     Build a tetrahedral air-domain mesh bounded by terrain and buildings.
@@ -5212,7 +5213,8 @@ def build_city_volume_mesh(
     A block whose roof levels touch at a point only (its shell would have
     vertical edges with four faces, which a volume mesh cannot have) is
     extruded with one roof instead: the area-weighted mean of its parts'
-    roofs, or the highest when they span more than 2 m. This removes the
+    roofs, or the highest when their roofs or heights span more than 2 m
+    (:func:`.cleaning.blocks.fallback_roof`). This removes the
     steps of that block. A warning is logged, the conditioned-footprint
     contract warns, and ``stage_audit`` lists the blocks with the IDs of
     their buildings under the conditioned footprints' diagnostics
@@ -5256,6 +5258,9 @@ def build_city_volume_mesh(
         markers as a post-processing step. This supports downstream workflows such
         as boundary-condition assignment. Defaults to True. See Notes for marker
         conventions.
+    repair_boundary_corners : bool, optional
+        Remove all geometric singleton corners before final quality reporting.
+        Defaults to False and works without boundary-face output.
     max_volume : float, optional
         Optional maximum tetrahedron volume passed to TetGen. When omitted,
         ``dtcc-core`` does not synthesize a 3D size cap on its own; callers may
@@ -5362,6 +5367,8 @@ def build_city_volume_mesh(
     """
     from ..meshing.output_lod import resolve_output_lod
 
+    if type(repair_boundary_corners) is not bool:
+        raise TypeError("repair_boundary_corners must be a boolean")
     output_lod = resolve_output_lod(lod, lod2_method)
     if output_lod != "lod2" and (
         roof_options is not None or compact_surface is not None
@@ -5399,6 +5406,7 @@ def build_city_volume_mesh(
         max_volume=max_volume,
     )
     if attempt is not None:
+        attempt["config"]["repair_boundary_corners"] = repair_boundary_corners
         attempt["config"]["smoothing"] = int(smoothing)
         attempt["config"]["pipeline_mode"] = pipeline_mode
         attempt["config"]["top_cap_max_mesh_size"] = (
@@ -5650,9 +5658,16 @@ def build_city_volume_mesh(
             switches_overrides=tetgen_switch_overrides,
             return_boundary_faces=boundary_face_markers,
             prebuilt_plc=built_tetgen_plc.plc,
+            repair_boundary_corners=repair_boundary_corners,
         )
 
         if attempt is not None:
+            if hasattr(volume_mesh, "boundary_corner_repair"):
+                _record_stage_audit_stage(
+                    attempt,
+                    "boundary_corner_repair",
+                    volume_mesh.boundary_corner_repair,
+                )
             _record_stage_audit_stage(
                 attempt,
                 "volume_mesh",
