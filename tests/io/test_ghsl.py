@@ -198,10 +198,10 @@ def test_cache_separates_grids_that_differ_by_less_than_a_metre(fake_read):
 def test_cache_file_with_another_grid_is_ignored(fake_read, monkeypatch):
     warnings = []
     monkeypatch.setattr(ghsl, "warning", warnings.append)
-    transform, width, height = ghsl._target_grid(BOUNDS)
-    path = ghsl._cache_path(transform, width, height, 2020, "total")
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+    path = ghsl._cache_path("built_up_total", transform, width, height, 2020)
     other = Affine(100.0, 0, BOUNDS.xmin + 50.0, 0, -100.0, BOUNDS.ymax)
-    ghsl._write_cache(path, np.zeros((height, width), dtype=np.float32), other)
+    ghsl._write_cache(path, np.zeros((height, width), dtype=np.float32), other, np.nan)
 
     raster = ghsl.download_built_up(BOUNDS)
 
@@ -238,7 +238,7 @@ def test_concurrent_cache_writers_each_publish_a_complete_file(monkeypatch, tmp_
     import rasterio
 
     path = tmp_path / "built_up.tif"
-    transform, width, height = ghsl._target_grid(BOUNDS)
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
     data = np.full((height, width), 2500.0, dtype=np.float32)
     replace = ghsl.os.replace
     barrier = threading.Barrier(2)
@@ -253,7 +253,8 @@ def test_concurrent_cache_writers_each_publish_a_complete_file(monkeypatch, tmp_
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         for future in [
-            pool.submit(ghsl._write_cache, path, data, transform) for _ in range(2)
+            pool.submit(ghsl._write_cache, path, data, transform, np.nan)
+            for _ in range(2)
         ]:
             future.result()
 
@@ -265,23 +266,23 @@ def test_concurrent_cache_writers_each_publish_a_complete_file(monkeypatch, tmp_
 
 def test_cache_writer_accepts_a_file_published_concurrently(monkeypatch, tmp_path):
     path = tmp_path / "built_up.tif"
-    transform, width, height = ghsl._target_grid(BOUNDS)
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
     data = np.zeros((height, width), dtype=np.float32)
-    ghsl._write_cache(path, data, transform)
+    ghsl._write_cache(path, data, transform, np.nan)
 
     def refuse(src, dst):
         raise PermissionError("file in use")
 
     monkeypatch.setattr(ghsl.os, "replace", refuse)
 
-    ghsl._write_cache(path, data, transform)
+    ghsl._write_cache(path, data, transform, np.nan)
 
     assert sorted(p.name for p in tmp_path.iterdir()) == ["built_up.tif"]
 
 
 def test_cache_writer_reraises_when_nothing_was_published(monkeypatch, tmp_path):
     path = tmp_path / "built_up.tif"
-    transform, width, height = ghsl._target_grid(BOUNDS)
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
 
     def refuse(src, dst):
         raise PermissionError("access denied")
@@ -289,7 +290,9 @@ def test_cache_writer_reraises_when_nothing_was_published(monkeypatch, tmp_path)
     monkeypatch.setattr(ghsl.os, "replace", refuse)
 
     with pytest.raises(PermissionError):
-        ghsl._write_cache(path, np.zeros((height, width), np.float32), transform)
+        ghsl._write_cache(
+            path, np.zeros((height, width), np.float32), transform, np.nan
+        )
     assert list(tmp_path.iterdir()) == []
 
 
@@ -339,7 +342,7 @@ def test_edge_cells_past_uneven_bounds_get_their_full_area(monkeypatch, tmp_path
     import rasterio
 
     data, transform, crs = _mollweide_window(value=10_000.0, margin=3000.0)
-    name = ghsl._PRODUCT_NAMES["total"].format(epoch=2020)
+    name = ghsl._BUILT_UP_NAMES["total"].format(epoch=2020)
     with rasterio.open(
         tmp_path / f"{name}.tif",
         "w",
@@ -460,8 +463,8 @@ def test_unreadable_gdal_version_does_not_disable_sum_resampling(monkeypatch):
 def test_corrupt_cache_file_is_read_again(fake_read, monkeypatch):
     warnings = []
     monkeypatch.setattr(ghsl, "warning", warnings.append)
-    transform, width, height = ghsl._target_grid(BOUNDS)
-    path = ghsl._cache_path(transform, width, height, 2020, "total")
+    transform, width, height = ghsl._target_grid(BOUNDS, ghsl.BUILT_UP_CELL_SIZE)
+    path = ghsl._cache_path("built_up_total", transform, width, height, 2020)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"II*\x00 not really a GeoTIFF")
 

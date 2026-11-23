@@ -6,10 +6,27 @@ tangible-table profiles deploy concrete artifacts.
 
 ## Curated Demos
 
-Most demos use the `gbg_500m_2026_07` physical table-model bounds. Sparse
-live station/vehicle demos share a larger 45 km regional Gothenburg domain
-(`297470, 6375410, 342470, 6420410`) so the previews exercise populated
-weather, air-quality, hydrology, ocean, and transit layers.
+Local geographic demos use a 250 × 250 m Chalmers Johanneberg domain,
+centred at EPSG:3006 `(319970, 6397910)`, with bounds
+`(319845, 6397785, 320095, 6398035)`. The city model, LOD2 surface and volume
+meshes, and synthetic smoke share this area. Volume meshing uses an 80 m height
+and a 12.5 m target edge length. City surface and flat mesh examples use a
+10 m target. The terrain surface mesh dataset demo uses a 25 m target.
+The explicit terrain builder demos, including the footprint-conforming
+example, use a 10 m target.
+
+Sparse station and transit-vehicle queries use a 45 km window around the same
+centre, `(297470, 6375410, 342470, 6420410)`, because the geometry domain has
+no weather, sea-level or discharge stations. Live buses use a 2 km window
+centred on Chalmers. Observation availability depends on the provider and date.
+The bundled CityJSON and hand-built LOD1 block use their own geometry.
+
+The calibration grid and printable city tiles use the 500 × 500 m physical
+table bounds `(319720, 6397660, 320220, 6398160)`. The grid uses 40 divisions
+for 1 cm spacing on the printed model, and four 200 mm tiles at 1:1250 cover
+the table. The satellite imagery demo uses a 3 × 3 km window in south-east
+Gothenburg, with bounds `(317000, 6394000, 320000, 6397000)`, to show enough
+10 m pixels.
 
 | Demo | Dataset story | Preview |
 |---|---|---|
@@ -20,12 +37,13 @@ weather, air-quality, hydrology, ocean, and transit layers.
 | `demos/dataset_space_syntax.py` | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | `demos/dataset_deso.py` | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
 | `demos/dataset_built_up.py` | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg | `built_up_1975.plot()` / `built_up_2020.plot()` |
+| `demos/dataset_settlement_class.py` | GHSL settlement class in 1975 and 2020 over 50 km around Gothenburg | `settlement_1975.plot()` / `settlement_2020.plot()` |
 | `demos/dataset_satellite_imagery.py` | Sentinel-2 true-colour image from Digital Earth Sweden | `imagery.plot()` |
 | `demos/dataset_weather.py` | SMHI weather stations | `weather.plot("air_temperature")` |
 | `demos/dataset_air_quality.py` | SMHI air-quality stations | `air_quality.plot("NO2")` |
 | `demos/dataset_hydrology.py` | SMHI hydrology stations | `hydrology.plot("discharge_daily")` |
 | `demos/dataset_ocean.py` | SMHI ocean stations | `ocean.plot("sea_level")` |
-| `demos/dataset_buses.py` | Live buses over streets in a 2 km area around Poseidon | `LiveVehiclePlot.run()` |
+| `demos/dataset_buses.py` | Live buses over streets in a 2 km area around Chalmers Johanneberg | `LiveVehiclePlot.run()` |
 | `demos/dataset_transit_vehicles.py` | Live bus positions | `vehicles.plot()` |
 | `demos/dataset_trees.py` | Point-cloud-derived trees | `trees.plot()` |
 | `demos/dataset_terrain_surface_mesh.py` | Terrain surface mesh | `terrain.plot()` / `.view()` |

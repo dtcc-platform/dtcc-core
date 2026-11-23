@@ -611,6 +611,14 @@ CASES = [
         },
     ),
     Case(
+        "settlement_class",
+        sources={
+            "dtcc_core.io.data.download_settlement_class": (
+                lambda **_: PRODUCTS["settlement_class", None]("populated", None)
+            )
+        },
+    ),
+    Case(
         "satellite_imagery",
         sources={
             "dtcc_core.datasets.satellite_imagery.dtcc_core.io.data.download_imagery": (

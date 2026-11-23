@@ -79,18 +79,21 @@ Every PR description covers:
 
 - **Testing**: what ran, and what remains unverified.
 - **Risk**: the blast radius if this is wrong, whether it touches a sensitive
-  path, and any review finding you declined.
+  path, and any important review finding you declined.
 - **How to revert**: the one step that undoes it. This repository has no
   feature flags, so the step is a revert of the merge commit; a PR that cannot
   be reverted in one step says why under Risk.
 
 ## Responding to review
 
-- Address every finding before merge: fix it, or reply with a one-line reason
-  and list it under Risk. A finding you accept but leave unfixed also goes
-  into the lasting registers `NITS.md` (nit) or `RISKS.md` (important), in the
-  push that answers the review. A pull request that fixes a listed item
-  deletes its line.
+- Address every important finding before merge: fix it, or reply with a
+  one-line reason and list it under Risk. One you accept but leave unfixed
+  also goes into the lasting register `RISKS.md`, in the push that answers the
+  review.
+- A nit needs no reply: fix it if it is worth fixing, and resolve its thread
+  if it has one. A nit worth keeping track of can go into `NITS.md`.
+- A pull request that fixes an item listed in `NITS.md` or `RISKS.md` deletes
+  its line.
 - Fix the root cause behind a finding, and every other site with the same bug.
 - Push fixes as new commits; the reviewed history stays in place until merge.
 - After three reviewer rounds on one PR (a round is one reviewer pass plus
