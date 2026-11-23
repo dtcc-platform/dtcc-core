@@ -555,10 +555,14 @@ class TimeSeries(Model):
 
     def __copy__(self):
         """Return a copy with its own storage, so appends never interfere."""
+        return self._copy_with_values(self.values.copy())
+
+    def _copy_with_values(self, values):
+        """Copy the series using an owned values array on the same time axis."""
         result = object.__new__(type(self))
         result.__dict__.update(self.__dict__)
         result._times = self._times[: self._length].copy()
-        result._values = self._values[: self._length].copy()
+        result._values = values
         return result
 
     def __getstate__(self):
