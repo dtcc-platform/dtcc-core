@@ -77,6 +77,7 @@ the source solid, roof-coloured footprints, and rebuilt LOD1 parts.
 | [build_terrain_with_footprints.py](build_terrain_with_footprints.py) | Terrain-only mesh conforming to cleaned footprint subdomains | DTCC service |
 | [build_terrain_raster.py](build_terrain_raster.py) | Ground points → terrain raster | DTCC service |
 | [build_terrain_surface_mesh.py](build_terrain_surface_mesh.py) | Ground points → terrain mesh | DTCC service |
+| [repair_boundary_corners.py](repair_boundary_corners.py) | Subdivide a tetrahedral corner and export the original and repaired meshes | synthetic, offline |
 | [build_cityjson_surface_mesh.py](build_cityjson_surface_mesh.py) | Twelve supplied LOD2 CityJSON buildings → triangulated building surfaces; roofs are retained | bundled, offline |
 | [view_cityjson.py](view_cityjson.py) | Inspect the original detailed LOD2 model | bundled, offline |
 | [create_cityjson.py](create_cityjson.py) | Catalogue LOD2 city dataset → CityJSON export | DTCC service |
@@ -110,6 +111,10 @@ domain height and a 12.5 m target edge length and exports `output/city_volume_me
 Nearly collinear walls and near-flat tetrahedra remain known limitations in
 [issue #156](https://github.com/dtcc-platform/dtcc-core/issues/156).
 Keep reported failures visible rather than relaxing tolerances.
+
+The offline [corner-repair demo](repair_boundary_corners.py) exports the original
+and repaired tetrahedra as VTU files. Apply **Shrink** in ParaView to see the four
+child cells and the new interior vertex.
 
 `dataset_buses.py` needs `VASTTRAFIK_AUTHENTICATION_KEY` and an interactive
 Matplotlib display. It uses `strict_live=True`; missing credentials or provider

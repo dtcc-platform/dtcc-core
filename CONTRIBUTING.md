@@ -123,3 +123,9 @@ Run these from the repository root:
 | `make measure-import-time PYTHON="uv run python"` | Measure import cost |
 
 See [the native code map](docs/native-code.md) for C++ kernels and their Python callers.
+
+## Progress phase timing
+
+Use existing `ProgressTracker.phase()` scopes for observable dataset stages.
+Callers can collect wall-clock timings with the context-local
+[`phase_timing` hook](docs/progress-timing.md), including in silent mode.

@@ -28,9 +28,9 @@ from ..builder.geometry_builders.printable_tiles import (
 )
 from ..common.progress import ProgressTracker, report_progress
 from ..model import Mesh, Object, Transform
+from ..reproject.bounds import validate_2d_bounds
 from .city_surface_mesh import CitySurfaceMeshDataset
 from .dataset import DatasetBaseArgs, DatasetDescriptor
-from .geospatial import validate_2d_bounds
 from .providers import provider_entry
 
 NAME = "printable_city_tiles"

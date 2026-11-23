@@ -1,7 +1,8 @@
+from collections.abc import Collection
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
-    from ....builder import _dtcc_builder
+    from ....builder import BoundaryCornerReport, _dtcc_builder
     from ....model.geometry import Mesh, VolumeMesh
 
     T_Mesh = TypeVar("T_Mesh", bound=Mesh)
@@ -181,6 +182,22 @@ class MeshProcessingMixin:
 
 class VolumeMeshProcessingMixin:
     """Quality metrics and C++ conversion methods for ``VolumeMesh``."""
+
+    def find_boundary_corners(
+        self: "T_VolumeMesh", *, boundary_markers: Collection[int] | None = None
+    ) -> "BoundaryCornerReport":
+        """Inspect singleton corners on all or explicitly labelled boundary faces."""
+        from dtcc_core.builder.meshing.volume_corners import find_boundary_corners
+
+        return find_boundary_corners(self, boundary_markers=boundary_markers)
+
+    def repair_boundary_corners(
+        self: "T_VolumeMesh", *, boundary_markers: Collection[int] | None = None
+    ) -> "T_VolumeMesh":
+        """Return an independent mesh with selected singleton corner cells subdivided."""
+        from dtcc_core.builder.meshing.volume_corners import repair_boundary_corners
+
+        return repair_boundary_corners(self, boundary_markers=boundary_markers)
 
     def quality(self: "T_VolumeMesh") -> dict:
         """Compute mesh quality metrics.
