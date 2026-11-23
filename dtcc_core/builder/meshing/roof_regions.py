@@ -261,7 +261,7 @@ def source_roofs(
 
 
 def validate_roof_clearance(patches, contact):
-    """Require positive clearance on the exposed wall profile."""
+    """Require positive clearance against the block floor and exterior seam."""
     from .roof_interfaces import RoofAssemblyError
 
     worst = min(
@@ -272,11 +272,16 @@ def validate_roof_clearance(patches, contact):
     if worst is None:
         return None
     if worst["clearance_m"] <= COINCIDENCE:
+        reference = (
+            "block minimum terrain"
+            if worst["reference"] == "block_minimum_dem"
+            else "exterior terrain"
+        )
         raise RoofAssemblyError(
             f"Roof meets or crosses the terrain at {worst['xy']}: "
             f"block {worst['block_id']}, source {worst['source_key']}, "
             f"patch {worst['patch_id']}, roof {worst['roof_m']:.9g} m, "
-            f"terrain {worst['terrain_m']:.9g} m, "
+            f"{reference} {worst['terrain_m']:.9g} m, "
             f"clearance {worst['clearance_m']:.9g} m",
             block_ids=[worst["block_id"]],
         )
@@ -317,8 +322,13 @@ def admit_roofs(patches, blocks, rows, bases, *, contact=None):
     else:
         for failure in contact.clearances(patches).values():
             if failure["clearance_m"] <= COINCIDENCE:
+                reason = (
+                    "roof meets or crosses the block minimum terrain elevation"
+                    if failure["reference"] == "block_minimum_dem"
+                    else "roof meets or crosses the exterior terrain"
+                )
                 rejected.setdefault(failure["source_key"], []).append(
-                    dict(failure, reason="roof meets or crosses the exterior terrain")
+                    dict(failure, reason=reason)
                 )
     levels = {}
     for block in blocks:

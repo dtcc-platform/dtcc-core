@@ -3,6 +3,8 @@
 Questions, bug reports and pull requests are welcome. Include a small reproducer
 when reporting a bug and describe the user-visible behavior of a proposed change.
 
+See [DESIGN.md](DESIGN.md) for architecture and contracts.
+
 ## Development environment
 
 Follow the [installation instructions](README.md#installation), then run commands
@@ -65,25 +67,24 @@ CI runs pull requests on Ubuntu only and the merge commit on macOS and Windows
 as well. Add the `full-ci` label to a pull request to run all three platforms
 on it; the label stays on, so later pushes run them too.
 
-### Running demos
+## Demos
 
-The [demo catalog](docs/datasets/demo-catalog.md) lists dataset examples and
-complete workflows. Run individual demos from the repository root:
+Follow the [demo guidelines](docs/demo-guidelines.md); the
+[demo catalog](demos/README.md) lists purposes and requirements. Run from the
+repository root, for example `uv run python demos/dataset_city.py`.
+Plots and viewers open directly; close them to continue.
 
-```bash
-uv run python demos/dataset_city.py
-```
-
-Workflow demos that support `--view` open a viewer until its window is closed.
-Many demos download data and run meshing. Normal demo tests perform static
-checks; opt in to workflow execution with:
+Run static checks and the small offline workflows with `uv run pytest tests/demos`.
+Opt in to workflow execution with:
 
 ```bash
-DTCC_RUN_DEMOS=1 uv run --extra volume pytest tests/demos/test_demo_execution.py
+uv run --extra volume pytest tests/demos --run-demos
 ```
 
-These execution tests need network access and the
+Live workflows need network access and the
 [volume-meshing dependencies](docs/installation.md#volume-meshing-with-tetgen).
+The test harness suppresses windows and redirects exports, while retaining real
+plot construction and meshing.
 
 ## Import conventions
 
@@ -121,5 +122,10 @@ Run these from the repository root:
 | `make verify-public-api-strict` | Run coverage and the strict public-function check |
 | `make measure-import-time PYTHON="uv run python"` | Measure import cost |
 
-See [DESIGN.md](DESIGN.md) for architecture and
-[the native code map](docs/native-code.md) for C++ kernels and their Python callers.
+See [the native code map](docs/native-code.md) for C++ kernels and their Python callers.
+
+## Progress phase timing
+
+Use existing `ProgressTracker.phase()` scopes for observable dataset stages.
+Callers can collect wall-clock timings with the context-local
+[`phase_timing` hook](docs/progress-timing.md), including in silent mode.

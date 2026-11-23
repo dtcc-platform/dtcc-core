@@ -10,7 +10,6 @@ from dtcc_core.builder.geometry_builders.meshes import (
 )
 from dtcc_core.builder.meshing.roof_validation import validate_shell
 from dtcc_core.builder.meshing.terrain_attachment import TerrainContact
-from dtcc_core.builder.meshing.tetgen import is_tetgen_available
 from dtcc_core.model import (
     Bounds,
     Building,
@@ -60,6 +59,16 @@ def make_city(grade, *buildings):
     city.add_terrain(raster)
     city.add_buildings(list(buildings))
     return city
+
+
+def city_with_interior_roof(roof, *, fitted_roof=None):
+    inner = box(22, 24, 38, 39)
+    outer = Polygon(box(12, 13, 48, 50).exterior.coords, [inner.exterior.coords])
+    return make_city(
+        lambda x, y: np.full(np.broadcast(x, y).shape, 20.0),
+        make_building(outer, 35, "outer"),
+        make_building(inner, roof, "centre", fitted_roof=fitted_roof),
+    )
 
 
 def mesh_city(city, lod, **kwargs):
@@ -150,6 +159,14 @@ def test_roof_crossing_or_touch_at_uphill_corner(lod, roof):
         mesh_city(city, lod)
 
 
+def test_lod1_clearance_error_identifies_source_building():
+    city = make_city(ramp, make_building(box(15, 20, 45, 40), 15, "hill-house-42"))
+    with pytest.raises(
+        RuntimeError, match=r"source buildings hill-house-42.*clearance"
+    ):
+        mesh_city(city, dict(lod="lod1"))
+
+
 def test_roof_crossing_between_footprint_corners(lod):
     def grade(x, y):
         return 5 + np.maximum(0, 9 - abs(x - 30.5)) + np.zeros_like(y)
@@ -170,6 +187,35 @@ def test_lod2_uses_flat_fallback_if_fitted_roof_crosses_grade():
     [failure] = source["admission"]["rejections"]
     assert failure["clearance_m"] == pytest.approx(-3)
     assert max(mesh.vertices[:, 2]) == pytest.approx(25)
+    check_shell(mesh)
+
+
+@pytest.mark.parametrize("method", ["catalogue", "ransac"])
+@pytest.mark.parametrize("roof", [12.0, 20.0])
+def test_lod2_rejects_interior_roof_at_or_below_block_minimum(method, roof):
+    with pytest.raises(
+        RuntimeError, match=r"source centre.*block minimum terrain 20 m"
+    ):
+        mesh_city(city_with_interior_roof(roof), dict(lod="lod2", lod2_method=method))
+
+
+def test_lod2_interior_roof_uses_declared_fallback_above_block_minimum():
+    city = city_with_interior_roof(25, fitted_roof=12)
+    audit = {}
+    mesh = mesh_city(city, dict(lod="lod2"), stage_audit=audit)
+    catalogue = audit["roof_catalogue"]
+    centre = next(row for row in catalogue["sources"] if row["source_key"] == "centre")
+    assert centre["final_outcome"] == "lod1_fallback"
+    [failure] = centre["admission"]["rejections"]
+    assert failure["reference"] == "block_minimum_dem"
+    assert failure["clearance_m"] == pytest.approx(-8)
+    [patch] = [p for p in catalogue["patch_markers"] if p["source_key"] == "centre"]
+    roof_faces = mesh.faces[mesh.markers == patch["roof_marker"]]
+    assert len(roof_faces)
+    np.testing.assert_allclose(mesh.vertices[roof_faces, 2], 25.0)
+    clearance = catalogue["assemblies"][0]["terrain_attachment"]["minimum_clearance"]
+    assert clearance["source_key"] == "centre"
+    assert clearance["clearance_m"] == pytest.approx(5)
     check_shell(mesh)
 
 
@@ -256,21 +302,3 @@ def test_short_wall_breakpoint_matches_only_the_overlapping_terrain_segment():
     np.testing.assert_allclose(
         contact.profile(a, b, 0), [[*a, 2.5], [*b, 2.5015]], atol=1e-12, rtol=0
     )
-
-
-@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not installed")
-def test_volume_boundary_keeps_sloped_contact(lod):
-    city = make_city(ramp, make_building(box(15, 20, 45, 40), 25))
-    mesh = builder.build_city_volume_mesh(
-        city, max_mesh_size=5, domain_height=35, report_mesh_quality=False, **lod
-    )
-    faces, markers = mesh.boundary_faces, mesh.boundary_markers
-    terrain = np.unique(faces[markers == -1])
-    buildings = np.unique(faces[markers >= 0])
-    seam = mesh.vertices[np.intersect1d(terrain, buildings)]
-    assert len(seam) >= 4
-    np.testing.assert_allclose(
-        seam[:, 2], ramp(seam[:, 0], seam[:, 1]), atol=1e-8, rtol=0
-    )
-    tetrahedra = mesh.vertices[mesh.cells]
-    assert np.all(np.linalg.det(tetrahedra[:, 1:] - tetrahedra[:, :1]) > 0)

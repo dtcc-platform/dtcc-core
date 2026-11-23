@@ -174,7 +174,7 @@ def building_domains(
     block_bases=None,
     contact=None,
 ):
-    """Use fitted domains and native or explicit bases, with exposed affine intervals.
+    """Use fitted domains and terrain profiles or flat bases for exposed walls.
 
     Canonical oriented roof edges supply exact incidence. No roof tessellation
     or vertical strip levels enter these domains.

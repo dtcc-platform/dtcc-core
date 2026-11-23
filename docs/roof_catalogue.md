@@ -231,8 +231,9 @@ Quality and fit accuracy are separate from topological validity.
 
 Rejected individual fits use the source's declared grouped LOD1 level. This is
 different from an accepted `flat` candidate estimated from observations. Candidate
-transfer is validated against its cleaned domain. Admission checks the roof against
-the piecewise-linear terrain on the exposed seam. Inadmissible candidates select
+transfer is validated against its cleaned domain. Admission checks all patches
+against the minimum DEM elevation of their block and checks exterior seams against
+the piecewise-linear terrain profile. Inadmissible candidates select
 the declared flat source roof before shared-face construction and record the
 reason. Assembly raises a geometry error if the declared roof also touches or
 crosses the terrain.
@@ -244,7 +245,11 @@ Invalid meshes are never returned as successful refinement stops.
 
 `stage_audit["roof_catalogue"]` contains source fitting and admission outcomes,
 subdivision changes, partition diagnostics, terrain clearance, assembly timings,
-strict topology checks, quality by face kind and final marker mappings. Roof
+strict topology checks, quality by face kind and final marker mappings. In a
+joint mesh each assembly's `terrain_attachment` record reports
+`minimum_dem_by_block_m` and `minimum_clearance`. The latter identifies the
+limiting patch and whether the reference was the block minimum or the exterior
+seam. Roof
 marker `N+m` refers to patch `m`; wall marker `m` refers to its owner patch or a
 representative contributor of the same source. Shared-face semantic regions
 retain contributor markers. A patch is not a new building. Separate outputs

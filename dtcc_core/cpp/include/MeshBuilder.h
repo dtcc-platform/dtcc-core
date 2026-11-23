@@ -212,11 +212,12 @@ public:
       const std::vector<int> meshing_directive,
       Mesh terrain_mesh, size_t smooth_ground = 0,
       bool merge_meshes = true, double min_wall_strip = 0.0,
-      bool follow_terrain = false)
+      bool follow_terrain = false,
+      const std::vector<std::string> &building_labels = {})
   {
     return build_city_surface_mesh_from_terrain_mesh_impl(
         buildings, meshing_directive, std::move(terrain_mesh), smooth_ground,
-        merge_meshes, min_wall_strip, {}, {}, follow_terrain);
+        merge_meshes, min_wall_strip, {}, {}, follow_terrain, building_labels);
   }
 
   // Generic affine patches: [origin x, origin y, slope x, slope y, elevation].
@@ -237,7 +238,7 @@ public:
           throw std::invalid_argument("Nonfinite roof plane coefficient.");
     return build_city_surface_mesh_from_terrain_mesh_impl(
         patches, std::vector<int>(patches.size(), 1), std::move(terrain_mesh),
-        smooth_ground, merge_meshes, min_wall_strip, planes, owners, false);
+        smooth_ground, merge_meshes, min_wall_strip, planes, owners, false, {});
   }
 
   static std::vector<Mesh>
@@ -250,10 +251,13 @@ public:
       double min_wall_strip,
       const std::vector<std::array<double, 5>> &planes,
       const std::vector<int> &owners,
-      bool follow_terrain)
+      bool follow_terrain,
+      const std::vector<std::string> &building_labels)
   {
     auto build_city_surface_t = Timer("build_city_surface_mesh");
     const size_t num_buildings = buildings.size();
+    if (!building_labels.empty() && building_labels.size() != num_buildings)
+      throw std::invalid_argument("Expected one source building label per region.");
 
     if (meshing_directive.size() != num_buildings)
     {
@@ -310,8 +314,8 @@ public:
 
     find_markers_t.stop();
 
-    // Buildings whose footprints share a vertex form a block. A block has one
-    // base level, and the walls between its buildings are step walls.
+    // Buildings whose footprints share a vertex form a block. Flat-base
+    // extrusion uses the block's minimum terrain elevation.
     const auto blocks = building_blocks(building_faces);
     for (const auto &block : blocks)
     {
@@ -446,7 +450,7 @@ public:
       }
     }
 
-    // Walls. An edge on the outline of a block gets a wall from the base to
+    // Exterior walls rise from the terrain profile or a flat block base to
     // the roof. An edge between two buildings of a block gets a step wall from
     // the lower roof to the higher, owned by the taller building, and none
     // when the roofs are equal.
@@ -500,8 +504,10 @@ public:
             const auto &point = left ? v0 : v1;
             std::ostringstream message;
             message << std::setprecision(15)
-                    << "Roof meets or crosses the terrain in building region " << marker
-                    << " at (" << point.x << ", " << point.y << "): roof "
+                    << "Roof meets or crosses the terrain in building region " << marker;
+            if (!building_labels.empty() && !building_labels[marker].empty())
+              message << " (source buildings " << building_labels[marker] << ")";
+            message << " at (" << point.x << ", " << point.y << "): roof "
                     << (left ? top0 : top1) << " m, terrain " << point.z
                     << " m, clearance " << std::min(d0, d1) << " m";
             throw std::runtime_error(message.str());

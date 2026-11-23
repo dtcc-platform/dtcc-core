@@ -15,6 +15,12 @@ from dtcc_core.datasets.city_volume_mesh import (
 from dtcc_core.model import GeometryType
 
 from .test_roof_catalogue import building, city_of, model
+from .test_terrain_following_walls import (
+    city_with_interior_roof,
+    make_building,
+    make_city,
+    ramp,
+)
 
 
 def sample(group=False):
@@ -24,6 +30,49 @@ def sample(group=False):
         q = box(10.2, -5, 20, 5)
         buildings.append(building(q, model("gable", [0.0, 11.0, 0.4], q, key="gable")))
     return city_of(buildings)
+
+
+@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not installed")
+@pytest.mark.parametrize(
+    ("lod", "method"),
+    [("lod1", "catalogue"), ("lod2", "catalogue"), ("lod2", "ransac")],
+)
+def test_volume_boundary_keeps_sloped_contact(lod, method):
+    city = make_city(ramp, make_building(box(15, 20, 45, 40), 25))
+    mesh = builder.build_city_volume_mesh(
+        city,
+        lod=lod,
+        lod2_method=method,
+        max_mesh_size=5,
+        domain_height=35,
+        report_mesh_quality=False,
+    )
+    faces, markers = mesh.boundary_faces, mesh.boundary_markers
+    terrain = np.unique(faces[markers == -1])
+    buildings = np.unique(faces[markers >= 0])
+    seam = mesh.vertices[np.intersect1d(terrain, buildings)]
+    assert len(seam) >= 4
+    np.testing.assert_allclose(
+        seam[:, 2], ramp(seam[:, 0], seam[:, 1]), atol=1e-8, rtol=0
+    )
+    tetrahedra = mesh.vertices[mesh.cells]
+    assert np.all(np.linalg.det(tetrahedra[:, 1:] - tetrahedra[:, :1]) > 0)
+
+
+@pytest.mark.skipif(not is_tetgen_available(), reason="TetGen is not installed")
+@pytest.mark.parametrize("method", ["catalogue", "ransac"])
+def test_volume_rejects_interior_roof_below_block_minimum(method):
+    with pytest.raises(
+        RuntimeError, match=r"source centre.*block minimum terrain 20 m"
+    ):
+        builder.build_city_volume_mesh(
+            city_with_interior_roof(12),
+            lod="lod2",
+            lod2_method=method,
+            max_mesh_size=5,
+            domain_height=35,
+            report_mesh_quality=False,
+        )
 
 
 def triangle_areas(vertices, faces):

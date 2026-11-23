@@ -20,8 +20,9 @@ must pass closed PLC validation before TetGen generates a volume.
    ownership changes.
 3. **Roof admission.** Fitting and transfer produce candidates. Insufficient
    evidence, failed transfer or a plane that meets the ground can select the
-   declared flat model, with a reason, before assembly. At the exterior seam,
-   clearance is checked at every breakpoint of the roof and ground profiles.
+   declared flat model, with a reason, before assembly. Every roof patch must
+   clear the minimum DEM elevation of its block, including interior patches.
+   The exterior seam must also clear every roof and ground breakpoint.
    If the declared roof also lacks clearance, assembly raises a geometry error.
    Affine height crossings are then noded before the
    explicit junction-modelling stage. At each multiway junction, cyclic incident

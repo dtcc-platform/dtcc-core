@@ -63,6 +63,7 @@ def make_conditioned_footprints(
     *,
     min_building_detail: float = 0.5,
     contract: dict[str, object] | None = None,
+    source_building_ids: tuple[tuple[str, ...], ...] = (),
 ) -> meshes_module._MeshingFootprints:
     declared_scale = meshes_module._conditioned_footprint_declared_scale(
         min_building_detail=min_building_detail
@@ -72,6 +73,7 @@ def make_conditioned_footprints(
         source_map=source_map,
         subdomain_resolution=subdomain_resolution,
         diagnostics=diagnostics,
+        source_building_ids=list(source_building_ids),
         declared_scale=declared_scale,
         contract=contract
         or {
@@ -1687,6 +1689,7 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
             source_map,
             resolutions,
             {"output_count": 2},
+            source_building_ids=(("first-source",), ("second-source",)),
         )
 
     class DummyCppMesh:
@@ -1734,9 +1737,11 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
         merge_meshes,
         min_wall_strip,
         follow_terrain,
+        building_labels,
     ):
         captured["lod_switches"] = building_lod_switches
         captured["follow_terrain"] = follow_terrain
+        captured["building_labels"] = building_labels
         return [DummyCppMesh()]
 
     monkeypatch.setattr(meshes_module, "_meshing_footprints", fake_condition)
@@ -1799,6 +1804,7 @@ def test_build_city_surface_mesh_extrudes_every_cleaned_building(monkeypatch):
     assert captured["lod_switches"] == [1, 1]
     assert captured["terrain_following_regions"] == [1, 1]
     assert captured["follow_terrain"] is True
+    assert captured["building_labels"] == ["first-source", "second-source"]
     assert captured["backend"] == "triangle"
     assert captured["region_markers"] == [-2, 0, 1]
     assert captured["region_triangle_sizes"] == {0: 4.0, 1: 5.0}
@@ -1910,17 +1916,19 @@ def test_split_ground_mesh_building_components_splits_vertex_touching_patches():
     )
     building_surface = make_surface(box(0, 0, 2, 1), 10.0)
 
-    split_mesh, split_surfaces, split_directives = (
+    split_mesh, split_surfaces, split_directives, split_labels = (
         meshes_module._split_ground_mesh_building_components(
             ground_mesh=ground_mesh,
             building_surfaces=[building_surface],
             meshing_directives=[1],
+            building_labels=["building-a"],
         )
     )
 
     assert split_mesh.markers.tolist() == [0, 1]
     assert len(split_surfaces) == 2
     assert split_directives == [1, 1]
+    assert split_labels == ["building-a", "building-a"]
 
 
 def test_stabilize_shell_building_polygon_removes_low_clearance_hole():
@@ -2574,7 +2582,7 @@ def test_build_city_surface_mesh_stage_audit_records_core_stages(monkeypatch):
     monkeypatch.setattr(
         meshes_module,
         "_split_ground_mesh_building_components",
-        lambda **kwargs: (ground_mesh, [building_surface], [3]),
+        lambda **kwargs: (ground_mesh, [building_surface], [3], [""]),
     )
     monkeypatch.setattr(
         meshes_module,
@@ -2644,7 +2652,7 @@ def test_build_city_surface_mesh_unmerged_components_are_compact():
         region_triangle_sizes=surface_regions.region_triangle_sizes,
         add_halo_markers=False,
     )
-    ground_mesh, surface_buildings, surface_directives = (
+    ground_mesh, surface_buildings, surface_directives, _ = (
         meshes_module._split_ground_mesh_building_components(
             ground_mesh=ground_mesh,
             building_surfaces=surface_regions.building_surfaces,

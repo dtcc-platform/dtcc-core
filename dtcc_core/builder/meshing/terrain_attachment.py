@@ -78,7 +78,7 @@ def minimum_dem(polygon, raster):
 class TerrainContact:
     """Use indexed terrain edges as the grade along the occupied outline."""
 
-    def __init__(self, ground, raster, offset, bounds):
+    def __init__(self, ground, raster, offset, bounds, *, minimum_dem_by_block=None):
         triangles = np.asarray(ground.faces)
         edges, counts = np.unique(
             np.sort(
@@ -98,6 +98,7 @@ class TerrainContact:
         self.data = np.asarray(raster.data, dtype=float)
         self.transform = raster.georef
         self.profiles = {}
+        self.minimum_dem_by_block = minimum_dem_by_block or {}
 
     def _on_domain_edge(self, xy):
         return bool(
@@ -216,9 +217,28 @@ class TerrainContact:
         )
 
     def clearances(self, patches):
-        """Find the lowest roof clearance per patch on the exposed seam."""
+        """Find each patch's lowest clearance against its block floor and seam."""
         worst = {}
         heights = roof_vertex_heights(patches)
+        for index, patch in enumerate(patches):
+            if patch.block_id not in self.minimum_dem_by_block:
+                continue
+            # An affine roof attains its minimum on its exterior ring.
+            xy, roof = min(
+                ((xy, heights[xy, index]) for xy in patch.polygon.exterior.coords),
+                key=lambda point: point[1],
+            )
+            terrain = self.minimum_dem_by_block[patch.block_id]
+            worst[index] = dict(
+                block_id=patch.block_id,
+                source_key=patch.source_key,
+                patch_id=patch.patch_id,
+                xy=(np.asarray(xy) + self.offset).tolist(),
+                roof_m=roof,
+                terrain_m=terrain,
+                clearance_m=roof - terrain,
+                reference="block_minimum_dem",
+            )
         for incident in roof_edge_incidence(patches).values():
             if len(incident) != 1:
                 continue
@@ -231,7 +251,7 @@ class TerrainContact:
             roof = z0 + t * (z1 - z0)
             delta = roof - profile[:, 2]
             j = np.argmin(delta)
-            if index not in worst or delta[j] < worst[index]["clearance_m"]:
+            if index not in worst or delta[j] <= worst[index]["clearance_m"]:
                 worst[index] = dict(
                     block_id=patch.block_id,
                     source_key=patch.source_key,
@@ -240,6 +260,7 @@ class TerrainContact:
                     roof_m=float(roof[j]),
                     terrain_m=float(profile[j, 2]),
                     clearance_m=float(delta[j]),
+                    reference="exterior_seam",
                 )
         return worst
 
@@ -309,7 +330,7 @@ def terrain_attachment(ground, patches, raster, *, offset, bounds, smoothing=0):
                     ].mean()
     return (
         sampled,
-        TerrainContact(sampled, raster, offset, bounds),
+        TerrainContact(sampled, raster, offset, bounds, minimum_dem_by_block=minimums),
         dict(
             minimum_dem_by_block_m=minimums,
             terrain_triangles=len(sampled.faces),

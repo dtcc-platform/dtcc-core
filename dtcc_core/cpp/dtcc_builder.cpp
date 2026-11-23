@@ -671,6 +671,7 @@ PYBIND11_MODULE(_dtcc_builder, m)
         py::arg("buildings"), py::arg("meshing_directive"), py::arg("terrain_mesh"),
         py::arg("smooth_ground"), py::arg("merge_meshes"), py::arg("min_wall_strip"),
         py::arg("follow_terrain") = false,
+        py::arg("building_labels") = std::vector<std::string>{},
         "build city surface mesh from a prebuilt terrain mesh");
 
   m.def("merge_meshes", &DTCC_BUILDER::MeshProcessor::merge_meshes,
