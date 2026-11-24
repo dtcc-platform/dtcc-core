@@ -25,6 +25,7 @@ from dtcc_core.io.data import cache as data_cache
 from dtcc_core.io.data import orthophoto as client
 from dtcc_core.model import Raster
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
+from tests.datasets.live.live_policy import is_transient_live_failure
 
 pytestmark = pytest.mark.live
 
@@ -32,7 +33,6 @@ pytestmark = pytest.mark.live
 BOUNDS = (673_700.0, 6_578_700.0, 673_800.0, 6_578_800.0)
 YEAR = 2025
 PINNED = [("orto-o2-2025", "o65775_6725_25_mr25")]
-TRANSIENT = {"connection", "timeout", "http_5xx"}
 
 
 def _require_server_url() -> None:
@@ -46,12 +46,17 @@ def _require_server_url() -> None:
 
 def _skip_if_transient(error: DatasetUpstreamError):
     """Skip on failures that say nothing about the code, else re-raise."""
-    if error.failure_class in TRANSIENT:
+    if not is_transient_live_failure(error):
+        raise error
+    if error.failure_class in {"connection", "timeout"}:
         pytest.skip(
             f"Tile server unreachable ({error.failure_class}); it serves the "
             "Chalmers network or VPN only."
         )
-    raise error
+    pytest.skip(
+        f"Tile server temporarily unavailable ({error.failure_class}, "
+        f"status {error.status_code})."
+    )
 
 
 def _strict_call(**kwargs):
