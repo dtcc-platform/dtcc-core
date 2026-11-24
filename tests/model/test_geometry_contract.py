@@ -200,6 +200,61 @@ def test_grid_roundtrip_preserves_spatial_extent_and_steps():
     assert (restored.xstep, restored.ystep, restored.zstep) == (2.5, 2.5, 2.0)
 
 
+def _nested_city(offset=0.0):
+    from dtcc_core.model import (
+        Building,
+        City,
+        MultiSurface,
+        SemanticRegion,
+        Solid,
+        Surface,
+    )
+
+    square = np.array([[0, 0, 0], [4, 0, 0], [4, 4, 0], [0, 4, 0]], dtype=float)
+    hole = np.array([[1, 1, 0], [2, 1, 0], [2, 2, 0]], dtype=float) + offset
+    surface = Surface(vertices=square, holes=[hole])
+    solid = Solid(surfaces=[surface, Surface(vertices=square + 1)])
+    solid.shells = [np.array([0, 1])]
+    multi = MultiSurface(
+        surfaces=[surface, Surface(vertices=square + 2)],
+        fields=[Field(name="u", values=np.array([0.5, np.nan]), association="face")],
+        regions=[SemanticRegion("urn:test:roof", indices=np.array([0]))],
+    )
+    building = Building(id="b")
+    building.add_geometry(solid, id="lod2")
+    building.add_geometry(multi, id="lod1")
+    city = City(id="c")
+    city.add_building(building)
+    return city
+
+
+def test_nested_models_compare_by_value():
+    first, second = _nested_city(), _nested_city()
+    assert first.buildings[0].geometry["lod2"].geometry is not (
+        second.buildings[0].geometry["lod2"].geometry
+    )
+    assert (first == second) is True
+    assert (first == _nested_city(offset=0.5)) is False
+
+    changed = _nested_city()
+    changed.buildings[0].geometry["lod2"].geometry.shells = [np.array([1, 0])]
+    assert (first == changed) is False
+
+    changed = _nested_city()
+    region = changed.buildings[0].geometry["lod1"].geometry.regions[0]
+    region.indices = np.array([0], dtype=np.int32)
+    assert (first == changed) is False
+
+
+def test_native_round_trip_compares_equal():
+    from dtcc_core.model import City
+
+    source = _nested_city()
+    restored = City()
+    restored.from_proto(source.to_proto().SerializeToString())
+    assert (restored == source) is True
+
+
 def test_volume_grid_nonuniform_layers_preserve_coordinate_order():
     levels = np.array([10.0, 11.0, 13.0, 17.0])
     grid = VolumeGrid(width=2, height=1, z_levels=levels)
@@ -411,24 +466,25 @@ def test_volume_grid_equality_distinguishes_explicit_and_uniform_layers():
     assert grid != replace(grid, z_levels=[0, 1, 2])
 
 
-def test_volume_grid_subclass_equality_does_not_ignore_layer_boundaries():
+def test_volume_grid_subclass_equality_compares_layer_boundaries():
     @dataclass(repr=False)
     class LayeredGrid(VolumeGrid):
         pass
 
     grid = LayeredGrid(width=1, height=1, z_levels=[0, 1, 3])
-    with pytest.raises(ValueError, match="ambiguous"):
-        bool(grid == replace(grid, z_levels=[0, 2, 3]))
+    assert (grid == replace(grid)) is True
+    assert (grid == replace(grid, z_levels=[0, 2, 3])) is False
 
 
-def test_volume_grid_equality_inherited_by_subclass_compares_base_fields():
+def test_volume_grid_equality_inherited_by_subclass_compares_all_fields():
     @dataclass(repr=False, eq=False)
     class TaggedGrid(VolumeGrid):
         tag: str = field(default="a", kw_only=True)
 
     grid = TaggedGrid(width=1, height=1, z_levels=[0, 1, 3])
-    assert grid == replace(grid, tag="b")
-    assert grid != replace(grid, z_levels=[0, 2, 3])
+    assert (grid == replace(grid)) is True
+    assert (grid == replace(grid, tag="b")) is False
+    assert (grid == replace(grid, z_levels=[0, 2, 3])) is False
 
 
 def test_volume_grid_rejects_layer_boundaries_inconsistent_with_wire_depth():

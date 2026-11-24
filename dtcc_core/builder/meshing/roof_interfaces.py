@@ -4,6 +4,7 @@ This module knows only polygons, planes and source ownership. All neighbours
 enter the same segment graph before either triangulation backend is invoked.
 """
 
+from collections import defaultdict
 from dataclasses import replace
 
 import numpy as np
@@ -12,7 +13,7 @@ from shapely import affinity
 from shapely.ops import polygonize
 
 from ..cleaning.subdivision import canonical_boundary_graph
-from ..geometry_policy import XY_PRECISION
+from ..geometry_policy import XY_PRECISION, canonical_profile_heights
 
 
 class RoofAssemblyError(RuntimeError):
@@ -21,6 +22,42 @@ class RoofAssemblyError(RuntimeError):
     def __init__(self, message, *, block_ids=()):
         super().__init__(message)
         self.block_ids = tuple(sorted(set(block_ids)))
+
+
+def roof_edge_incidence(patches):
+    """Index the oriented edges of a noded roof subdivision."""
+    incidence = defaultdict(list)
+    for i, patch in enumerate(patches):
+        for ring in [patch.polygon.exterior, *patch.polygon.interiors]:
+            xy = np.asarray(ring.coords)
+            for a, b in zip(xy[:-1], xy[1:]):
+                key = tuple(sorted((tuple(a), tuple(b))))
+                if key[0] == key[1]:
+                    raise RoofAssemblyError(
+                        "Zero-length canonical roof edge", block_ids=[patch.block_id]
+                    )
+                incidence[key].append((i, a, b))
+    return incidence
+
+
+def roof_vertex_heights(patches):
+    """Return canonical roof heights at the vertices shared by incident patches."""
+    at_xy = defaultdict(list)
+    for i, patch in enumerate(patches):
+        for ring in [patch.polygon.exterior, *patch.polygon.interiors]:
+            for xy in np.asarray(ring.coords)[:-1]:
+                at_xy[tuple(xy)].append((float(patch.height(xy)), i))
+    heights = {}
+    slopes = {i: patch.coefficients[:2] for i, patch in enumerate(patches)}
+    for xy, incident in at_xy.items():
+        try:
+            canonical = canonical_profile_heights(incident, slopes)
+        except ValueError as exc:
+            raise RoofAssemblyError(
+                str(exc), block_ids=[patches[i].block_id for _, i in incident]
+            ) from exc
+        heights.update({(xy, i): z for i, z in canonical.items()})
+    return heights
 
 
 def _lines(geometry):

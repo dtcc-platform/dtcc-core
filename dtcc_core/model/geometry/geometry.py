@@ -37,7 +37,8 @@ class Geometry(Model):
         Values over time on this geometry, with explicit element associations.
     """
 
-    _bounds: Bounds = field(default_factory=Bounds)
+    # Coordinate-derived cache, so == ignores it (see model-contract.md).
+    _bounds: Bounds = field(default_factory=Bounds, compare=False)
     transform: Transform = field(default_factory=Transform)
     fields: list[Field] = field(default_factory=list)
     time_series: list[TimeSeries] = field(default_factory=list, kw_only=True)

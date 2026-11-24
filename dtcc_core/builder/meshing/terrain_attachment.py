@@ -1,4 +1,4 @@
-"""Terrain sampling and source-block foundations, independent of roof meshing."""
+"""DEM sampling and piecewise-linear ground profiles for exterior walls."""
 
 from collections import defaultdict
 
@@ -9,7 +9,15 @@ from shapely import affinity
 
 from ...model import Mesh
 from ..geometry_policy import COINCIDENCE
-from .roof_interfaces import RoofAssemblyError
+from .roof_interfaces import RoofAssemblyError, roof_edge_incidence, roof_vertex_heights
+
+
+def _sample_dem(xy, data, transform):
+    columns = (xy[:, 0] - transform.c) / transform.a - 0.5
+    rows = (xy[:, 1] - transform.f) / transform.e - 0.5
+    return map_coordinates(
+        data, [rows, columns], order=1, mode="nearest", prefilter=False
+    )
 
 
 def minimum_dem(polygon, raster):
@@ -24,16 +32,7 @@ def minimum_dem(polygon, raster):
     ys = transform.f + (np.arange(data.shape[0]) + 0.5) * transform.e
 
     def values(xy):
-        xy = np.asarray(xy)
-        columns = np.clip(
-            (xy[:, 0] - transform.c) / transform.a - 0.5, 0, data.shape[1] - 1
-        )
-        rows = np.clip(
-            (xy[:, 1] - transform.f) / transform.e - 0.5, 0, data.shape[0] - 1
-        )
-        return map_coordinates(
-            data, [rows, columns], order=1, mode="nearest", prefilter=False
-        )
+        return _sample_dem(xy, data, transform)
 
     xmin, ymin, xmax, ymax = polygon.bounds
     columns = np.flatnonzero((xs >= xmin) & (xs <= xmax))
@@ -76,8 +75,198 @@ def minimum_dem(polygon, raster):
     return float(minimum)
 
 
-def terrain_attachment(ground, patches, raster, *, offset, smoothing=0):
-    """Sample outside terrain and attach its hole boundaries to block foundations.
+class TerrainContact:
+    """Use indexed terrain edges as the grade along the occupied outline."""
+
+    def __init__(self, ground, raster, offset, bounds, *, minimum_dem_by_block=None):
+        triangles = np.asarray(ground.faces)
+        edges, counts = np.unique(
+            np.sort(
+                np.concatenate(
+                    [triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]
+                ),
+                axis=1,
+            ),
+            axis=0,
+            return_counts=True,
+        )
+        self.edges = ground.vertices[edges[counts == 1]]
+        self.tree = shapely.STRtree(shapely.linestrings(self.edges[:, :, :2]))
+        self.vertices = {(x, y): z for x, y, z in self.edges.reshape(-1, 3)}
+        self.bounds = np.array(bounds).reshape(2, 2)
+        self.offset = offset
+        self.data = np.asarray(raster.data, dtype=float)
+        self.transform = raster.georef
+        self.profiles = {}
+        self.minimum_dem_by_block = minimum_dem_by_block or {}
+
+    def _on_domain_edge(self, xy):
+        return bool(
+            np.any(np.all(abs(xy[:, None, :] - self.bounds) <= COINCIDENCE, axis=0))
+        )
+
+    def height_at(self, xy):
+        """Interpolate a terrain boundary height at a roof junction."""
+        key = tuple(xy)
+        if key in self.vertices:
+            return self.vertices[key]
+        point = shapely.Point(xy)
+        candidates = self.tree.query(point, predicate="dwithin", distance=COINCIDENCE)
+        if len(candidates):
+            index = min(
+                candidates, key=lambda i: (point.distance(self.tree.geometries[i]), i)
+            )
+            a, b = self.edges[index]
+            direction = b[:2] - a[:2]
+            t = np.clip(
+                (np.asarray(xy) - a[:2]) @ direction / (direction @ direction), 0, 1
+            )
+            return float(a[2] + t * (b[2] - a[2]))
+        if self._on_domain_edge(np.asarray([xy])):
+            return float(
+                _sample_dem(np.asarray([xy]) + self.offset, self.data, self.transform)[
+                    0
+                ]
+            )
+        raise RoofAssemblyError(
+            f"No terrain boundary at projected coordinates {(np.asarray(xy) + self.offset).tolist()}"
+        )
+
+    def profile(self, a, b, block_id):
+        """Return the ordered ground XYZ along one straight exterior roof edge."""
+        start, end = tuple(a), tuple(b)
+        key = tuple(sorted((start, end)))
+        if key not in self.profiles:
+            self.profiles[key] = self._profile(*np.asarray(key), block_id)
+        points = self.profiles[key]
+        return points if start == key[0] else points[::-1]
+
+    def _clipped_samples(self, a, tangent, length, intervals):
+        """Sample DEM breakpoints where a building occupies the city boundary."""
+        axis = int(np.argmax(abs(tangent)))
+        transform = self.transform
+        origins = (transform.c, transform.f)
+        increments = (transform.a, transform.e)
+        centers = origins[axis] + increments[axis] * (
+            np.arange(self.data.shape[1 - axis]) + 0.5
+        )
+        stations = (centers - self.offset[axis] - a[axis]) / tangent[axis]
+        keep = (stations > COINCIDENCE) & (stations < length - COINCIDENCE)
+        for lo, hi in intervals:
+            keep &= (stations < lo - COINCIDENCE) | (stations > hi + COINCIDENCE)
+        stations = stations[keep]
+        xy = a + stations[:, None] * tangent
+        z = _sample_dem(xy + self.offset, self.data, transform)
+        return zip(stations, np.c_[xy, z], strict=True)
+
+    def _profile(self, a, b, block_id):
+        line = shapely.LineString([a, b])
+        length = np.linalg.norm(b - a)
+        tangent = (b - a) / length
+        candidates = self.tree.query(line, predicate="dwithin", distance=COINCIDENCE)
+        edges = self.edges[np.sort(candidates)]
+        delta = edges[:, :, :2] - a
+        stations = delta @ tangent
+        offsets = delta @ np.array([-tangent[1], tangent[0]])
+        intervals, samples = [], {}
+        for edge, (left, right), (d0, d1) in zip(edges, stations, offsets, strict=True):
+            lo, hi = max(min(left, right), 0.0), min(max(left, right), length)
+            if hi <= lo:
+                continue
+            offset_slope = (d1 - d0) / (right - left)
+            if (
+                max(
+                    abs(d0 + (lo - left) * offset_slope),
+                    abs(d0 + (hi - left) * offset_slope),
+                )
+                > COINCIDENCE
+            ):
+                continue
+            intervals.append((lo, hi))
+            for station, vertex in zip((left, right), edge):
+                if COINCIDENCE < station < length - COINCIDENCE:
+                    samples[tuple(vertex[:2])] = (station, vertex)
+        if self._on_domain_edge(np.array([a, b])):
+            for station, vertex in self._clipped_samples(a, tangent, length, intervals):
+                samples[tuple(vertex[:2])] = (station, vertex)
+        else:
+            covered = 0.0
+            for lo, hi in sorted(intervals):
+                if lo > covered + COINCIDENCE:
+                    break
+                if lo < covered - COINCIDENCE:
+                    raise RoofAssemblyError(
+                        f"Overlapping terrain edges along exterior wall "
+                        f"{(a + self.offset).tolist()} to {(b + self.offset).tolist()}",
+                        block_ids=[block_id],
+                    )
+                covered = max(covered, hi)
+            if not intervals or covered < length - COINCIDENCE:
+                raise RoofAssemblyError(
+                    f"Missing terrain edge along exterior wall {(a + self.offset).tolist()} "
+                    f"to {(b + self.offset).tolist()}",
+                    block_ids=[block_id],
+                )
+        interior = sorted(samples.values(), key=lambda item: item[0])
+        return np.array(
+            [
+                [*a, self.height_at(a)],
+                *[point for _, point in interior],
+                [*b, self.height_at(b)],
+            ]
+        )
+
+    def clearances(self, patches):
+        """Find each patch's lowest clearance against its block floor and seam."""
+        worst = {}
+        heights = roof_vertex_heights(patches)
+        for index, patch in enumerate(patches):
+            if patch.block_id not in self.minimum_dem_by_block:
+                continue
+            # An affine roof attains its minimum on its exterior ring.
+            xy, roof = min(
+                ((xy, heights[xy, index]) for xy in patch.polygon.exterior.coords),
+                key=lambda point: point[1],
+            )
+            terrain = self.minimum_dem_by_block[patch.block_id]
+            worst[index] = dict(
+                block_id=patch.block_id,
+                source_key=patch.source_key,
+                patch_id=patch.patch_id,
+                xy=(np.asarray(xy) + self.offset).tolist(),
+                roof_m=roof,
+                terrain_m=terrain,
+                clearance_m=roof - terrain,
+                reference="block_minimum_dem",
+            )
+        for incident in roof_edge_incidence(patches).values():
+            if len(incident) != 1:
+                continue
+            index, a, b = incident[0]
+            patch = patches[index]
+            profile = self.profile(a, b, patch.block_id)
+            direction = b - a
+            t = (profile[:, :2] - a) @ direction / (direction @ direction)
+            z0, z1 = heights[tuple(a), index], heights[tuple(b), index]
+            roof = z0 + t * (z1 - z0)
+            delta = roof - profile[:, 2]
+            j = np.argmin(delta)
+            if index not in worst or delta[j] <= worst[index]["clearance_m"]:
+                worst[index] = dict(
+                    block_id=patch.block_id,
+                    source_key=patch.source_key,
+                    patch_id=patch.patch_id,
+                    xy=(profile[j, :2] + self.offset).tolist(),
+                    roof_m=float(roof[j]),
+                    terrain_m=float(profile[j, 2]),
+                    clearance_m=float(delta[j]),
+                    reference="exterior_seam",
+                )
+        return worst
+
+
+def terrain_attachment(ground, patches, raster, *, offset, bounds, smoothing=0):
+    """Sample outside terrain and preserve its height along building contacts.
 
     Roof interiors are not triangulated to establish terrain. All boundary
     geometry remains in the authoritative local XY subdivision; native terrain
@@ -103,7 +292,7 @@ def terrain_attachment(ground, patches, raster, *, offset, smoothing=0):
         by_block[patch.block_id].append(patch.polygon)
     blocks = sorted(by_block)
     domains = [shapely.union_all(by_block[block]) for block in blocks]
-    bases = {
+    minimums = {
         block: minimum_dem(affinity.translate(domain, *offset), raster)
         for block, domain in zip(blocks, domains)
     }
@@ -119,14 +308,12 @@ def terrain_attachment(ground, patches, raster, *, offset, smoothing=0):
         for vertex, index in zip(*pairs):
             block = blocks[int(index)]
             attached.setdefault(int(vertex), set()).add(block)
-            bases[block] = min(bases[block], float(sampled.vertices[vertex, 2]))
         for vertex, owners in attached.items():
             if len(owners) != 1:
                 raise RoofAssemblyError(
                     "Distinct cleaned blocks touch at a terrain vertex",
                     block_ids=owners,
                 )
-            sampled.vertices[vertex, 2] = bases[next(iter(owners))]
             frozen[vertex] = True
     sampled.terrain_contact_vertices = np.flatnonzero(frozen)
     if smoothing:
@@ -143,13 +330,12 @@ def terrain_attachment(ground, patches, raster, *, offset, smoothing=0):
                     ].mean()
     return (
         sampled,
-        bases,
+        TerrainContact(sampled, raster, offset, bounds, minimum_dem_by_block=minimums),
         dict(
-            block_bases_m=bases,
+            minimum_dem_by_block_m=minimums,
             terrain_triangles=len(sampled.faces),
-            foundation_triangles=0,
             frozen_vertices=int(frozen.sum()),
-            foundation_policy="minimum clamped bilinear DEM over the occupied block and sampled contact",
+            foundation_policy="piecewise-linear DEM-sampled exterior terrain edges",
             xy_unchanged=bool(
                 np.array_equal(sampled.vertices[:, :2], ground.vertices[:, :2])
             ),
