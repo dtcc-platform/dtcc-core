@@ -4,7 +4,7 @@ What ran, and what remains unverified.
 
 ## Risk
 
-Blast radius if this is wrong, sensitive paths touched, review findings declined.
+Blast radius if this is wrong, sensitive paths touched, important review findings declined.
 
 ## How to revert
 

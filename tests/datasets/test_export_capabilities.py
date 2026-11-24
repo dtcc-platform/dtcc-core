@@ -71,7 +71,7 @@ def _derived(package):
 
 
 def test_every_builtin_dataset_declares_each_product():
-    assert len(BUILTINS) == 28
+    assert len(BUILTINS) == 29
     for name, dataset in BUILTINS.items():
         product = dataset.describe()["args_schema"]["properties"].get("product")
         expected = product["enum"] if product else [None]
@@ -165,7 +165,12 @@ def test_empty_print_assembly_refuses_image_exports(fmt, tmp_path):
 
 @pytest.mark.parametrize(
     ("name", "product"),
-    [("terrain_surface_mesh", "raster"), ("trees", "raster"), ("built_up", None)],
+    [
+        ("terrain_surface_mesh", "raster"),
+        ("trees", "raster"),
+        ("built_up", None),
+        ("settlement_class", None),
+    ],
 )
 def test_all_invalid_raster_exports_canonically_and_refuses_png(
     name, product, tmp_path

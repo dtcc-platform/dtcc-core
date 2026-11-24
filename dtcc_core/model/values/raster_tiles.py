@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .._equality import model_equal
 from ..geometry.bounds import Bounds
 from ..model import Model
 
@@ -21,6 +22,9 @@ class RasterTile:
     as ``path`` and no package binding, and refuses to load; a tile loaded
     from a canonical package is bound to its artifact in that package.
     """
+
+    # Not a Model subclass, so it installs the shared model equality itself.
+    __eq__ = model_equal
 
     path: Path
     id: str

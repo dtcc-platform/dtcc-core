@@ -35,7 +35,8 @@ class Geometry(Model):
     fields: list[Field]
     """
 
-    _bounds: Bounds = field(default_factory=Bounds)
+    # Coordinate-derived cache, so == ignores it (see model-contract.md).
+    _bounds: Bounds = field(default_factory=Bounds, compare=False)
     transform: Transform = field(default_factory=Transform)
     fields: list[Field] = field(default_factory=list)
     regions: list[SemanticRegion] = field(default_factory=list, kw_only=True)

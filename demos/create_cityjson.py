@@ -2,7 +2,7 @@
 
 import dtcc_core as dtcc
 
-bounds = dtcc.Bounds(319720, 6397660, 320220, 6398160)
+bounds = dtcc.Bounds(319845, 6397785, 320095, 6398035)
 city = dtcc.datasets.city(bounds=bounds, lod="lod2")
 city.save("output/city.city.json")
 city.view()

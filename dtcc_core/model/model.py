@@ -11,11 +11,28 @@ from inspect import getmembers, isfunction, ismodule
 from google.protobuf.json_format import MessageToJson
 
 from ..common import warning
+from ._equality import model_equal
 
 
 @dataclass(repr=False)
 class Model(ABC):
-    """Base class for all DTCC Model classes."""
+    """Base class for all DTCC Model classes.
+
+    ``==`` compares dataclass fields with the array-aware policy in
+    docs/design/model-contract.md and always returns a bool for two models of
+    the same concrete type. Models stay unhashable.
+    """
+
+    __eq__ = model_equal
+    __hash__ = None
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # The dataclass decorator runs after this hook and only generates
+        # __eq__ when the class body lacks one, so pinning the inherited
+        # method here keeps the shared policy (or a custom override).
+        if "__eq__" not in cls.__dict__:
+            cls.__eq__ = cls.__eq__
 
     def _summary_items(self):
         """Cheap scalar facts for compact display; subclasses may extend these."""
@@ -93,8 +110,9 @@ class Model(ABC):
     ):
         """Quick Matplotlib preview; return the axes for further customization.
 
-        Standalone RGB/RGBA rasters and triangular Mesh face maps with
-        ``projection="xy"`` use 2D axes. Other previews use 3D axes.
+        RGB/RGBA rasters, and class rasters from datasets that declare class
+        colours, use a georeferenced 2D image preview; other models use a 3D
+        preview.
 
         Objects select one representation each and traverse their children.
         Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name
