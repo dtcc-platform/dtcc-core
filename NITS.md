@@ -7,6 +7,8 @@ Entry format; the symbol and PR number are optional:
 
     - `path/to/file.py` (`symbol`): what is wrong; why it was left open. (#PR)
 
+- `dtcc_core/datasets/publish.py` (`DatasetUploadClient.upload_package`): a token with a character outside latin-1 makes `http.client` raise `UnicodeEncodeError`, which escapes unwrapped instead of as a `DatasetUploadError`; its message holds only the position, and such a token cannot authenticate anyway, so it was left open.
+- `dtcc_core/datasets/transport/vasttrafik.py` (`_fetch_token`, `_fetch_positions`): a failing live run under pytest's default or `-l` traceback prints these frames' credential arguments; the live workflow runs with `--tb=short`, which does not, so it was left open. (#139)
 - `dtcc_core/model/exchange.py` (`_encode_geometry`): A `VolumeGrid` with a masked `z_levels` entry fails: a masked end level at save, a masked inner level at load. Only values assigned after construction can be masked. (#215)
 - `dtcc_core/model/geometry/grid.py` (`VolumeGrid._validate_z_levels`): A mixed int and float list can round in `np.asarray` before the precision check, so it passes validation and the stored levels lose the difference. This needs integers beyond 2**53. (#215)
 - `dtcc_core/model/values/dataset.py` (`DatasetValue.__eq__`): `numpy_array == DatasetValue(...)` returns NumPy's elementwise array, not one bool; `__array_ufunc__ = None` would fix it but also disables NumPy arithmetic on DatasetValue.
