@@ -658,6 +658,8 @@ PYBIND11_MODULE(_dtcc_builder, m)
         "build terrain surface mesh");
   m.def("build_terrain_surface_mesh_from_ground_mesh",
         &DTCC_BUILDER::MeshBuilder::build_terrain_surface_mesh_from_ground_mesh,
+        py::arg("ground_mesh"), py::arg("dtm"), py::arg("smooth_ground"),
+        py::arg("terrain_following_regions") = std::vector<int>{},
         "build terrain surface mesh from a prebuilt ground mesh");
 
   m.def("build_city_surface_mesh_from_patch_planes",
@@ -666,6 +668,10 @@ PYBIND11_MODULE(_dtcc_builder, m)
 
   m.def("build_city_surface_mesh_from_terrain_mesh",
         &DTCC_BUILDER::MeshBuilder::build_city_surface_mesh_from_terrain_mesh,
+        py::arg("buildings"), py::arg("meshing_directive"), py::arg("terrain_mesh"),
+        py::arg("smooth_ground"), py::arg("merge_meshes"), py::arg("min_wall_strip"),
+        py::arg("follow_terrain") = false,
+        py::arg("building_labels") = std::vector<std::string>{},
         "build city surface mesh from a prebuilt terrain mesh");
 
   m.def("merge_meshes", &DTCC_BUILDER::MeshProcessor::merge_meshes,
