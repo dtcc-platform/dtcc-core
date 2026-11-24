@@ -9,7 +9,7 @@ import time
 import numpy as np
 import pytest
 
-from dtcc_core.model import Field, TimeSeries
+from dtcc_core.model import Field, Mesh, TimeSeries
 
 T0 = np.datetime64("2024-01-01T00:00", "ns")
 H = np.timedelta64(3600 * 10**9, "ns")
@@ -409,11 +409,26 @@ def test_copy_is_independent():
     assert len(ts) == 2 and ts.values[0, 0] == 1.0
 
 
-def test_equality_is_identity_and_series_are_hashable():
-    a, b = scalar([1.0, 2.0]), scalar([1.0, 2.0])
-    assert a == a and a != b
-    assert [a, b].index(b) == 1
-    assert len({a, b}) == 2
+def test_equality_compares_content_and_series_are_unhashable():
+    a, b = scalar([1.0, np.nan]), scalar([1.0, np.nan])
+    assert a == b
+    assert a != scalar([1.0, 2.0])
+    assert a != scalar([1.0, np.nan], role="observed")
+    assert a != scalar([1.0, np.nan], offsets=[0, 2])
+    with pytest.raises(TypeError):
+        hash(a)
+
+
+def test_equality_ignores_spare_capacity_after_append():
+    grown = scalar([1.0])
+    grown.append(T0 + H, 2.0)
+    assert grown == scalar([1.0, 2.0])
+
+
+def test_geometry_with_time_series_equals_its_deep_copy():
+    ts = TimeSeries(times=hours(0), values=[[1.0, 2.0, 3.0]], association="vertex")
+    mesh = Mesh(vertices=np.zeros((3, 3)), time_series=[ts])
+    assert mesh == copy.deepcopy(mesh)
 
 
 def test_constructor_copies_its_input():

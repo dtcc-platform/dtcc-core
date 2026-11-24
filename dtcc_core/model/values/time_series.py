@@ -408,7 +408,7 @@ def _aggregate(values, starts, how):
     return result
 
 
-@dataclass(repr=False, eq=False, init=False)
+@dataclass(repr=False, init=False)
 class TimeSeries(Model):
     """Represents values (scalar or vector) on a set of elements over time.
 
@@ -431,7 +431,7 @@ class TimeSeries(Model):
     A view taken before an append may stop reflecting the series once the
     append reallocates storage. The series copies arrays it is given, so it
     never shares memory with the caller. Assigning a new array to either
-    attribute revalidates and copies it. Equality is identity.
+    attribute revalidates and copies it.
 
     Attributes
     ----------
@@ -467,9 +467,6 @@ class TimeSeries(Model):
     dim: int = 1
     association: str | None = field(default=None, kw_only=True)
     role: str = field(default="", kw_only=True)
-
-    __eq__ = object.__eq__
-    __hash__ = object.__hash__
 
     def __init__(
         self,
