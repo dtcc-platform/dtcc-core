@@ -88,12 +88,20 @@ Every PR description covers:
 
 - Address every important finding before merge: fix it, or reply with a
   one-line reason and list it under Risk. One you accept but leave unfixed
-  also goes into the lasting register `RISKS.md`, in the push that answers the
-  review.
+  also gets an issue labelled `accepted-risk`, cited under Risk; open it
+  once the operator has read its text. Whoever merges adds the label if you
+  can't.
 - A nit needs no reply: fix it if it is worth fixing, and resolve its thread
-  if it has one. A nit worth keeping track of can go into `NITS.md`.
-- A pull request that fixes an item listed in `NITS.md` or `RISKS.md` deletes
-  its line.
+  if it has one. List a nit worth keeping track of under "Nits kept" in the
+  PR description; whoever merges posts that list in #227, as its description
+  says.
+- A pull request that fixes an `accepted-risk` issue, including its own,
+  closes it with `Fixes #<issue>`. One that fixes a nit in #227 links its
+  entry without a closing keyword, which would close the whole list; whoever
+  merges it strikes the entry through.
+- If a pull request closes without merging, its author closes its
+  `accepted-risk` issues as not planned, except those about code already on
+  `develop`.
 - Fix the root cause behind a finding, and every other site with the same bug.
 - Push fixes as new commits; the reviewed history stays in place until merge.
 - After three reviewer rounds on one PR (a round is one reviewer pass plus
