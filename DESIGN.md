@@ -42,12 +42,14 @@ temporal or scenario axes.
 Artifacts identify the schema version and root type. Readers reject unsupported
 data. Documented canonical normalization may be acceptable. Round trips must
 preserve semantics, structure, concrete types and precision without silent loss.
-Derived formats supplement canonical data. Mesh and GeoJSON exports write their
-documented subset and omit attachments such as time series without changing the
-model; strict exchange such as `CityJSON(strict=True)` rejects data it cannot
-map faithfully. Dataset Context belongs on the in-memory result and in the
-Package manifest, except facts intrinsic to model interpretation, which belong
-in the model itself.
+Derived formats supplement canonical data. Dataset Context belongs on the
+in-memory result and in the Package manifest, except facts intrinsic to model
+interpretation, which belong in the model itself.
+
+Ordinary mesh and GeoJSON exports write their documented subset and omit
+unsupported attachments such as time series. Save as `.dtcc` to preserve
+temporal data. Strict exchange, including `CityJSON(strict=True)`, rejects
+data it cannot faithfully represent before writing.
 
 ### Object-first workflows
 

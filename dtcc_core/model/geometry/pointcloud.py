@@ -148,6 +148,8 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         """
         Merge another point cloud into this point cloud.
 
+        Time series require an explicit mapping and raise NotImplementedError.
+
         Parameters
         ----------
         other : PointCloud
@@ -160,6 +162,10 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
 
         """
 
+        if other.time_series or (self.time_series and len(other.points)):
+            raise NotImplementedError(
+                "Merging point clouds cannot transfer time series"
+            )
         if len(other.points) == 0:
             return self
 

@@ -245,9 +245,9 @@ def repair_boundary_corners(
 
     Each distinct selected tetrahedron gains one barycenter and three cells.
     Original facets, coordinates, indices and cell labels are preserved. Children
-    retain their parent's orientation and total volume. Fields and semantic
-    regions must be attached after topology-changing repair; no transfer is
-    inferred. Missing labels and unresolved or collapsed geometry raise ValueError
+    retain their parent's orientation and total volume. Attach fields, time
+    series and semantic regions after topology-changing repair.
+    Missing labels and unresolved or collapsed geometry raise ValueError
     without modifying the source. Absence of corners is not a stability proof.
     """
     report = find_boundary_corners(mesh, boundary_markers=boundary_markers)
@@ -257,9 +257,9 @@ def repair_boundary_corners(
             result, report, boundary_markers=boundary_markers
         )
         return result
-    if mesh.fields or mesh.regions:
+    if mesh.fields or mesh.time_series or mesh.regions:
         raise ValueError(
-            "Repair boundary corners before attaching fields or semantic regions"
+            "Repair boundary corners before attaching fields, time series or semantic regions"
         )
     markers = mesh.markers
     if (

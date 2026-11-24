@@ -20,7 +20,9 @@ from dtcc_core.model import (
     MultiSurface,
     Object,
     Point,
+    PointCloud,
     RoadNetwork,
+    SemanticRegion,
     StreamlineCollection,
     Surface,
     TimeSeries,
@@ -187,6 +189,94 @@ def _volume_mesh():
         cells=np.array([[0, 1, 2, 3]]),
         time_series=[series(1, "cell")],
     )
+
+
+@pytest.mark.parametrize("attached_input", ["receiver", "incoming", "both"])
+def test_point_cloud_merge_rejects_series_without_mutating_either_input(attached_input):
+    first = PointCloud(points=np.array([[0.0, 0.0, 0.0]]))
+    second = PointCloud(points=np.array([[1.0, 0.0, 0.0]]))
+    if attached_input in ("receiver", "both"):
+        first.time_series = [series()]
+    if attached_input in ("incoming", "both"):
+        second.time_series = [series()]
+    before = exchange.dumps(first), exchange.dumps(second)
+
+    with pytest.raises(NotImplementedError, match="time series"):
+        first.merge(second)
+    assert (exchange.dumps(first), exchange.dumps(second)) == before
+
+    if second.time_series:
+        empty = PointCloud()
+        with pytest.raises(NotImplementedError, match="time series"):
+            empty.merge(second)
+        assert len(empty) == 0
+    else:
+        assert first.merge(PointCloud()) is first
+        assert exchange.dumps(first) == before[0]
+
+
+@pytest.mark.parametrize("attached_input", ["receiver", "incoming"])
+def test_multisurface_merge_rejects_collection_series_without_mutation(attached_input):
+    first = MultiSurface(surfaces=[Surface(vertices=_mesh().vertices)])
+    second = MultiSurface(surfaces=[Surface(vertices=_mesh().vertices + [0, 0, 1])])
+    owner = first if attached_input == "receiver" else second
+    owner.time_series = [series(1, "face")]
+    before = exchange.dumps(first), exchange.dumps(second)
+
+    with pytest.raises(NotImplementedError, match="time series"):
+        first.merge(second)
+    assert (exchange.dumps(first), exchange.dumps(second)) == before
+
+
+def test_multisurface_merge_preserves_series_on_the_incoming_surface():
+    surface = Surface(vertices=_mesh().vertices, time_series=[series(1, "geometry")])
+    result = MultiSurface().merge(MultiSurface(surfaces=[surface]))
+    assert exchange.dumps(result.surfaces[0]) == exchange.dumps(surface)
+    assert len(exchange.loads(exchange.dumps(result)).surfaces[0].time_series) == 1
+
+
+def test_mesh_processing_rejects_series_before_losing_it():
+    from dtcc_core.builder.meshing.meshing import disjoint_meshes, merge_meshes
+    from dtcc_core.builder.model_conversion import (
+        mesh_to_builder_mesh,
+        volume_mesh_to_builder_volume_mesh,
+    )
+
+    mesh = _mesh()
+    before = exchange.dumps(mesh)
+    for operation in (
+        lambda: merge_meshes([mesh]),
+        lambda: mesh.snap_vertices(0.01),
+        lambda: disjoint_meshes(mesh),
+        lambda: mesh_to_builder_mesh(mesh),
+        lambda: volume_mesh_to_builder_volume_mesh(_volume_mesh()),
+    ):
+        with pytest.raises(NotImplementedError, match="time series"):
+            operation()
+    assert exchange.dumps(mesh) == before
+
+
+@pytest.mark.parametrize("with_regions", [False, True])
+@pytest.mark.parametrize("attachment", ["collection", "surface"])
+def test_collection_meshing_rejects_series_before_cleaning(with_regions, attachment):
+    from dtcc_core.builder.meshing.meshing import mesh_multisurface, mesh_multisurfaces
+
+    surface = Surface(vertices=_mesh().vertices)
+    collection = MultiSurface(surfaces=[surface])
+    if with_regions:
+        collection.regions = [SemanticRegion("urn:roof", indices=np.array([0]))]
+    owner = collection if attachment == "collection" else surface
+    owner.time_series = [series(1, "geometry")]
+    before = exchange.dumps(collection)
+
+    with pytest.raises(NotImplementedError, match="time series"):
+        mesh_multisurface(collection, clean=True)
+    with pytest.raises(NotImplementedError, match="time series"):
+        mesh_multisurfaces([collection], clean=True)
+    if owner is surface:
+        with pytest.raises(NotImplementedError, match="time series"):
+            surface.mesh(clean=True)
+    assert exchange.dumps(collection) == before
 
 
 @pytest.mark.parametrize(
