@@ -33,7 +33,7 @@ def _invalid(target, message):
 
 
 @contextmanager
-def _guard(target):
+def _guard(target, client=None):
     try:
         yield
     except (DatasetUpstreamError, WeatherHistoryLimitError):
@@ -46,6 +46,8 @@ def _guard(target):
         )
         raise WeatherHistoryLimitError(f"Historical weather exceeded {limit}") from None
     except HttpTransportError as exc:
+        if client is not None:
+            client._check_failed_transfer_budget(exc)
         if exc.kind == "decoding":
             raise _invalid(exc.target, "Cannot decode response") from None
         failure_class = exc.kind
@@ -110,8 +112,27 @@ class _Client:
     def __exit__(self, *exc):
         self.http.__exit__(*exc)
 
+    def _check_failed_transfer_budget(self, error):
+        # The HTTP client can preserve the upstream error when a budget
+        # interrupts diagnostic reads or prevents another attempt.
+        counters = self.http.counters
+        byte_limit = self.args.max_download_bytes
+        if counters.received_body_bytes > byte_limit or (
+            error.retry_allowed_by_policy and counters.received_body_bytes == byte_limit
+        ):
+            raise WeatherHistoryLimitError(
+                "Historical weather exceeded max_download_bytes"
+            ) from None
+        if (
+            error.retry_allowed_by_policy
+            and counters.network_attempts == self.args.max_requests
+        ):
+            raise WeatherHistoryLimitError(
+                "Historical weather exhausted max_requests"
+            ) from None
+
     def json(self, url, params=None):
-        with _guard(url):
+        with _guard(url, self):
             query = dict(params or {})
             credentials = {"apikey": query.pop("apikey")} if "apikey" in query else None
             value = self.http.json(url, params=query, credentials=credentials)
@@ -120,7 +141,7 @@ class _Client:
             return value
 
     def text(self, url, cache_token=None):
-        with _guard(url):
+        with _guard(url, self):
             return self.http.text(url, cache_token=cache_token, encoding="utf-8-sig")
 
     def count_observation(self):

@@ -4,12 +4,11 @@
 import datetime as _dt
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 
 from ..model import Model
-from .field import Field
+from .field import Field, _float64_exact
 
 _NS = np.dtype("datetime64[ns]")
 _TD_NS = np.dtype("timedelta64[ns]")
@@ -263,6 +262,19 @@ def _strictly_increasing(times):
     return len(times) < 2 or bool((times[1:] > times[:-1]).all())
 
 
+def _unmask_samples(values):
+    """Replace masked floating samples with NaN before NumPy extracts the data."""
+    if np.ma.isMaskedArray(values):
+        if np.ma.is_masked(values):
+            if values.dtype.kind != "f":
+                raise ValueError("Masked samples require a floating-point dtype.")
+            return values.filled(np.nan)
+        return values.data
+    if isinstance(values, (list, tuple)):
+        return [_unmask_samples(item) for item in values]
+    return values
+
+
 def _checked_cast(values, dtype, what):
     """Cast ``values`` to ``dtype``, refusing casts that lose integers or overflow.
 
@@ -396,7 +408,7 @@ def _aggregate(values, starts, how):
     return result
 
 
-@dataclass(repr=False, eq=False, init=False)
+@dataclass(repr=False, init=False)
 class TimeSeries(Model):
     """Represents values (scalar or vector) on a set of elements over time.
 
@@ -410,7 +422,8 @@ class TimeSeries(Model):
     timestamps; time-zone-aware input is converted to UTC and naive input is
     taken as UTC. ISO strings retain nanosecond precision. Times outside the
     finite ``datetime64[ns]`` range raise ``ValueError``. ``NaN`` in ``values``
-    marks a missing value.
+    marks a missing value. Masked floating-point samples are stored as NaN.
+    Masked integer and boolean samples raise ValueError.
 
     ``times`` and ``values`` are views into storage that grows geometrically,
     so appending a step is amortized O(1). The ``times`` view is read-only so
@@ -418,7 +431,7 @@ class TimeSeries(Model):
     A view taken before an append may stop reflecting the series once the
     append reallocates storage. The series copies arrays it is given, so it
     never shares memory with the caller. Assigning a new array to either
-    attribute revalidates and copies it. Equality is identity.
+    attribute revalidates and copies it.
 
     Attributes
     ----------
@@ -442,10 +455,6 @@ class TimeSeries(Model):
     role: str
         Free label such as ``"observed"`` or ``"predicted"``; empty means
         unspecified.
-    attributes: dict
-        Ancillary source metadata. Copies preserve it; numerical transformations
-        return core series without these attributes, which may describe raw
-        observations. Nonempty attributes have no canonical exchange representation.
     """
 
     # times and values are dataclass fields whose defaults are the properties
@@ -458,10 +467,6 @@ class TimeSeries(Model):
     dim: int = 1
     association: str | None = field(default=None, kw_only=True)
     role: str = field(default="", kw_only=True)
-    attributes: dict[str, Any] = field(default_factory=dict, kw_only=True)
-
-    __eq__ = object.__eq__
-    __hash__ = object.__hash__
 
     def __init__(
         self,
@@ -474,7 +479,6 @@ class TimeSeries(Model):
         *,
         association=None,
         role="",
-        attributes=None,
     ):
         self.name = name
         self.unit = unit
@@ -482,7 +486,6 @@ class TimeSeries(Model):
         self.dim = dim
         self.association = association
         self.role = role
-        self.attributes = {} if attributes is None else dict(attributes)
         if times is None:
             if values is not None:
                 raise ValueError("TimeSeries values were given without times.")
@@ -524,7 +527,7 @@ class TimeSeries(Model):
         super().__setattr__(name, value)
 
     def _canonical_values(self, values, steps):
-        values = np.asarray(values)
+        values = np.asarray(_unmask_samples(values))
         if values.dtype.kind not in "biuf":
             raise ValueError("TimeSeries.values must be a real numeric array.")
         if self.dim == 1 and values.ndim == 1:
@@ -563,10 +566,14 @@ class TimeSeries(Model):
 
     def __copy__(self):
         """Return a copy with its own storage, so appends never interfere."""
+        return self._copy_with_values(self.values.copy())
+
+    def _copy_with_values(self, values):
+        """Copy the series using an owned values array on the same time axis."""
         result = object.__new__(type(self))
         result.__dict__.update(self.__dict__)
         result._times = self._times[: self._length].copy()
-        result._values = self._values[: self._length].copy()
+        result._values = values
         return result
 
     def __getstate__(self):
@@ -741,7 +748,7 @@ class TimeSeries(Model):
         """Normalize appended values to shape ``(count, N[, dim])``."""
         if isinstance(values, Field):
             values = self._field_values(values)
-        values = np.asarray(values)
+        values = np.asarray(_unmask_samples(values))
         if values.dtype.kind not in "biuf":
             raise ValueError("Appended values must be real numeric.")
         if single:
@@ -954,7 +961,9 @@ class TimeSeries(Model):
         """Interpolate values at arbitrary times.
 
         Query times that match a step exactly return that step's values for
-        every method. NaT query times give NaN.
+        every method. A selected integer sample that float64 cannot represent
+        exactly raises ValueError. Use ``field_at`` for an exact timestamp
+        lookup in the stored dtype. NaT query times give NaN.
 
         Parameters
         ----------
@@ -1022,7 +1031,7 @@ class TimeSeries(Model):
         if run is None:
             values = self._interpolate(times, method, fill, gap)
         else:
-            values = self.values[run].astype(np.float64)
+            values = _float64_exact(self.values[run], "Selected sample")
         return self._like(times, values, copy=False)
 
     def _matching_run(self, times):
@@ -1051,10 +1060,19 @@ class TimeSeries(Model):
             return out
         missing = np.isnat(query)
         right = np.searchsorted(t, q, side="right")
-        exact = (right > 0) & (t[np.maximum(right - 1, 0)] == q)
-        inside = (q > t[0]) & (q < t[-1]) & ~exact
-        if inside.any():
-            j = right[inside] - 1
+        sample = np.maximum(right - 1, 0)
+        selected = t[sample] == q
+        inside = np.flatnonzero((q > t[0]) & (q < t[-1]) & ~selected)
+        j = sample[inside]
+        if gap is not None:
+            allowed = _span(t[j], t[j + 1]) <= np.uint64(gap.astype(np.int64))
+            inside, j = inside[allowed], j[allowed]
+        if method in ("previous", "nearest"):
+            selected[inside] = True
+            if method == "nearest":
+                later = _span(t[j], q[inside]) > _span(q[inside], t[j + 1])
+                sample[inside] += later
+        elif len(inside):
             lo, hi = t[j], t[j + 1]
             span = _span(lo, hi)
             w = _span(lo, q[inside]).astype(np.float64) / span.astype(np.float64)
@@ -1063,10 +1081,6 @@ class TimeSeries(Model):
             right_values = np.asarray(values[j + 1], dtype=np.float64)
             if method == "linear":
                 inner = left * (1.0 - w) + right_values * w
-            elif method == "previous":
-                inner = left
-            elif method == "nearest":
-                inner = np.where(w <= 0.5, left, right_values)
             else:
                 h = (span / 1e9).reshape(w.shape)
                 w2, w3 = w * w, w * w * w
@@ -1076,13 +1090,10 @@ class TimeSeries(Model):
                     + (3 * w2 - 2 * w3) * right_values
                     + (w3 - w2) * h * _pchip_slopes(t, values, j + 1)
                 )
-            if gap is not None:
-                inner[span > np.uint64(gap.astype(np.int64))] = np.nan
             out[inside] = inner
-        out[exact] = values[right[exact] - 1]
         if fill == "edge":
-            out[(q < t[0]) & ~missing] = values[0]
-            out[q > t[-1]] = values[-1]
+            selected |= ((q < t[0]) & ~missing) | (q > t[-1])
+        out[selected] = _float64_exact(values[sample[selected]], "Selected sample")
         return out
 
     # Resampling and aggregation

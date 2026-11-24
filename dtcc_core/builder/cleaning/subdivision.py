@@ -101,7 +101,7 @@ def canonical_boundary_graph(graph, domains, audit):
     return shapely.union_all(canonical + outlines)
 
 
-def canonical_source_subdivision(cells, *, domain, source_keys):
+def canonical_source_subdivision(cells, *, domain, source_keys, preserve_outline=False):
     """Normalize source cells against one occupied outline without ownership edits.
 
     Multiway XY incidence alone does not justify a geometry change. Roof-height
@@ -112,8 +112,9 @@ def canonical_source_subdivision(cells, *, domain, source_keys):
     offset = np.floor(np.asarray(domain.bounds[:2]))
     original_domain = affinity.translate(domain, *-offset)
     normalized_domain = shapely.set_precision(original_domain, XY_PRECISION)
+    occupied = original_domain if preserve_outline else normalized_domain
     if not cells:
-        return affinity.translate(normalized_domain, *offset), [], dict(changes=[])
+        return affinity.translate(occupied, *offset), [], dict(changes=[])
     by_label = defaultdict(list)
     for polygon, label in cells:
         by_label[label].append(affinity.translate(polygon, *-offset))
@@ -183,14 +184,12 @@ def canonical_source_subdivision(cells, *, domain, source_keys):
         [p.boundary for p in regions.values()], grid_size=XY_PRECISION
     )
     boundary_audit = {}
-    graph = canonical_boundary_graph(
-        source_graph, {0: normalized_domain}, boundary_audit
-    )
+    graph = canonical_boundary_graph(source_graph, {0: occupied}, boundary_audit)
     labels = sorted(regions)
     region_tree = shapely.STRtree([regions[label] for label in labels])
     coordinated = defaultdict(list)
     for polygon in polygonize(list(_boundary_lines(graph))):
-        if not normalized_domain.covers(polygon.representative_point()):
+        if not occupied.covers(polygon.representative_point()):
             continue
         candidates = region_tree.query(polygon, predicate="intersects")
         overlap = sorted(
@@ -215,8 +214,8 @@ def canonical_source_subdivision(cells, *, domain, source_keys):
         raise ValueError("Canonical subdivision would erase a source label")
     regions = {label: shapely.union_all(parts) for label, parts in coordinated.items()}
     final_union = shapely.union_all(list(regions.values()))
-    domain_change = final_union.symmetric_difference(normalized_domain).area
-    if domain_change > max(1e-10, normalized_domain.area * 1e-12):
+    domain_change = final_union.symmetric_difference(occupied).area
+    if domain_change > max(1e-10, occupied.area * 1e-12):
         raise ValueError(
             "Canonical source cells do not cover the selected occupied domain"
         )
@@ -230,7 +229,7 @@ def canonical_source_subdivision(cells, *, domain, source_keys):
                 )
             result.append((affinity.translate(polygon, *offset), label))
     return (
-        affinity.translate(normalized_domain, *offset),
+        affinity.translate(occupied, *offset),
         result,
         dict(
             boundary_coordination=boundary_audit,

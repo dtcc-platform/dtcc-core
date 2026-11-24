@@ -32,6 +32,7 @@ from .buildings import BuildingDataset
 from .city import CityDataset
 from .terrain_surface_mesh import TerrainSurfaceMeshDataset
 from .city_surface_mesh import CitySurfaceMeshDataset
+from .printable_city_tiles import PrintableCityTilesDataset
 from .city_flat_mesh import CityFlatMeshDataset
 from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
@@ -42,6 +43,7 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
+from .satellite_imagery import SatelliteImageryDataset
 from .space_syntax import SpaceSyntaxDataset
 from .transit_vehicles import (
     TransitVehiclesDataset,
@@ -52,6 +54,8 @@ from .transit_vehicles import (
     FerriesDataset,
 )
 from .deso import DeSODataset
+from .built_up import BuiltUpDataset
+from .settlement_class import SettlementClassDataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
 from .orthophoto import OrthophotoDataset
@@ -76,6 +80,7 @@ city = get_dataset("city")
 
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
+printable_city_tiles = get_dataset("printable_city_tiles")
 city_flat_mesh = get_dataset("city_flat_mesh")
 city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")
@@ -85,6 +90,7 @@ weather_history = get_dataset("weather_history")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
+satellite_imagery = get_dataset("satellite_imagery")
 space_syntax = get_dataset("space_syntax")
 transit_vehicles = get_dataset("transit_vehicles")
 buses = get_dataset("buses")
@@ -93,6 +99,8 @@ trains = get_dataset("trains")
 metros = get_dataset("metros")
 ferries = get_dataset("ferries")
 deso = get_dataset("deso")
+built_up = get_dataset("built_up")
+settlement_class = get_dataset("settlement_class")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
 orthophoto = get_dataset("orthophoto")

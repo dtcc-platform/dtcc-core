@@ -28,7 +28,7 @@ dependencies = [
     "httpx2>=2.16.0,<3",
     "certifi",
     "platformdirs",
-    "aiohttp",
+    "aiohttp >= 3.11.0, < 4.0.0",
     "folium",
     "gtfs-realtime-bindings >= 2.0.0, < 3.0.0",
     "h5py == 3.16.0",
@@ -61,7 +61,7 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest>=9.0.2", "pytest-cov"]
-volume = ["dtcc-tetgen-wrapper @ git+https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git@22ab9ff2ee1dd03f82ce24dd0f378f00da7e487c"]
+volume = ["dtcc-tetgen-wrapper @ git+https://github.com/dtcc-platform/dtcc-tetgen-wrapper.git@1091f4c7092e0186d191929e8eba9b82b886f963"]
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true

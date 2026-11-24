@@ -194,8 +194,10 @@ repeat when supplied as pairs, such as `params=(("parameter", "temperature"),
 duplicates are rejected before network or cache access. Set exactly one of `body` (bytes), `json` (including
 None), `form`, or `multipart`. Multipart is a tuple of `MultipartPart(name, value,
 filename, content_type)`, with bytes or caller-owned binary streams as values.
+Streams are read from their current position and remain open after the request.
 Repeated field names support multiple uploaded files. Requests may buffer multipart
-uploads in memory; aiohttp streams file parts. This interface does not guarantee
+uploads in memory; aiohttp and HTTPX2 stream file parts. HTTPX2 uses chunked
+transfer encoding for borrowed streams. This interface does not guarantee
 bounded upload memory or enforce upload-byte budgets.
 
 ## Async streams
@@ -322,7 +324,13 @@ a new Budget; there is no implicit reset. Limits include the chunk that crosses 
 not delivered. These are decoded-body limits, not exact wire-byte measurements or
 peak-memory guarantees: backends can buffer/decompress before yielding. Error
 bodies are read only up to 8 KiB; if that read fails, the status error is raised
-with the bytes read so far. Unread redirect bodies are closed without being
+with the bytes read so far. A retry reserves its attempt in the budget before
+sleeping, so of several operations sharing a budget only those holding an
+attempt wait. When the budget leaves no room for another attempt, retries stop
+without sleeping and raise the pending failure (preserving its HTTP status and
+`retry_after`). A sleep that is cancelled or raises returns its reserved
+attempt. If a byte cap is reached during the sleep, the reserved attempt is
+refused and returned, and a `resource_limit` error is raised. Unread redirect bodies are closed without being
 counted. Observation counts, time intervals and provider-specific budgets remain
 outside this package.
 

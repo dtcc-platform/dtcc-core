@@ -8,6 +8,7 @@ import numpy as np
 from ...common.progress import report_progress
 from ...model import GeometryType
 from ..cleaning.blocks import source_footprint, source_id
+from ..geometry_policy import COINCIDENCE
 from ..roofs import RoofFitResult, RoofPatch, fit_roof
 from ..roofs.partition import polygon_parts
 
@@ -25,7 +26,15 @@ class RoofBlock:
 
 
 def source_roofs(
-    city, cleaned, selected, *, options, reused=False, method="catalogue", detail=0.5
+    city,
+    cleaned,
+    selected,
+    *,
+    options,
+    reused=False,
+    method="catalogue",
+    detail=0.5,
+    clip_boundary=None,
 ):
     """Use exact cleaner associations; never recover partitions by proximity."""
     fitted, rows, blocks = {}, [], []
@@ -42,7 +51,11 @@ def source_roofs(
             source_keys[label] = str(source_id(source))
         try:
             polygon, cells, subdivision = canonical_source_subdivision(
-                cells, domain=polygon, source_keys=source_keys
+                cells,
+                domain=polygon,
+                source_keys=source_keys,
+                preserve_outline=clip_boundary is not None
+                and polygon.intersects(clip_boundary),
             )
         except ValueError as exc:
             from .roof_interfaces import RoofAssemblyError
@@ -247,15 +260,36 @@ def source_roofs(
     return blocks, rows
 
 
-def admit_roofs(patches, blocks, rows, bases):
-    """Admit transferred candidates against foundations before shell meshing.
+def validate_roof_clearance(patches, contact):
+    """Require positive clearance against the block floor and exterior seam."""
+    from .roof_interfaces import RoofAssemblyError
 
-    An affine patch attains its extrema on its ring vertices. A candidate that
-    extrapolates through its foundation is inadmissible over the cleaned domain;
-    the source's declared flat evidence model is selected here, without moving
-    either planes or boundaries. Shared-geometry and meshing errors never enter
-    this decision.
-    """
+    worst = min(
+        contact.clearances(patches).values(),
+        key=lambda item: item["clearance_m"],
+        default=None,
+    )
+    if worst is None:
+        return None
+    if worst["clearance_m"] <= COINCIDENCE:
+        reference = (
+            "block minimum terrain"
+            if worst["reference"] == "block_minimum_dem"
+            else "exterior terrain"
+        )
+        raise RoofAssemblyError(
+            f"Roof meets or crosses the terrain at {worst['xy']}: "
+            f"block {worst['block_id']}, source {worst['source_key']}, "
+            f"patch {worst['patch_id']}, roof {worst['roof_m']:.9g} m, "
+            f"{reference} {worst['terrain_m']:.9g} m, "
+            f"clearance {worst['clearance_m']:.9g} m",
+            block_ids=[worst["block_id"]],
+        )
+    return worst
+
+
+def admit_roofs(patches, blocks, rows, bases, *, contact=None):
+    """Select roofs with positive terrain clearance before shell meshing."""
     from dataclasses import replace
 
     from .roof_interfaces import RoofAssemblyError
@@ -269,21 +303,33 @@ def admit_roofs(patches, blocks, rows, bases):
                     reason="; ".join(row["diagnostics"]["transfer_rejections"]),
                 )
             )
-    for patch in patches:
-        minimum = min(
-            float(np.min(patch.height(np.asarray(r.coords))))
-            for r in [patch.polygon.exterior, *patch.polygon.interiors]
-        )
-        if minimum <= bases[patch.block_id] + 1e-8:
-            rejected.setdefault(patch.source_key, []).append(
-                dict(
-                    block_id=patch.block_id,
-                    patch_id=patch.patch_id,
-                    minimum_roof_m=minimum,
-                    foundation_m=bases[patch.block_id],
-                    reason="transferred affine roof intersects its terrain foundation",
-                )
+    if contact is None:
+        for patch in patches:
+            minimum = min(
+                float(np.min(patch.height(np.asarray(r.coords))))
+                for r in [patch.polygon.exterior, *patch.polygon.interiors]
             )
+            if minimum <= bases[patch.block_id] + COINCIDENCE:
+                rejected.setdefault(patch.source_key, []).append(
+                    dict(
+                        block_id=patch.block_id,
+                        patch_id=patch.patch_id,
+                        minimum_roof_m=minimum,
+                        foundation_m=bases[patch.block_id],
+                        reason="transferred affine roof intersects its terrain foundation",
+                    )
+                )
+    else:
+        for failure in contact.clearances(patches).values():
+            if failure["clearance_m"] <= COINCIDENCE:
+                reason = (
+                    "roof meets or crosses the block minimum terrain elevation"
+                    if failure["reference"] == "block_minimum_dem"
+                    else "roof meets or crosses the exterior terrain"
+                )
+                rejected.setdefault(failure["source_key"], []).append(
+                    dict(failure, reason=reason)
+                )
     levels = {}
     for block in blocks:
         for patch in block.lod1_patches:
@@ -316,7 +362,7 @@ def admit_roofs(patches, blocks, rows, bases):
                     block_ids=[patch.block_id],
                 )
             level = next(iter(choices))
-            if level <= bases[patch.block_id] + 1e-8:
+            if contact is None and level <= bases[patch.block_id] + COINCIDENCE:
                 raise RoofAssemblyError(
                     "Declared source roof is below its terrain foundation: "
                     + patch.source_key,
@@ -324,4 +370,6 @@ def admit_roofs(patches, blocks, rows, bases):
                 )
             patch = replace(patch, coefficients=np.array([0.0, 0.0, level]))
         result.append(patch)
+    if contact is not None:
+        validate_roof_clearance(result, contact)
     return result

@@ -9,7 +9,7 @@ import time
 import numpy as np
 import pytest
 
-from dtcc_core.model import Field, TimeSeries
+from dtcc_core.model import Field, Mesh, TimeSeries
 
 T0 = np.datetime64("2024-01-01T00:00", "ns")
 H = np.timedelta64(3600 * 10**9, "ns")
@@ -56,6 +56,41 @@ def test_vector_series_shape():
     ts = TimeSeries(times=hours(0, 1), values=np.zeros((2, 4, 3)), dim=3)
     assert ts.values.shape == (2, 4, 3)
     assert ts.num_elements == 4
+
+
+def test_masked_floats_are_missing_on_construction_assignment_and_append():
+    readings = np.ma.array([10, 100], dtype=np.float32, mask=[False, True])
+    ts = TimeSeries(times=hours(0, 1), values=readings)
+    assert ts.values.dtype == np.float32
+    np.testing.assert_array_equal(ts.values[:, 0], [10, np.nan])
+    np.testing.assert_array_equal(ts.mean(), [10])
+
+    ts.values = readings[::-1]
+    ts.append(T0 + 2 * H, Field(values=readings[1:]))
+    ts.append(hours(3, 4), readings)
+    np.testing.assert_array_equal(ts.values[:, 0], [np.nan, 10, np.nan, 10, np.nan])
+    np.testing.assert_array_equal(readings.data, [10, 100])
+
+
+def test_masks_in_nested_vector_samples_are_preserved():
+    vector = np.ma.array([1.0, 2.0], mask=[True, False])
+    ts = TimeSeries(times=hours(0), values=[[vector]], dim=2)
+    np.testing.assert_array_equal(ts.values, [[[np.nan, 2.0]]])
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.uint64, np.bool_])
+def test_masked_discrete_values_raise_before_mutation(dtype):
+    samples = np.ma.array([1, 0], dtype=dtype, mask=[True, False])
+    with pytest.raises(ValueError, match="Masked samples"):
+        TimeSeries(times=hours(0, 1), values=samples)
+    ts = TimeSeries(times=hours(0, 1), values=np.ma.array(samples.data, mask=False))
+    with pytest.raises(ValueError, match="Masked samples"):
+        ts.values = samples
+    with pytest.raises(ValueError, match="Masked samples"):
+        ts.append(hours(2, 3), samples)
+    np.testing.assert_array_equal(ts.times, hours(0, 1))
+    np.testing.assert_array_equal(ts.values[:, 0], samples.data)
+    assert ts.values.dtype == dtype
 
 
 @pytest.mark.parametrize(
@@ -374,11 +409,26 @@ def test_copy_is_independent():
     assert len(ts) == 2 and ts.values[0, 0] == 1.0
 
 
-def test_equality_is_identity_and_series_are_hashable():
-    a, b = scalar([1.0, 2.0]), scalar([1.0, 2.0])
-    assert a == a and a != b
-    assert [a, b].index(b) == 1
-    assert len({a, b}) == 2
+def test_equality_compares_content_and_series_are_unhashable():
+    a, b = scalar([1.0, np.nan]), scalar([1.0, np.nan])
+    assert a == b
+    assert a != scalar([1.0, 2.0])
+    assert a != scalar([1.0, np.nan], role="observed")
+    assert a != scalar([1.0, np.nan], offsets=[0, 2])
+    with pytest.raises(TypeError):
+        hash(a)
+
+
+def test_equality_ignores_spare_capacity_after_append():
+    grown = scalar([1.0])
+    grown.append(T0 + H, 2.0)
+    assert grown == scalar([1.0, 2.0])
+
+
+def test_geometry_with_time_series_equals_its_deep_copy():
+    ts = TimeSeries(times=hours(0), values=[[1.0, 2.0, 3.0]], association="vertex")
+    mesh = Mesh(vertices=np.zeros((3, 3)), time_series=[ts])
+    assert mesh == copy.deepcopy(mesh)
 
 
 def test_constructor_copies_its_input():
@@ -698,6 +748,41 @@ def test_at_integer_series_returns_float_and_vectors():
         dim=3,
     )
     np.testing.assert_array_equal(vec.at(hours(1)), np.ones((1, 2, 3)))
+
+
+@pytest.mark.parametrize(
+    "offset, options",
+    [
+        (0, {}),
+        (0.5, {"method": "previous"}),
+        (0.5, {"method": "nearest"}),
+        (-1, {"fill": "edge"}),
+        (2, {"fill": "edge"}),
+    ],
+)
+@pytest.mark.parametrize("counter", [2**53 + 1, 2**53 + 2])
+def test_query_checks_selected_integer_samples(offset, options, counter):
+    ts = scalar(np.array([counter, counter], dtype=np.uint64))
+    query = hours(offset)
+    if counter == 2**53 + 1:
+        assert int(ts.field_at(T0).values[0]) == counter
+        with pytest.raises(ValueError, match="cannot represent exactly"):
+            ts.at(query[0], **options)
+        with pytest.raises(ValueError, match="cannot represent exactly"):
+            ts.align_to(query, **options)
+    else:
+        assert int(ts.at(query[0], **options)[0]) == counter
+        assert int(ts.align_to(query, **options).values[0, 0]) == counter
+
+
+def test_queries_ignore_unselected_or_gap_excluded_counters():
+    ts = scalar(np.array([2**53 + 1, 2**53 + 2], dtype=np.uint64))
+    assert int(ts.at(T0 + H, fill="edge")[0]) == 2**53 + 2
+    assert int(ts.at(hours(0.75), method="nearest")[0, 0]) == 2**53 + 2
+    assert np.isnan(ts.at(hours(0.25), method="previous", max_gap="1min")).all()
+    assert np.isnan(ts.at("NaT", fill="edge")).all()
+    with pytest.raises(ValueError, match="cannot represent exactly"):
+        ts.align_to(ts)
 
 
 def test_at_on_empty_and_single_step():
@@ -1246,23 +1331,3 @@ def test_resample_does_not_copy_its_result_twice(monkeypatch):
     ts.resample("2h")
     ts.resample("2h", how="count")
     assert copied == [False, False]
-
-
-def test_source_attributes_are_independent_and_preserved_by_copies():
-    source = TimeSeries(
-        times=["2020-01-01"], values=[1], attributes={"source": {"quality": "G"}}
-    )
-    assert TimeSeries().attributes == {}
-    for clone in (
-        source.copy(),
-        copy.deepcopy(source),
-        pickle.loads(pickle.dumps(source)),
-    ):
-        assert clone.attributes == source.attributes
-        clone.attributes["source"]["quality"] = "changed"
-        assert source.attributes["source"]["quality"] == "G"
-    renamed = dataclasses.replace(source, name="renamed")
-    assert renamed.attributes == source.attributes
-    renamed.attributes["other"] = True
-    assert "other" not in source.attributes
-    assert source.between().attributes == {}

@@ -192,6 +192,9 @@ class RoadNetwork(Object):
         from ``space_syntax_radius_unit``; the other measures are
         dimensionless.
 
+        Attached time series are omitted without changing the source model.
+        Save as .dtcc to preserve them.
+
         Parameters
         ----------
         crs : str, optional
@@ -224,10 +227,7 @@ class RoadNetwork(Object):
             for key, value in model.attributes.items()
             if isinstance(value, (list, tuple, np.ndarray)) and len(value) == count
         }
-        from ...io._attachments import reject_time_series
-
         geometry = model.multilinestrings
-        reject_time_series([geometry], "GeoJSON")
         carried = []
         for item in geometry.fields if geometry is not None else []:
             if item.association == "sample":

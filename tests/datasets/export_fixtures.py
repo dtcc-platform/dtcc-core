@@ -22,6 +22,7 @@ from affine import Affine
 
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import attach_dataset_context
+from dtcc_core.datasets.printable_city_tiles import _layout, _realization
 from dtcc_core.model import (
     Bounds,
     Building,
@@ -262,6 +263,24 @@ def _mesh(variant, directory):
     return mesh
 
 
+def _printable_city_tiles(variant, directory):
+    if variant == "empty":
+        return Object()
+    if variant != "populated":
+        _unknown(variant)
+    bounds = (X0, Y0, X0 + 50, Y0 + 50)
+    args = datasets.printable_city_tiles.validate(dict(bounds=bounds, scale=250))
+    mesh = Mesh(
+        vertices=_square(X0, Y0, z=5.0),
+        faces=np.array([[0, 1, 2], [0, 2, 3]]),
+        markers=np.array([-2, -2]),
+    )
+    return attach_dataset_context(
+        _realization(_layout(args), args, mesh),
+        datasets.printable_city_tiles.create_context(args),
+    )
+
+
 def _volume_mesh(variant, directory):
     if variant == "empty":
         return VolumeMesh()
@@ -297,6 +316,42 @@ def _height_raster(variant, directory):
     elif variant != "populated":
         _unknown(variant)
     return Raster(data=data, georef=GEOREF, crs="EPSG:3006", nodata=np.nan)
+
+
+def _built_up_raster(variant, directory):
+    """Built-up square metres per 100 m cell, including nodata."""
+    if variant == "empty":
+        return Raster()
+    data = np.array([[0.0, 2500.0], [10000.0, np.nan]], dtype=np.float32)
+    if variant == "all_invalid":
+        data[:] = np.nan
+    elif variant != "populated":
+        _unknown(variant)
+    return Raster(
+        data=data,
+        georef=Affine(100.0, 0.0, X0, 0.0, -100.0, Y0),
+        crs="EPSG:3006",
+        nodata=np.nan,
+    )
+
+
+def _settlement_class_raster(variant, directory):
+    """Settlement class codes per 1 km cell, including nodata."""
+    from dtcc_core.io.data.ghsl import SETTLEMENT_CLASS_NODATA
+
+    if variant == "empty":
+        return Raster()
+    data = np.array([[30, 21], [11, SETTLEMENT_CLASS_NODATA]], dtype=np.int16)
+    if variant == "all_invalid":
+        data[:] = SETTLEMENT_CLASS_NODATA
+    elif variant != "populated":
+        _unknown(variant)
+    return Raster(
+        data=data,
+        georef=Affine(1000.0, 0.0, X0, 0.0, -1000.0, Y0),
+        crs="EPSG:3006",
+        nodata=SETTLEMENT_CLASS_NODATA,
+    )
 
 
 def _orthophoto_raster(variant, directory):
@@ -399,10 +454,12 @@ PRODUCTS = {
     ("point_cloud", None): _point_cloud,
     ("building_footprints", None): _footprints,
     ("buildings", None): _buildings,
+    ("built_up", None): _built_up_raster,
     ("city", None): _city,
     ("terrain_surface_mesh", "mesh"): _mesh,
     ("terrain_surface_mesh", "raster"): _height_raster,
     ("city_surface_mesh", None): _mesh,
+    ("printable_city_tiles", None): _printable_city_tiles,
     ("city_flat_mesh", None): _mesh,
     ("city_volume_mesh", None): _volume_mesh,
     ("air_quality", None): _sensors,
@@ -422,4 +479,6 @@ PRODUCTS = {
     ("calibration_grid", None): _calibration_grid,
     ("orthophoto", "raster"): _orthophoto_raster,
     ("orthophoto", "tiles"): _orthophoto_tiles,
+    ("satellite_imagery", None): _orthophoto_raster,
+    ("settlement_class", None): _settlement_class_raster,
 }

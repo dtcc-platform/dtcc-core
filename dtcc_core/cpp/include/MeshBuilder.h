@@ -8,10 +8,12 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stack>
 #include <stdexcept>
 #include <string>
@@ -60,7 +62,8 @@ public:
   static Mesh build_terrain_surface_mesh_from_ground_mesh(
       Mesh ground_mesh,
       const GridField &dtm,
-      size_t smooth_ground = 0)
+      size_t smooth_ground = 0,
+      const std::vector<int> &terrain_following_regions = {})
   {
     // Displace ground surface. Fill all points with maximum height. This is
     // used to always choose the smallest height for each point since each point
@@ -78,8 +81,11 @@ public:
       // Get triangle
       const Simplex2D &T = ground_mesh.faces[i];
 
-      // Check cell marker
-      if (cell_marker != -2) // not ground
+      const bool terrain_following =
+          cell_marker >= 0 &&
+          static_cast<size_t>(cell_marker) < terrain_following_regions.size() &&
+          terrain_following_regions[cell_marker] > 0;
+      if (cell_marker != -2 && !terrain_following)
       {
         // Compute minimum height of vertices
         double z_min = std::numeric_limits<double>::max();
@@ -205,11 +211,13 @@ public:
       const std::vector<Surface> &buildings,
       const std::vector<int> meshing_directive,
       Mesh terrain_mesh, size_t smooth_ground = 0,
-      bool merge_meshes = true, double min_wall_strip = 0.0)
+      bool merge_meshes = true, double min_wall_strip = 0.0,
+      bool follow_terrain = false,
+      const std::vector<std::string> &building_labels = {})
   {
     return build_city_surface_mesh_from_terrain_mesh_impl(
         buildings, meshing_directive, std::move(terrain_mesh), smooth_ground,
-        merge_meshes, min_wall_strip, {}, {});
+        merge_meshes, min_wall_strip, {}, {}, follow_terrain, building_labels);
   }
 
   // Generic affine patches: [origin x, origin y, slope x, slope y, elevation].
@@ -230,7 +238,7 @@ public:
           throw std::invalid_argument("Nonfinite roof plane coefficient.");
     return build_city_surface_mesh_from_terrain_mesh_impl(
         patches, std::vector<int>(patches.size(), 1), std::move(terrain_mesh),
-        smooth_ground, merge_meshes, min_wall_strip, planes, owners);
+        smooth_ground, merge_meshes, min_wall_strip, planes, owners, false, {});
   }
 
   static std::vector<Mesh>
@@ -242,10 +250,14 @@ public:
       bool merge_meshes,
       double min_wall_strip,
       const std::vector<std::array<double, 5>> &planes,
-      const std::vector<int> &owners)
+      const std::vector<int> &owners,
+      bool follow_terrain,
+      const std::vector<std::string> &building_labels)
   {
     auto build_city_surface_t = Timer("build_city_surface_mesh");
     const size_t num_buildings = buildings.size();
+    if (!building_labels.empty() && building_labels.size() != num_buildings)
+      throw std::invalid_argument("Expected one source building label per region.");
 
     if (meshing_directive.size() != num_buildings)
     {
@@ -302,8 +314,8 @@ public:
 
     find_markers_t.stop();
 
-    // Buildings whose footprints share a vertex form a block. A block has one
-    // base level, and the walls between its buildings are step walls.
+    // Buildings whose footprints share a vertex form a block. Flat-base
+    // extrusion uses the block's minimum terrain elevation.
     const auto blocks = building_blocks(building_faces);
     for (const auto &block : blocks)
     {
@@ -346,7 +358,14 @@ public:
       }
     };
     flatten_region_faces(platform_faces, platform_min_z);
-    flatten_region_faces(building_faces, building_min_z);
+    if (follow_terrain)
+    {
+      for (const auto &entry : building_faces)
+        for (const auto &face : entry.second)
+          platform_freeze[face.v0] = platform_freeze[face.v1] = platform_freeze[face.v2] = 1;
+    }
+    else
+      flatten_region_faces(building_faces, building_min_z);
 
     if (smooth_ground)
     {
@@ -431,7 +450,7 @@ public:
       }
     }
 
-    // Walls. An edge on the outline of a block gets a wall from the base to
+    // Exterior walls rise from the terrain profile or a flat block base to
     // the roof. An edge between two buildings of a block gets a step wall from
     // the lower roof to the higher, owned by the taller building, and none
     // when the roofs are equal.
@@ -459,7 +478,10 @@ public:
         for (const auto &edge_face : MeshProcessor::find_naked_edges(building_faces[marker]))
         {
           const Simplex1D edge = edge_face.first;
-          double bottom0 = base, bottom1 = base;
+          const auto &v0 = terrain_mesh.vertices[edge.v0];
+          const auto &v1 = terrain_mesh.vertices[edge.v1];
+          double bottom0 = follow_terrain ? v0.z : base;
+          double bottom1 = follow_terrain ? v1.z : base;
           const double top0 = roof_at(marker, edge.v0), top1 = roof_at(marker, edge.v1);
           bool shared = false;
           for (const auto other : edge_markers[edge])
@@ -476,14 +498,26 @@ public:
                   std::to_string(1e9 * (top1-bottom1)) + ").");
           }
           const double d0 = top0 - bottom0, d1 = top1 - bottom1;
+          if (follow_terrain && !shared && std::min(d0, d1) <= 1e-8)
+          {
+            const bool left = d0 <= d1;
+            const auto &point = left ? v0 : v1;
+            std::ostringstream message;
+            message << std::setprecision(15)
+                    << "Roof meets or crosses the terrain in building region " << marker;
+            if (!building_labels.empty() && !building_labels[marker].empty())
+              message << " (source buildings " << building_labels[marker] << ")";
+            message << " at (" << point.x << ", " << point.y << "): roof "
+                    << (left ? top0 : top1) << " m, terrain " << point.z
+                    << " m, clearance " << std::min(d0, d1) << " m";
+            throw std::runtime_error(message.str());
+          }
           if (shared && !planes.empty() &&
               ((d0 > 1e-8 && d1 < -1e-8) || (d1 > 1e-8 && d0 < -1e-8)))
             throw std::runtime_error("Unnoded roof-height crossing on a shared edge.");
           if (shared && d0 + d1 <= 0)
             continue;
           walls[marker].push_back({edge, edge_face.second, bottom0, top0, bottom1, top1});
-          const auto &v0 = terrain_mesh.vertices[edge.v0];
-          const auto &v1 = terrain_mesh.vertices[edge.v1];
           const double horizontal_length =
               Geometry::distance_2d(Vector2D(v0.x, v0.y), Vector2D(v1.x, v1.y));
           for (const size_t v : {static_cast<size_t>(edge.v0), static_cast<size_t>(edge.v1)})

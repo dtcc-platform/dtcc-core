@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 import httpx2
 from certifi import where
 
-from ._contracts import _UNSET, HttpLimitError, HttpTransportError, Response
+from ._contracts import _UNSET, HttpTransportError, Response
 from ._policy import Operation, State, headers_lower, parse_retry_after
 
 
@@ -32,9 +32,21 @@ def _kind(exc):
         return "timeout"
     if isinstance(exc, httpx2.DecodingError):
         return "decoding"
-    if isinstance(exc, (httpx2.NetworkError, httpx2.RemoteProtocolError)):
+    if isinstance(
+        exc, (httpx2.NetworkError, httpx2.RemoteProtocolError, httpx2.ProxyError)
+    ):
         return "connection"
     return "request"
+
+
+class _BorrowedStream:
+    """Expose only reads so HTTPX2 cannot rewind a caller-owned stream."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def read(self, size=-1):
+        return self._stream.read(size)
 
 
 class NativeHttpClient:
@@ -77,8 +89,8 @@ class NativeHttpClient:
             self._client.close()
         self._closed = True
 
-    def _chunks(self, response, operation, *, limited=True):
-        iterator = response.iter_bytes()
+    def _chunks(self, response, operation, size=None, *, limited=True):
+        iterator = response.iter_bytes(chunk_size=size)
         while True:
             operation.before_read()
             chunk = next(iterator, None)
@@ -90,12 +102,10 @@ class NativeHttpClient:
     def _status_error(self, response, operation):
         body = bytearray()
         try:
-            for chunk in self._chunks(response, operation, limited=False):
+            for chunk in self._chunks(response, operation, 8192, limited=False):
                 body.extend(chunk[: 8192 - len(body)])
                 if len(body) == 8192:
                     break
-        except HttpLimitError:
-            raise
         except (httpx2.RequestError, HttpTransportError):
             # Keep the status when its diagnostic body is truncated or broken.
             pass
@@ -116,7 +126,16 @@ class NativeHttpClient:
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
         elif request.multipart is not None:
             options["files"] = [
-                (part.name, (part.filename, part.value, part.content_type))
+                (
+                    part.name,
+                    (
+                        part.filename,
+                        part.value
+                        if isinstance(part.value, bytes)
+                        else _BorrowedStream(part.value),
+                        part.content_type,
+                    ),
+                )
                 for part in request.multipart
             ]
         elif request.body is not None:
@@ -180,6 +199,14 @@ class NativeHttpClient:
         )
         return None, headers, error
 
+    def _backoff(self, operation, headers):
+        """Wait before a reserved retry; an interrupted wait returns the reservation."""
+        try:
+            self._sleep(operation.delay(headers))
+        except BaseException:
+            operation.release()
+            raise
+
     def request(self, request):
         if self._closed:
             raise ValueError("Client is closed")
@@ -192,7 +219,7 @@ class NativeHttpClient:
             if error is not None:
                 if not operation.retry(error, error.phase):
                     raise error from None
-                self._sleep(operation.delay(headers))
+                self._backoff(operation, headers)
                 continue
             if response is None:
                 continue

@@ -147,6 +147,9 @@ class DeSO(Object):
         replace same-named attributes. Positions are two-dimensional because
         the areas have no height.
 
+        Attached time series are omitted without changing the source model.
+        Save as .dtcc to preserve them.
+
         Parameters
         ----------
         crs : str, optional
@@ -172,9 +175,6 @@ class DeSO(Object):
             for index, area in enumerate(model.areas)
         ]
         areas = [item for item in areas if isinstance(item[2], MultiSurface)]
-        from ...io._attachments import reject_time_series
-
-        reject_time_series([geometry for _, _, geometry in areas], "GeoJSON")
         source_crs = resolve_source_crs(
             model,
             [

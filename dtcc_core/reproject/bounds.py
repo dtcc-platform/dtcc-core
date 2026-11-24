@@ -1,4 +1,4 @@
-"""Shared geospatial helpers for dataset providers."""
+"""Bounding box helpers shared by dataset providers and data downloads."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from ..reproject.reproject import reproject_array
+from .reproject import reproject_array
 
 WGS84_CRS_ALIASES = {"CRS84", "EPSG:4326", "WGS84"}
 

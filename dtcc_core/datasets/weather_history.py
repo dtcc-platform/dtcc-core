@@ -1,5 +1,6 @@
 """Located historical weather from SMHI stations or Open-Meteo ERA5."""
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -33,6 +34,17 @@ from .weather import PARAMETER_NAMES, _resolve_parameter
 
 _NAMES = ("air_temperature", "wind_speed", "wind_direction")
 _UNITS = dict(zip(_NAMES, ("celsius", "m/s", "degrees"), strict=True))
+
+
+@dataclass(init=False, repr=False, eq=False)
+class _WeatherTimeSeries(TimeSeries):
+    """A single historical weather series with request and observation metadata."""
+
+    attributes: dict = field(default_factory=dict, kw_only=True)
+
+    def __init__(self, *args, attributes=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attributes = {} if attributes is None else dict(attributes)
 
 
 class _WeatherHistoryQueryArgs(BaseModel):
@@ -353,23 +365,34 @@ class WeatherHistoryDataset(DatasetDescriptor):
         location_id, location = next(iter(result.locations.items()), (None, None))
         key = (location_id, args.parameters)
         series = result.series.get(key)
-        if series is None:
-            series = TimeSeries(
-                name=args.parameters,
-                unit=_UNITS[args.parameters],
-                association="sample",
-                role="observed" if args.source == "smhi" else "reanalysis",
-                times=[],
-                values=np.empty((0, 1)),
-            )
-        series.attributes = {
+        attributes = {
             **result.attributes,
             "location_id": location_id,
             "location": location,
             "series_metadata": result.series_metadata.get(key, {}),
             "observations": result.observations.get(key, {}),
         }
-        return series
+        if series is None:
+            return _WeatherTimeSeries(
+                name=args.parameters,
+                unit=_UNITS[args.parameters],
+                association="sample",
+                role="observed" if args.source == "smhi" else "reanalysis",
+                times=[],
+                values=np.empty((0, 1)),
+                attributes=attributes,
+            )
+        return _WeatherTimeSeries(
+            name=series.name,
+            unit=series.unit,
+            description=series.description,
+            times=series.times,
+            values=series.values,
+            dim=series.dim,
+            association=series.association,
+            role=series.role,
+            attributes=attributes,
+        )
 
 
 __all__ = [

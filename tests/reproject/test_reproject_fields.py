@@ -11,6 +11,7 @@ from dtcc_core.model import (
     MultiSurface,
     Object,
     Surface,
+    TimeSeries,
     VolumeMesh,
     exchange,
 )
@@ -149,3 +150,35 @@ def test_reproject_volume_result_warns_and_preserves_vector_components(vertices)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert reproject_mesh(mesh, "EPSG:3006", "EPSG:3006") is mesh
+
+
+def test_reproject_warns_about_vector_time_series_and_preserves_samples(vertices):
+    source = Mesh(
+        vertices=vertices[:3],
+        faces=np.array([[0, 1, 2]]),
+        time_series=[
+            TimeSeries(
+                "velocity",
+                "m/s",
+                times=["2026-01-01", "2026-01-02"],
+                values=np.arange(12).reshape(2, 3, 2),
+                association="vertex",
+                dim=2,
+            )
+        ],
+    )
+    before = exchange.dumps(source)
+    with pytest.warns(UserWarning, match="Vector time series components") as caught:
+        result = reproject_mesh(source, "EPSG:3006", "EPSG:4326")
+
+    assert len(caught) == 1
+    assert not np.allclose(source.vertices[:, :2], result.vertices[:, :2])
+    assert exchange.dumps(result.time_series[0]) == exchange.dumps(
+        source.time_series[0]
+    )
+    assert result.time_series[0] is not source.time_series[0]
+    assert exchange.dumps(source) == before
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert reproject_mesh(source, "EPSG:3006", "EPSG:3006") is source

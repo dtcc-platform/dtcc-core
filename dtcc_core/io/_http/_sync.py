@@ -57,6 +57,8 @@ class _Stream:
         for chunk in self._client._chunks(self._response, self._operation, chunk_size):
             self._operation.delivered(len(chunk))
             yield chunk
+            if self.closed:
+                raise ValueError("Response stream is closed")
 
 
 class HttpClient:
@@ -219,6 +221,14 @@ class HttpClient:
             "http_status", status=response.status_code, body=bytes(body), phase="read"
         )
 
+    def _backoff(self, operation, headers):
+        """Wait before a reserved retry; an interrupted wait returns the reservation."""
+        try:
+            self._sleep(operation.delay(headers))
+        except BaseException:
+            operation.release()
+            raise
+
     def _open(self, operation):
         while True:
             response, error, headers = None, None, {}
@@ -252,7 +262,7 @@ class HttpClient:
             )
             if not operation.retry(error, "connect"):
                 raise error from None
-            self._sleep(operation.delay(headers))
+            self._backoff(operation, headers)
 
     @contextmanager
     def stream(self, request, *, max_body_bytes=None):
@@ -295,20 +305,25 @@ class HttpClient:
             return cached
         while True:
             response = self._open(operation)
+            status, headers, error = None, {}, None
             try:
+                status = response.status_code
+                headers = headers_lower(response.headers)
                 body = b"".join(self._chunks(response, operation))
-            except HttpTransportError as error:
-                if not operation.retry(error, "read"):
-                    raise
-                self._sleep(operation.delay(headers_lower(response.headers)))
-                continue
+            except HttpTransportError as exc:
+                error = exc
             finally:
                 response.close()
+            if error is not None:
+                if not operation.retry(error, "read"):
+                    raise error from None
+                self._backoff(operation, headers)
+                continue
             operation.delivered(len(body))
             result = Response(
-                response.status_code,
+                status,
                 operation.request.target,
-                headers_lower(response.headers),
+                headers,
                 body,
                 operation.request,
             )

@@ -192,6 +192,7 @@ def _prepare_roof_blocks(
             reused=record is not None,
             method=lod2_method,
             detail=min_building_detail,
+            clip_boundary=None if isolated else domain.boundary,
         )
     catalogue["sources"] = rows
     catalogue["stage_seconds"]["source_fitting_and_transfer"] = (
@@ -237,7 +238,7 @@ def _mesh_roof_blocks(
     from ..geometry_builders import meshes as pipeline
     from .compact_surface import CompactSurfaceOptions
     from .compact_surface import compact_surface as build_compact
-    from .roof_regions import admit_roofs
+    from .roof_regions import admit_roofs, validate_roof_clearance
     from .terrain_attachment import terrain_attachment
     from .wall_faces import separate_wall_mesh
 
@@ -276,7 +277,7 @@ def _mesh_roof_blocks(
         local_target = affinity.translate(target, *-offset)
         ground = polygon_parts(shapely.difference(box(*local_bounds), local_target))
         timings["roof_partition"] = time.perf_counter() - started
-        reference, bases = None, None
+        reference, bases, contact = None, None, None
         if base_z is None:
             row["stage"] = "terrain_attachment"
             clock = time.perf_counter()
@@ -298,8 +299,13 @@ def _mesh_roof_blocks(
                 max_steiner_points=50000,
             )
             row["terrain_coverage"] = validate_terrain_coverage(ground_mesh, ground)
-            reference, bases, row["terrain_attachment"] = terrain_attachment(
-                ground_mesh, local, raster, offset=offset, smoothing=smoothing
+            reference, contact, row["terrain_attachment"] = terrain_attachment(
+                ground_mesh,
+                local,
+                raster,
+                offset=offset,
+                bounds=local_bounds,
+                smoothing=smoothing,
             )
             row["mesher"] = backend
             timings["terrain_attachment"] = time.perf_counter() - clock
@@ -307,7 +313,7 @@ def _mesh_roof_blocks(
             bases = {p.block_id: base_z for p in local}
         row["stage"] = "roof_admission"
         clock = time.perf_counter()
-        local = admit_roofs(local, blocks, rows, bases)
+        local = admit_roofs(local, blocks, rows, bases, contact=contact)
         row["shared_subdivision"] = {}
         local = node_interfaces(local, audit=row["shared_subdivision"], canonical=True)
         timings["roof_admission"] = time.perf_counter() - clock
@@ -316,7 +322,7 @@ def _mesh_roof_blocks(
         from .roof_junctions import regularize_roof_junctions
 
         local, junctions = regularize_roof_junctions(
-            local, bases=bases, detail=min_building_detail
+            local, bases=bases, detail=min_building_detail, contact=contact
         )
         for block in blocks:
             junction = junctions.get(block.output)
@@ -328,6 +334,10 @@ def _mesh_roof_blocks(
                 block.subdivision_audit.update(junction)
         if any(j["changes"] for j in junctions.values()):
             local = node_interfaces(local, canonical=True)
+        if contact is not None:
+            row["terrain_attachment"]["minimum_clearance"] = validate_roof_clearance(
+                local, contact
+            )
         row["admitted_partition"] = validate_partition(
             local, affinity.translate(target, *-offset)
         )
@@ -341,6 +351,7 @@ def _mesh_roof_blocks(
                 compact_surface,
                 base_z=base_z,
                 block_bases=bases,
+                contact=contact,
                 allow_source_steps=lod2_method == "ransac",
             )
         timings["shared_geometry_and_meshing"] = time.perf_counter() - clock

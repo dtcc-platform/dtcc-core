@@ -225,28 +225,52 @@ def test_invalid_native_attachments():
         exchange.dumps(mesh)
 
 
-def test_strict_cityjson_rejects_time_series(tmp_path):
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("attachment", ["geometry", "surface"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_cityjson_time_series_follow_export_mode(
+    tmp_path, strict, attachment, existing
+):
+    import json
+
     from dtcc_core.model import Building, City
 
     city = City(id="city")
     child = Building(id="building")
-    child.add_geometry(
-        MultiSurface(
-            surfaces=[
-                Surface(
-                    vertices=np.array(
-                        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
-                    )
-                )
-            ],
-            time_series=[series(elements=1, association="geometry")],
-        ),
-        id="cityjson-0",
-        lod="2",
+    geometry = MultiSurface(
+        surfaces=[
+            Surface(
+                vertices=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+            )
+        ],
     )
+    owner = geometry if attachment == "geometry" else geometry.surfaces[0]
+    owner.time_series = [series(elements=1, association="geometry")]
+    child.add_geometry(geometry, id="cityjson-0", lod="2")
     city.add_child(child)
-    with pytest.raises(NotImplementedError, match="Time series"):
-        city.save(tmp_path / "city.json", strict=True)
+    before = exchange.dumps(city)
+    path = tmp_path / "city.json"
+    if existing:
+        path.write_bytes(b"existing data")
+
+    if strict:
+        with pytest.raises(
+            NotImplementedError, match="Time series .* CityJSON mapping"
+        ):
+            city.save(path, strict=True)
+        if existing:
+            assert path.read_bytes() == b"existing data"
+        else:
+            assert not path.exists()
+    else:
+        city.save(path, strict=False)
+        payload = json.loads(path.read_text())
+        assert (
+            payload["CityObjects"]["building"]["geometry"][0]["type"] == "MultiSurface"
+        )
+        assert len(payload["vertices"]) == 3
+
+    assert exchange.dumps(city) == before
 
 
 def test_decoding_adopts_the_decoded_arrays(monkeypatch):
@@ -285,17 +309,3 @@ def test_save_checks_the_time_series_invariants(corrupt, message):
     corrupt(source)
     with pytest.raises(ValueError, match=message):
         exchange.dumps(source, validate_schema=False)
-
-
-@pytest.mark.parametrize("attached", [False, True])
-def test_source_attributes_are_rejected_instead_of_silently_lost(tmp_path, attached):
-    source = series()
-    source.attributes["station"] = {"id": 20}
-    root = Mesh(vertices=np.zeros((2, 3)), time_series=[source]) if attached else source
-    with pytest.raises(NotImplementedError, match="TimeSeries attributes"):
-        root.to_proto()
-    path = tmp_path / "series.dtcc"
-    path.write_bytes(b"existing file")
-    with pytest.raises(NotImplementedError, match="TimeSeries attributes"):
-        save_model(root, path)
-    assert path.read_bytes() == b"existing file"

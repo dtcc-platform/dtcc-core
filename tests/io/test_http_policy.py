@@ -16,6 +16,7 @@ from dtcc_core.io._http import (
     AsyncHttpClient,
     Budget,
     HttpClient,
+    HttpLimitError,
     HttpTransportError,
     MultipartPart,
     RedirectPolicy,
@@ -117,6 +118,61 @@ def test_parse_retry_after(value, expected):
 def test_policy_validation(factory):
     with pytest.raises(ValueError):
         factory()
+
+
+def test_retry_reserves_its_attempt_before_backoff():
+    state = State(
+        retry=RetryPolicy(retries=3, statuses=frozenset({503})),
+        budget=Budget(max_attempts=2),
+    )
+    first = Operation(state, Request("GET", "https://example.test/a"), None)
+    second = Operation(state, Request("GET", "https://example.test/b"), None)
+    first.attempt()
+    error = first.error("http_status", status=503, phase="read")
+    assert first.retry(error, "read")
+    # The reservation is charged at once, so no other operation can take it.
+    with pytest.raises(HttpLimitError) as caught:
+        second.attempt()
+    assert caught.value.resource == "network_attempts"
+    first.attempt()
+    assert state.budget._used["network_attempts"] == 2 and first.attempts == 2
+
+
+def test_released_reservation_frees_its_attempt():
+    state = State(
+        retry=RetryPolicy(retries=3, statuses=frozenset({503})),
+        budget=Budget(max_attempts=2),
+    )
+    operation = Operation(state, Request("GET", "https://example.test/"), None)
+    operation.attempt()
+    assert operation.retry(operation.error("http_status", status=503), "read")
+    operation.release()
+    operation.release()
+    assert state.budget._used["network_attempts"] == 1
+    operation.attempt()
+    assert operation.attempts == 2
+
+
+def test_reserved_attempt_is_refused_after_bytes_run_out():
+    state = State(
+        retry=RetryPolicy(retries=3, statuses=frozenset({503})),
+        budget=Budget(max_attempts=5, max_received_bytes=4),
+    )
+    first = Operation(state, Request("GET", "https://example.test/a"), None)
+    other = Operation(state, Request("GET", "https://example.test/b"), None)
+    first.attempt()
+    assert first.retry(first.error("http_status", status=503), "read")
+    other.attempt()
+    with pytest.raises(HttpLimitError):
+        other.received(b"12345")
+    with pytest.raises(HttpLimitError) as caught:
+        first.attempt()
+    assert (caught.value.resource, caught.value.phase) == (
+        "received_body_bytes",
+        "connect",
+    )
+    # The refused reservation is returned rather than counted as an attempt.
+    assert state.budget._used["network_attempts"] == 2 and first.attempts == 1
 
 
 def test_delay_backoff_retry_after_and_caps():
@@ -937,3 +993,66 @@ def test_cache_hit_over_delivery_budget_has_no_phase():
     with pytest.raises(HttpTransportError) as caught:
         state.cached(operation)
     assert (caught.value.kind, caught.value.phase) == ("resource_limit", None)
+
+
+@pytest.mark.parametrize("backend", ["sync", "async"])
+def test_failed_buffered_read_closes_response_before_retry_sleep(monkeypatch, backend):
+    import aiohttp
+
+    closed_when_sleeping = []
+    if backend == "sync":
+        session = requests.Session()
+        first = FakeResponse([b"partial", requests.ConnectionError("reset")])
+        second = FakeResponse([b"ok"])
+        responses = iter([first, second])
+        monkeypatch.setattr(
+            session.get_adapter("https://"),
+            "send",
+            lambda *args, **kwargs: next(responses),
+        )
+        monkeypatch.setattr(requests, "Session", lambda: session)
+
+        def sleep(delay):
+            closed_when_sleeping.append((first.closed, delay))
+
+        with HttpClient(retry=RetryPolicy(retries=1, backoff=0.5), sleep=sleep) as c:
+            result = c.request(Request("GET", "https://example.test/"))
+        assert result.body == b"ok" and second.closed
+    else:
+
+        class AsyncResponse:
+            def __init__(self, chunks):
+                self.status, self.headers, self.closed = 200, {}, False
+                self._chunks = chunks
+                self.content = self
+
+            async def iter_chunked(self, size):
+                for chunk in self._chunks:
+                    if isinstance(chunk, BaseException):
+                        raise chunk
+                    yield chunk
+
+            def close(self):
+                self.closed = True
+
+        first = AsyncResponse([b"partial", aiohttp.ClientPayloadError("reset")])
+        second = AsyncResponse([b"ok"])
+        responses = iter([first, second])
+
+        async def request(*args, **kwargs):
+            return next(responses)
+
+        monkeypatch.setattr(aiohttp.ClientSession, "request", request)
+
+        async def sleep(delay):
+            closed_when_sleeping.append((first.closed, delay))
+
+        async def scenario():
+            async with AsyncHttpClient(
+                retry=RetryPolicy(retries=1, backoff=0.5), sleep=sleep
+            ) as client:
+                return await client.request(Request("GET", "https://example.test/"))
+
+        result = asyncio.run(scenario())
+        assert result.body == b"ok" and second.closed
+    assert closed_when_sleeping == [(True, 0.5)]

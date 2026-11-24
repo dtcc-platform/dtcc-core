@@ -11,11 +11,28 @@ from inspect import getmembers, isfunction, ismodule
 from google.protobuf.json_format import MessageToJson
 
 from ..common import warning
+from ._equality import model_equal
 
 
 @dataclass(repr=False)
 class Model(ABC):
-    """Base class for all DTCC Model classes."""
+    """Base class for all DTCC Model classes.
+
+    ``==`` compares dataclass fields with the array-aware policy in
+    docs/design/model-contract.md and always returns a bool for two models of
+    the same concrete type. Models stay unhashable.
+    """
+
+    __eq__ = model_equal
+    __hash__ = None
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # The dataclass decorator runs after this hook and only generates
+        # __eq__ when the class body lacks one, so pinning the inherited
+        # method here keeps the shared policy (or a custom override).
+        if "__eq__" not in cls.__dict__:
+            cls.__eq__ = cls.__eq__
 
     def _summary_items(self):
         """Cheap scalar facts for compact display; subclasses may extend these."""
@@ -76,20 +93,42 @@ class Model(ABC):
         lod=None,
         representation=None,
         field=None,
+        projection=None,
+        face_mask=None,
+        context_mask=None,
+        vmin=None,
+        vmax=None,
+        cmap=None,
+        title=None,
+        coordinate_unit=None,
+        xlabel=None,
+        ylabel=None,
+        scale_bar=False,
         max_elements=20000,
         theme="dark",
         show=True,
     ):
         """Quick Matplotlib preview; return the axes for further customization.
 
-        RGB/RGBA rasters use a georeferenced 2D image preview; other models use
-        a 3D preview.
+        RGB/RGBA rasters, and class rasters from datasets that declare class
+        colours, use a georeferenced 2D image preview; other models use a 3D
+        preview.
 
         Objects select one representation each and traverse their children.
         Use ``representation`` (attachment ID), exact ``lod`` or a ``field`` name
         to inspect a particular part of the model. Fields appear as coloured
         samples; vector fields use magnitude. Large inputs are sampled within
         ``max_elements``. This is a preview, not a full scene renderer.
+
+        Use ``projection="xy"`` on a triangular Mesh to fill scalar face values.
+        ``context_mask`` selects neutral faces excluded from the colour range;
+        ``face_mask`` selects field faces (default: all non-context faces).
+        Both masks are boolean arrays in face order. Only field faces need finite
+        scalar values. Field and context faces need valid XY triangles.
+        ``vmin``/``vmax`` share a colour range. ``title``, ``cmap``, ``xlabel`` and
+        ``ylabel`` customize maps.
+        ``coordinate_unit`` explicitly labels coordinate units without conversion;
+        ``scale_bar=True`` requires it. No coordinate units are assumed.
 
         See docs/model-preview.md for selection, geometry and coordinate limits.
         """
@@ -101,6 +140,19 @@ class Model(ABC):
             lod=lod,
             representation=representation,
             field=field,
+            projection=projection,
+            map_options=dict(
+                face_mask=face_mask,
+                context_mask=context_mask,
+                vmin=vmin,
+                vmax=vmax,
+                cmap=cmap,
+                title=title,
+                coordinate_unit=coordinate_unit,
+                xlabel=xlabel,
+                ylabel=ylabel,
+                scale_bar=scale_bar,
+            ),
             max_elements=max_elements,
             theme=theme,
             show=show,

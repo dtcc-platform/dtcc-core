@@ -4,7 +4,7 @@ For the current strict CityJSON feature and geometry coverage, see the
 [exterior-city profile](exterior-city-profile.md). This inventory separately
 tracks native carriers, which support more numerical state than CityJSON exchange.
 
-Status: wire **7**,
+Status: 12 September 2026, after the exterior-city milestone; wire **6**,
 standard schema **0.9.0**.
 This is the current inventory; the earlier phase-1 serialization tables are
 historical. It covers all 37 exported Model subclasses: 28 supported concrete

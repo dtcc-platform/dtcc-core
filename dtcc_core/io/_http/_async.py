@@ -60,6 +60,8 @@ class _AsyncStream:
         ):
             self._operation.delivered(len(chunk))
             yield chunk
+            if self.closed:
+                raise ValueError("Response stream is closed")
 
 
 class AsyncHttpClient:
@@ -197,17 +199,35 @@ class AsyncHttpClient:
             return "timeout"
         if isinstance(exc, self._aiohttp.ClientConnectorCertificateError):
             return "certificate"
-        if isinstance(exc, self._aiohttp.ClientPayloadError):
+        # With raise_for_status=False and allow_redirects=False, aiohttp raises
+        # ClientResponseError only for proxy CONNECT failures and malformed
+        # replies, never for an HTTP status; enabling either would change that.
+        if isinstance(
+            exc,
+            (
+                self._aiohttp.ClientConnectionError,
+                self._aiohttp.ClientPayloadError,
+                self._aiohttp.ClientResponseError,
+            ),
+        ):
             return "connection"
-        return (
-            "connection"
-            if isinstance(exc, self._aiohttp.ClientConnectionError)
-            else "request"
-        )
+        return "request"
+
+    def _raise_local_error(self, operation, response=None):
+        """Raise an upload reader failure in place of any network outcome.
+
+        aiohttp sends the upload while the reply is read, so a reader failure
+        is only seen by polling: call this after the send, around every body
+        read, and before returning a status error. A failure after the last
+        chunk has arrived is not detected.
+        """
+        if operation.local_errors:
+            if response is not None:
+                response.close()
+            raise operation.local_errors[0] from None
 
     def _error(self, operation, exc, *, phase, status=None):
-        if operation.local_errors:
-            raise operation.local_errors[0] from None
+        self._raise_local_error(operation)
         return operation.error(self._kind(exc), status=status, phase=phase)
 
     async def _send(self, operation):
@@ -216,7 +236,9 @@ class AsyncHttpClient:
         kwargs = self._kwargs(request, operation.local_errors)
         operation.attempt()
         try:
-            return await self._session.request(request.method, request.url, **kwargs)
+            response = await self._session.request(
+                request.method, request.url, **kwargs
+            )
         except (self._aiohttp.ClientError, TimeoutError) as exc:
             # Only a connect timeout is known to precede sending; the total
             # deadline can fire while waiting for response headers.
@@ -227,10 +249,13 @@ class AsyncHttpClient:
                 else "connect"
             )
             raise self._error(operation, exc, phase=phase) from None
+        self._raise_local_error(operation, response)
+        return response
 
     async def _chunks(self, response, operation, size=65536, *, limited=True):
         iterator = response.content.iter_chunked(size).__aiter__()
         while True:
+            self._raise_local_error(operation)
             operation.before_read()
             try:
                 chunk = await anext(iterator, None)
@@ -238,6 +263,7 @@ class AsyncHttpClient:
                 raise self._error(
                     operation, exc, status=response.status, phase="read"
                 ) from None
+            self._raise_local_error(operation)
             if chunk is None:
                 return
             operation.received(chunk, limited=limited)
@@ -254,9 +280,18 @@ class AsyncHttpClient:
                     break
         except HttpTransportError:
             pass
+        self._raise_local_error(operation)
         return operation.error(
             "http_status", status=response.status, body=bytes(body), phase="read"
         )
+
+    async def _backoff(self, operation, headers):
+        """Wait before a reserved retry; a cancelled wait returns the reservation."""
+        try:
+            await self._sleep(operation.delay(headers))
+        except BaseException:
+            operation.release()
+            raise
 
     async def _open(self, operation):
         while True:
@@ -291,7 +326,7 @@ class AsyncHttpClient:
             )
             if not operation.retry(error, "connect"):
                 raise error from None
-            await self._sleep(operation.delay(headers))
+            await self._backoff(operation, headers)
 
     @asynccontextmanager
     async def stream(self, request, *, max_body_bytes=None):
@@ -332,21 +367,26 @@ class AsyncHttpClient:
             return cached
         while True:
             response = await self._open(operation)
+            status, headers, error = None, {}, None
             try:
+                status = response.status
+                headers = headers_lower(response.headers)
                 chunks = [chunk async for chunk in self._chunks(response, operation)]
                 body = b"".join(chunks)
-            except HttpTransportError as error:
-                if not operation.retry(error, "read"):
-                    raise
-                await self._sleep(operation.delay(headers_lower(response.headers)))
-                continue
+            except HttpTransportError as exc:
+                error = exc
             finally:
                 response.close()
+            if error is not None:
+                if not operation.retry(error, "read"):
+                    raise error from None
+                await self._backoff(operation, headers)
+                continue
             operation.delivered(len(body))
             result = Response(
-                response.status,
+                status,
                 operation.request.target,
-                headers_lower(response.headers),
+                headers,
                 body,
                 operation.request,
             )

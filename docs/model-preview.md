@@ -16,7 +16,7 @@ When using `plot(field=...)` directly on that model, select a snapshot Object an
 representation first to avoid combining samples from different times.
 
 `Model.plot()` lazily uses Matplotlib and returns a 3D axes, or a 2D axes for a
-standalone RGB/RGBA Raster. Objects recurse through their children, so a City
+standalone RGB/RGBA Raster or class map. Objects recurse through their children, so a City
 includes building parts, terrain, vegetation,
 furniture, transport, sensor and vehicle locations, and numerical domains.
 Existing specialized plots on SensorCollection, VehicleCollection, RoadNetwork
@@ -135,6 +135,13 @@ aggregation such as `how="max"` when appropriate for the quantity being inspecte
   are RGBA. Large images use nearest-neighbour sampling within `max_elements`,
   retaining the full image footprint. Other multiband layouts and image rasters
   attached to Objects are not supported by the 3D preview.
+- Class map: a single-band Raster of whole-number codes from a dataset whose
+  view hints declare `value_type: "categorical"` and `class_colors` (such as
+  `settlement_class`) is drawn as a 2D map with one fixed colour per class, a
+  legend with the class names, and the dataset's credit line. No data is
+  transparent; other codes are grey and listed as "other value". Rasters with
+  decimal values, such as after interpolation, and supplied 3D axes get the
+  scalar preview.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
 
 The global `max_elements` budget bounds drawn faces, segments, samples and image
@@ -172,3 +179,49 @@ ax.figure.savefig('flagship-preview.png', dpi=150)
 This convenience supports quick inspection from Python. Full scene visualization,
 interactive editing, time-dependent simulation views and model exploration remain
 DTCC Twin responsibilities.
+
+## Filled XY face maps
+
+A standalone triangular Mesh can fill scalar face values directly:
+
+```python
+ax = mesh.plot(
+    projection="xy", field="temperature", show=False,
+    context_mask=context_faces, vmin=270., vmax=310.,
+    title="Surface temperature", coordinate_unit="m", scale_bar=True,
+)
+ax.figure.savefig("temperature.png", dpi=150)
+```
+
+`context_mask` is a boolean array in face order. Context faces are neutral and
+excluded from the colour range. Their XY triangle union is outlined
+without shared internal edges, including holes and nonconforming joins. Core assigns no meaning to mesh markers or field names. `face_mask`
+can select a subset of field faces; by default all non-context faces are used.
+Explicit masks must be disjoint, correctly sized, and select at least one field
+face. Omitted faces are not displayed. Empty marker arrays require no special
+handling because markers are not used by this renderer.
+
+Each coloured triangle receives its own scalar value without interpolation.
+Field type, association, counts and mesh connectivity must be valid throughout
+the input. Values must be finite on field faces. Field and context faces must
+have finite transformed XY coordinates and nondegenerate XY triangles.
+These checks use the masks before display sampling. When both are supplied,
+`vmin` and `vmax` must be finite and strictly increasing. Automatic
+constant-field ranges are expanded, and all-zero fields are labelled. The colourbar includes the
+field name and unit. `cmap` accepts a Matplotlib colormap; the default uses Core
+colours. `ax` accepts a Matplotlib 2D axes; `show=False` suppresses display.
+
+Maps preserve XY coordinates after the mesh's geometry-local affine. Projective
+matrices are unsupported. No reprojection or unit conversion is performed.
+Axis labels default to X and Y; `coordinate_unit` explicitly declares their
+unit, and `xlabel`/`ylabel` override their text. Use metre labels only for
+known metric coordinates. `scale_bar=True` requires `coordinate_unit` and
+measures distance in those same display coordinates. The declared CRS is shown
+without inferring units from it. `title` overrides the default field-name title.
+
+The global `max_elements` budget includes field triangles, neutral triangles
+and perimeter segments. Large maps sample triangles deterministically, then
+use any remaining budget for full-union perimeter segments. A note identifies
+sampling and potentially incomplete outlines. Colour limits use all selected
+field values, including faces omitted from the bounded display. Default 3D
+previews, raster previews and specialized model plots retain their behavior.

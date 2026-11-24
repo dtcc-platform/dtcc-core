@@ -45,7 +45,9 @@ requires a graphical environment.
 
 ## Examples and documentation
 
-- [Demo catalog](docs/datasets/demo-catalog.md): datasets and city-building workflows.
+- [Structured meshes](docs/structured-meshes.md): unit-square and unit-cube mesh helpers.
+- [Demo catalog](demos/README.md): datasets and city-building workflows.
+- [Installation guide](docs/installation.md): compiler settings and optional backends.
 - [Model inspection](docs/model-display.md) and [plotting](docs/model-preview.md).
 - [Synthetic volume fields](docs/synthetic-fields.md): mesh/grid snapshots and ParaView animation references.
 - [Optional roof catalogue](docs/roof_catalogue.md): fitted flat, shed, gable and hip city surfaces.

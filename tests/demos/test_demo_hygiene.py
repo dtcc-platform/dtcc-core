@@ -1,5 +1,7 @@
 """Static hygiene checks for curated public demos."""
 
+import re
+from collections import Counter
 from pathlib import Path
 
 from tests.demos.demo_inventory import (
@@ -43,7 +45,22 @@ def test_design_document_exists_and_demo_catalog_references_it():
 
     assert design.is_file()
     assert catalog.is_file()
-    assert "DESIGN.md" in catalog.read_text(encoding="utf-8")
+    references = catalog.read_text(encoding="utf-8")
+    assert "DESIGN.md" in references
+    assert "../../demos/README.md" in references
+
+
+def test_demo_catalog_matches_inventory():
+    catalog = (DEMO_DIR / "README.md").read_text(encoding="utf-8")
+    for heading, inventory in (
+        ("Dataset examples", DATASET_DEMOS),
+        ("Workflow examples", WORKFLOW_DEMOS),
+    ):
+        _, section_heading, remainder = catalog.partition(f"\n## {heading}\n")
+        assert section_heading, f"Missing demo catalog section {heading!r}"
+        section = remainder.partition("\n## ")[0]
+        targets = re.findall(r"^\|\s*\[[^]]+\]\(([^)]+)\)\s*\|", section, re.MULTILINE)
+        assert Counter(targets) == Counter(inventory), heading
 
 
 def test_legacy_table_case_entry_points_are_removed():

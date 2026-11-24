@@ -910,9 +910,14 @@ def test_scalar_metadata_excludes_api_key_and_survives_copy(server, tmp_path):
     assert cloned.dataset_context == result.dataset_context
     cloned.attributes["series_metadata"]["source"] = "edited"
     assert result.attributes["series_metadata"]["source"] == "open_meteo"
-    with pytest.raises(NotImplementedError, match="attributes"):
+    derived = result.between()
+    assert type(derived) is TimeSeries
+    restored = TimeSeries()
+    restored.from_proto(derived.to_proto())
+    np.testing.assert_array_equal(restored.values, result.values)
+    with pytest.raises(NotImplementedError, match="unsupported"):
         result.to_proto()
     target = tmp_path / "weather.dtccpkg"
-    with pytest.raises(NotImplementedError, match="attributes"):
+    with pytest.raises(NotImplementedError, match="unsupported"):
         result.export(target, canonical=True)
     assert not target.exists()

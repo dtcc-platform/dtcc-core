@@ -145,7 +145,27 @@ def audit_dataset(dataset: DatasetDescriptor) -> DatasetQAReport:
     if descriptor is None:
         return DatasetQAReport(tuple(findings), dataset_count=1)
 
-    _audit_descriptor(dataset_name, descriptor, findings)
+    serialization = descriptor.get("serialization")
+    exports = descriptor.get("export")
+    formats_missing_status: FieldStatus = "missing"
+    if (
+        descriptor.get("supported_formats") == []
+        and isinstance(serialization, dict)
+        and serialization.get("format_parameter") is False
+        and (
+            serialization.get("python_only") is True
+            or (
+                isinstance(exports, list)
+                and exports
+                and all(
+                    isinstance(entry, dict) and entry.get("canonical")
+                    for entry in exports
+                )
+            )
+        )
+    ):
+        formats_missing_status = "not_applicable"
+    _audit_descriptor(dataset_name, descriptor, findings, formats_missing_status)
     schema = descriptor.get("args_schema")
     required_args = _required_static_args(schema)
     extra_required_args = sorted(required_args - _ALLOWED_STATIC_REQUIRED_ARGS)
@@ -199,7 +219,7 @@ def audit_dataset(dataset: DatasetDescriptor) -> DatasetQAReport:
         return DatasetQAReport(tuple(findings), dataset_count=1)
 
     _add_json_finding(findings, dataset_name, "contract", "context_json", context)
-    _audit_context(dataset_name, context, findings)
+    _audit_context(dataset_name, context, findings, formats_missing_status)
     return DatasetQAReport(tuple(findings), dataset_count=1)
 
 
@@ -330,6 +350,7 @@ def _audit_descriptor(
     dataset_name: str,
     descriptor: dict[str, Any],
     findings: list[DatasetQAFinding],
+    formats_missing_status: FieldStatus,
 ) -> None:
     _add_json_finding(findings, dataset_name, "contract", "descriptor_json", descriptor)
     for field in (
@@ -340,6 +361,7 @@ def _audit_descriptor(
         "result_kind",
         "python_return_type",
         "args_schema",
+        "supported_formats",
     ):
         _add_value_finding(
             findings,
@@ -347,21 +369,13 @@ def _audit_descriptor(
             "descriptor",
             field,
             descriptor.get(field),
+            missing_status=(
+                formats_missing_status if field == "supported_formats" else "missing"
+            ),
         )
 
-    _add_value_finding(
-        findings,
-        dataset_name,
-        "descriptor",
-        "supported_formats",
-        descriptor.get("supported_formats"),
-        missing_status="not_applicable"
-        if descriptor.get("serialization", {}).get("python_only")
-        else "missing",
-    )
-
     schema = descriptor.get("args_schema")
-    bounds_property = None
+    spatial_property = None
     spatial_field = "bounds"
     if isinstance(schema, dict):
         properties = schema.get("properties")
@@ -371,13 +385,13 @@ def _audit_descriptor(
                 if "location" in properties and "bounds" not in properties
                 else "bounds"
             )
-            bounds_property = properties.get(spatial_field)
+            spatial_property = properties.get(spatial_field)
     _add_value_finding(
         findings,
         dataset_name,
         "args_schema",
         spatial_field,
-        bounds_property,
+        spatial_property,
     )
 
 
@@ -385,6 +399,7 @@ def _audit_context(
     dataset_name: str,
     context: Any,
     findings: list[DatasetQAFinding],
+    formats_missing_status: FieldStatus,
 ) -> None:
     for field in ("name", "title"):
         _add_value_finding(
@@ -412,6 +427,7 @@ def _audit_context(
             "metadata",
             field,
             _get_path(context, "metadata", field),
+            missing_status=formats_missing_status if field == "formats" else "missing",
             detect_markers=field in {"source", "license"},
         )
 

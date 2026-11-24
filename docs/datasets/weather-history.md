@@ -240,8 +240,8 @@ SMHI downloads are serial
 and can fetch a whole archive for a small interval; follow [SMHI's guidance](https://www.smhi.se/data/om-smhis-data/fragor-och-svar).
 
 Both weather return forms are Python-only while location and ancillary metadata
-have no exchange representation; no `format="pb"` option is advertised. Serializing
-a standalone series with nonempty `attributes` raises rather than dropping them.
+have no exchange representation. A scalar result is a `TimeSeries` subclass that
+holds this metadata in `attributes`. Canonical serialization rejects the subclass.
 `series.copy()` and Python deepcopy/pickle preserve the attributes and dataset context.
 Numerical transformations such as `between()`, `align_to()` and `resample()` return
 core numerical series without ancillary attributes; raw quality flags do not

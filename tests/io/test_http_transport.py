@@ -4,16 +4,18 @@ import asyncio
 import gzip
 import io
 import json
+import socket
 import threading
 import traceback
 from collections import Counter
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+from dtcc_core.io import http_client
 from dtcc_core.io._http import (
     AsyncHttpClient,
     Budget,
@@ -24,6 +26,7 @@ from dtcc_core.io._http import (
     Request,
     ResponseCache,
     RetryPolicy,
+    Timeout,
 )
 
 
@@ -51,7 +54,11 @@ class Handler(BaseHTTPRequestHandler):
                 else 200
             )
             headers = {"Retry-After": "0"}
-            body = b"retry" if status == 503 else b"ok"
+            body = (
+                b"retry".ljust(int(query.get("error_size", [5])[0]), b"x")
+                if status == 503
+                else b"ok"
+            )
         elif parsed.path == "/status":
             status, body = int(query.get("code", [404])[0]), b"provider-secret"
             if "retry_after" in query:
@@ -108,6 +115,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self._read_body()
         self.server.received.append((dict(self.headers), body))
+        if urlsplit(self.path).path == "/redirect":
+            self.do_GET()
+            return
         self.send_response(200)
         result = json.dumps(
             {
@@ -451,10 +461,17 @@ def test_budget_attempts_and_received_bytes(backend, server):
     url, calls, _ = server
 
     async def scenario(api):
-        with pytest.raises(HttpTransportError, match="resource_limit"):
+        with pytest.raises(HttpTransportError) as caught:
             await api.request(Request("GET", url + "/retry?fail=10"))
+        assert (caught.value.kind, caught.value.status, caught.value.attempts) == (
+            "http_status",
+            503,
+            2,
+        )
         assert calls["/retry"] == 2
         assert api.client.counters.network_attempts == 2
+        with pytest.raises(HttpTransportError, match="resource_limit"):
+            await api.request(Request("GET", url + "/json"))
 
     run(
         backend,
@@ -469,6 +486,109 @@ def test_budget_attempts_and_received_bytes(backend, server):
         assert api.client.counters.received_body_bytes == 17
 
     run(backend, bytes_scenario, budget=Budget(max_received_bytes=16))
+
+
+@pytest.mark.parametrize(
+    "budget_kwargs",
+    [{"max_attempts": 1}, {"max_received_bytes": 4}],
+)
+def test_retry_does_not_sleep_when_budget_exhausted(backend, server, budget_kwargs):
+    url, calls, _ = server
+    delays = []
+
+    if backend == "sync":
+
+        def sleep(delay):
+            delays.append(delay)
+    else:
+
+        async def sleep(delay):
+            delays.append(delay)
+
+    async def scenario(api):
+        with pytest.raises(HttpTransportError) as caught:
+            await api.request(Request("GET", url + "/status?code=503&retry_after=30"))
+        error = caught.value
+        assert (error.kind, error.status, error.retry_after, error.attempts) == (
+            "http_status",
+            503,
+            30.0,
+            1,
+        )
+        assert delays == []
+        assert calls["/status"] == 1
+        with pytest.raises(HttpTransportError, match="resource_limit"):
+            await api.request(Request("GET", url + "/json"))
+
+    run(
+        backend,
+        scenario,
+        retry=RetryPolicy(retries=3),
+        budget=Budget(**budget_kwargs),
+        sleep=sleep,
+    )
+
+
+def test_shared_budget_sleeps_only_for_a_reserved_attempt(server):
+    url, calls, _ = server
+    delays = []
+
+    async def sleep(delay):
+        delays.append(delay)
+        await asyncio.sleep(0)
+
+    async def main():
+        async with AsyncHttpClient(
+            retry=RetryPolicy(retries=3),
+            budget=Budget(max_attempts=3),
+            sleep=sleep,
+        ) as client:
+            request = Request("GET", url + "/status?code=503&retry_after=30")
+            errors = await asyncio.gather(
+                client.request(request), client.request(request), return_exceptions=True
+            )
+            assert client.counters.network_attempts == 3
+        return errors
+
+    errors = asyncio.run(main())
+    # Both first attempts start before either retry decision; only one of the
+    # two operations can take the third attempt, and only it waits.
+    assert [(e.kind, e.status, e.retry_after) for e in errors] == [
+        ("http_status", 503, 30.0)
+    ] * 2
+    assert sorted(e.attempts for e in errors) == [1, 2]
+    assert delays == [30.0] and calls["/status"] == 3
+
+
+def test_interrupted_backoff_returns_its_reserved_attempt(backend, server):
+    url, _, _ = server
+
+    class Interrupted(Exception):
+        pass
+
+    if backend == "sync":
+
+        def sleep(delay):
+            raise Interrupted
+    else:
+
+        async def sleep(delay):
+            raise Interrupted
+
+    async def scenario(api):
+        with pytest.raises(Interrupted):
+            await api.request(Request("GET", url + "/status?code=503"))
+        # The interrupted retry never ran, so its attempt is still available.
+        assert (await api.request(Request("GET", url + "/json"))).status == 200
+        assert api.client.counters.network_attempts == 2
+
+    run(
+        backend,
+        scenario,
+        retry=RetryPolicy(retries=1),
+        budget=Budget(max_attempts=2),
+        sleep=sleep,
+    )
 
 
 def test_stream_and_caller_failure(backend, server):
@@ -823,13 +943,18 @@ def test_upload_reader_exception_is_preserved(backend, server, exception_type):
     run(backend, scenario)
 
 
+@pytest.mark.parametrize("complete_body", [False, True])
 @pytest.mark.parametrize("mode", ["buffered", "stream", "error_status"])
-def test_async_reader_error_after_response_headers(mode, monkeypatch):
+def test_async_reader_error_after_response_headers(mode, complete_body, monkeypatch):
     from dtcc_core.io._http._async import _BorrowedStream
 
     release_reader = threading.Event()
     recorded_failure = threading.Event()
-    failure = RuntimeError("late upload failure")
+    failure = (
+        OSError("late upload failure")
+        if complete_body
+        else RuntimeError("late upload failure")
+    )
     original_read = _BorrowedStream.read
 
     def record_failure(self, size=-1):
@@ -851,12 +976,16 @@ def test_async_reader_error_after_response_headers(mode, monkeypatch):
             pass
 
         def do_POST(self):
-            self.send_response(503 if mode == "error_status" else 200)
+            status = (413 if complete_body else 503) if mode == "error_status" else 200
+            self.send_response(status)
             self.send_header("Content-Length", "2")
             self.end_headers()
             self.wfile.flush()
             # The test releases the reader once the client has received the headers.
             assert recorded_failure.wait(5), "upload failure was not recorded"
+            if complete_body:
+                self.wfile.write(b"ok")
+                self.wfile.flush()
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), EarlyResponse)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -878,7 +1007,7 @@ def test_async_reader_error_after_response_headers(mode, monkeypatch):
                 f"http://127.0.0.1:{httpd.server_port}/",
                 multipart=(MultipartPart("file", reader, "file.bin"),),
             )
-            with pytest.raises(RuntimeError) as caught:
+            with pytest.raises(type(failure)) as caught:
                 if mode == "stream":
                     async with client.stream(request) as response:
                         _ = [chunk async for chunk in response.iter_bytes()]
@@ -947,4 +1076,172 @@ def test_stream_cannot_be_read_after_its_block_exits(backend, server):
             async for _ in api.chunks(response):
                 pass
 
+        async with api.stream(Request("GET", url + "/gzip")) as response:
+            chunks = api.chunks(response, size=1024)
+            first = await anext(chunks)
+            assert len(first) > 0
+        with pytest.raises(ValueError, match="closed"):
+            await anext(chunks)
+
+        async with api.stream(Request("GET", url + "/gzip")) as response:
+            async for chunk in api.chunks(response, size=1024):
+                assert len(chunk) > 0
+                break
+
     run(backend, scenario)
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("mode", ["buffered", "stream"])
+def test_mutated_json_payload_preserves_redirect_error(backend, server, method, mode):
+    url, calls, received = server
+
+    async def scenario(api):
+        payload = {"value": [1]}
+        request = Request(method, url + "/redirect?to=/json", json=payload)
+        payload["value"].append(object())
+        with pytest.raises(HttpTransportError) as caught:
+            if mode == "stream":
+                async with api.stream(request):
+                    pytest.fail("Body-bearing redirects must be rejected")
+            else:
+                await api.request(request)
+        error = caught.value
+        assert (error.kind, error.status, error.phase) == (
+            "redirect_policy",
+            302,
+            "read",
+        )
+        assert error.redirect_target == url + "/json"
+        assert error.attempts == calls["/redirect"] == 1
+        assert calls["/json"] == 0
+        if method == "POST":
+            assert received[0][1] == b'{"value": [1]}'
+
+    run(backend, scenario)
+
+
+@contextmanager
+def raw_server(handle):
+    """Serve loopback connections one at a time with handle(conn, number)."""
+    served = []
+    stop = threading.Event()
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    listener.settimeout(0.1)
+
+    def serve():
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                break
+            served.append(conn)
+            with conn:
+                conn.settimeout(2.0)
+                try:
+                    handle(conn, len(served))
+                except OSError:
+                    pass
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield listener.getsockname()[1], served
+    finally:
+        stop.set()
+        listener.close()
+        thread.join()
+
+
+@pytest.mark.parametrize("client", ["sync", "async", "native"])
+@pytest.mark.parametrize("case", ["malformed_status", "proxy_connect_502"])
+def test_protocol_and_proxy_failures_retry_as_connection(client, case):
+    payload = (
+        b"NOT-HTTP\r\n\r\n"
+        if case == "malformed_status"
+        else b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
+    )
+
+    def handle(conn, number):
+        conn.recv(4096)
+        conn.sendall(payload)
+
+    with raw_server(handle) as (port, served):
+        if case == "malformed_status":
+            target_url, proxy = f"http://127.0.0.1:{port}/", None
+        else:
+            target_url, proxy = "https://example.invalid/", f"http://127.0.0.1:{port}"
+
+        if client == "native":
+            with http_client(retries=2, proxy=proxy) as native:
+                native._backend._sleep = lambda delay: None
+                with pytest.raises(HttpTransportError) as caught:
+                    native.request(target_url)
+                attempts = native.counters.network_attempts
+        else:
+            errors, counters = [], []
+
+            async def scenario(api):
+                with pytest.raises(HttpTransportError) as raised:
+                    await api.request(Request("GET", target_url))
+                errors.append(raised)
+                counters.append(api.client.counters.network_attempts)
+
+            options = {"retry": RetryPolicy(retries=2, backoff=0)}
+            if proxy:
+                options["proxy"] = proxy
+            run(client, scenario, **options)
+            caught, attempts = errors[0], counters[0]
+
+        error = caught.value
+        assert (error.kind, error.attempts, error.retry_allowed_by_policy) == (
+            "connection",
+            3,
+            True,
+        )
+        assert attempts == 3 and len(served) == 3
+
+
+def test_async_failed_read_releases_its_connection_before_retry_sleep():
+    # aiohttp keeps a connection after a read timeout until the response is
+    # closed; requests drops it on the error itself, so only async is tested
+    # here. test_http_policy checks the close-before-sleep order on both.
+    first_closed = threading.Event()
+
+    def handle(conn, number):
+        conn.recv(4096)
+        if number == 1:
+            # Send part of the body, then stall until the client closes.
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+            while conn.recv(4096):
+                pass
+            first_closed.set()
+        else:
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+            )
+
+    closed_when_sleeping = []
+
+    async def sleep(delay):
+        closed_when_sleeping.append(await asyncio.to_thread(first_closed.wait, 2))
+
+    with raw_server(handle) as (port, served):
+
+        async def scenario(api):
+            response = await api.request(Request("GET", f"http://127.0.0.1:{port}/"))
+            assert response.body == b"ok"
+
+        run(
+            "async",
+            scenario,
+            timeout=Timeout(read=0.3),
+            retry=RetryPolicy(retries=1, backoff=0),
+            sleep=sleep,
+        )
+        assert len(served) == 2
+    assert closed_when_sleeping == [True]
