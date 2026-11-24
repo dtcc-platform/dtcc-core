@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 
 import geopandas as gpd
 import requests
@@ -52,7 +53,17 @@ OVERPASS_QUEUE_ALLOWANCE_SECONDS = float(
 )
 # Overpass applies this server timeout when a query sets no [timeout:N].
 OVERPASS_DEFAULT_QUERY_TIMEOUT_SECONDS = 180
-OVERPASS_RETRIES = int(os.environ.get("DTCC_OVERPASS_RETRIES", "1"))
+# How many more times to ask the same server after a quick 429 or 5xx answer.
+OVERPASS_RETRIES = max(0, int(os.environ.get("DTCC_OVERPASS_RETRIES", "2")))
+# An error answer that arrives within this many seconds counts as quick. A
+# slower error, or a timeout, moves on to the next endpoint without retrying,
+# so a struggling server is not waited on several times.
+OVERPASS_QUICK_FAILURE_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_QUICK_FAILURE", "10")
+)
+OVERPASS_RETRY_STATUSES = (429, 500, 502, 503, 504)
+# Wait before the first retry; it doubles before each later one.
+OVERPASS_RETRY_BACKOFF_SECONDS = 1.0
 OVERPASS_SERVER_TIMEOUT_SECONDS = int(
     os.environ.get("DTCC_OVERPASS_SERVER_TIMEOUT", "25")
 )
@@ -64,19 +75,21 @@ OVERPASS_USER_AGENT = os.environ.get(
 
 
 def create_retry_session(
-    retries=OVERPASS_RETRIES,
+    retries=0,
     backoff_factor=1.0,
-    status_forcelist=(429, 500, 502, 503, 504),
+    status_forcelist=OVERPASS_RETRY_STATUSES,
 ):
     """
-    Create a requests session with automatic retry and exponential backoff.
+    Create a requests session for Overpass, optionally retrying HTTP errors.
 
     Parameters
     ----------
     retries
-        Number of retry attempts for transient HTTP status responses. Connect
-        and read failures are not retried here; endpoint failover handles those
-        so DNS/connect issues do not block for minutes.
+        Number of retry attempts for transient HTTP status responses. The
+        default is 0 because query_overpass_with_failover retries quick
+        failures itself. Connect and read failures are never retried here;
+        endpoint failover handles those so DNS/connect issues do not block
+        for minutes.
     backoff_factor
         Multiplier for exponential backoff (1.0 = 1s, 2s, 4s, 8s, 16s)
     status_forcelist
@@ -133,7 +146,11 @@ def query_overpass_with_failover(
 ):
     """
     Query Overpass API with automatic failover between endpoints.
-    Tries each endpoint with retries before moving to the next.
+
+    Each endpoint is asked up to ``1 + OVERPASS_RETRIES`` times. A 429 or 5xx
+    answer that arrives within ``OVERPASS_QUICK_FAILURE_SECONDS`` is retried on
+    the same endpoint after a short backoff. A slower error, a timeout, a
+    connection failure or invalid JSON moves on to the next endpoint.
 
     Parameters
     ----------
@@ -167,27 +184,45 @@ def query_overpass_with_failover(
     request_timeout = (connect_timeout, read_timeout)
     last_error = None
     for endpoint in OVERPASS_ENDPOINTS:
-        try:
-            info(
-                "Trying Overpass endpoint "
-                f"{endpoint} (connect={connect_timeout:g}s, read={read_timeout:g}s)"
-            )
-            session = create_retry_session()
-            resp = session.post(endpoint, data={"data": query}, timeout=request_timeout)
-            if resp.status_code == 200:
-                debug(f"Overpass query successful via {endpoint}")
-                data = resp.json()
-                data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
-                return data
-            else:
-                debug(f"Endpoint {endpoint} returned status {resp.status_code}")
+        info(
+            "Trying Overpass endpoint "
+            f"{endpoint} (connect={connect_timeout:g}s, read={read_timeout:g}s)"
+        )
+        session = create_retry_session()
+        for attempt in range(OVERPASS_RETRIES + 1):
+            if attempt > 0:
+                delay = OVERPASS_RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1)
+                info(f"Retrying {endpoint} in {delay:g}s after {last_error}")
+                time.sleep(delay)
+            retry_same_endpoint = False
+            try:
+                started = time.monotonic()
+                resp = session.post(
+                    endpoint, data={"data": query}, timeout=request_timeout
+                )
+                elapsed = time.monotonic() - started
+                if resp.status_code == 200:
+                    debug(f"Overpass query successful via {endpoint}")
+                    data = resp.json()
+                    data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
+                    return data
+                debug(
+                    f"Endpoint {endpoint} returned status {resp.status_code} "
+                    f"after {elapsed:.1f}s"
+                )
                 last_error = f"HTTP {resp.status_code}"
-        except ValueError as e:
-            debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
-            last_error = f"invalid JSON from {endpoint}: {e}"
-        except requests.exceptions.RequestException as e:
-            debug(f"Endpoint {endpoint} failed: {e}")
-            last_error = str(e)
+                retry_same_endpoint = (
+                    resp.status_code in OVERPASS_RETRY_STATUSES
+                    and elapsed < OVERPASS_QUICK_FAILURE_SECONDS
+                )
+            except ValueError as e:
+                debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
+                last_error = f"invalid JSON from {endpoint}: {e}"
+            except requests.exceptions.RequestException as e:
+                debug(f"Endpoint {endpoint} failed: {e}")
+                last_error = str(e)
+            if not retry_same_endpoint:
+                break
 
     error(f"All Overpass endpoints failed. Last error: {last_error}")
     raise RuntimeError(f"All Overpass endpoints failed: {last_error}")

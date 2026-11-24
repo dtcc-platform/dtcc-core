@@ -140,6 +140,115 @@ def test_overpass_endpoints_are_distinct_servers():
     assert "overpass.kumi.systems" not in hosts
 
 
+class _FakeClock:
+    """Stands in for the ``time`` module so tests never really wait."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _scripted_session(clock, answers, posts):
+    """Fake session that answers each endpoint from a script.
+
+    ``answers`` maps an endpoint to a list of ``(status, seconds)`` pairs, or
+    ``"timeout"`` for a read timeout, used in order.
+    """
+    import requests
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+        def json(self):
+            return {"elements": []}
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            posts.append(endpoint)
+            answer = answers[endpoint].pop(0)
+            if answer == "timeout":
+                clock.now += timeout[1]
+                raise requests.exceptions.ReadTimeout("Read timed out.")
+            status, seconds = answer
+            clock.now += seconds
+            return Response(status)
+
+    return Session()
+
+
+def _install_scripted_session(monkeypatch, answers):
+    clock = _FakeClock()
+    posts = []
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", list(answers))
+    monkeypatch.setattr(overpass, "OVERPASS_RETRIES", 2)
+    monkeypatch.setattr(overpass, "OVERPASS_QUICK_FAILURE_SECONDS", 10.0)
+    monkeypatch.setattr(overpass, "time", clock)
+    monkeypatch.setattr(
+        overpass,
+        "create_retry_session",
+        lambda: _scripted_session(clock, answers, posts),
+    )
+    return clock, posts
+
+
+def test_overpass_retries_a_quick_502_on_the_same_endpoint(monkeypatch):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [(502, 0.3), (200, 42.8)], "endpoint-2": []},
+    )
+
+    data = overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-1"
+    assert posts == ["endpoint-1", "endpoint-1"]
+    assert clock.sleeps == [1.0]
+
+
+@pytest.mark.parametrize(
+    "first_answer",
+    [(504, 80.0), "timeout"],
+    ids=["slow 504", "read timeout"],
+)
+def test_overpass_moves_on_after_a_slow_failure(monkeypatch, first_answer):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [first_answer], "endpoint-2": [(200, 1.0)]},
+    )
+
+    data = overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-2"
+    assert posts == ["endpoint-1", "endpoint-2"]
+    assert clock.sleeps == []
+
+
+def test_overpass_gives_up_after_the_retry_limit(monkeypatch):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [(502, 0.3)] * 3, "endpoint-2": [(429, 0.2)] * 3},
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP 429"):
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert posts == ["endpoint-1"] * 3 + ["endpoint-2"] * 3
+    assert clock.sleeps == [1.0, 2.0, 1.0, 2.0]
+
+
+def test_overpass_session_leaves_retries_to_the_failover_loop():
+    session = overpass.create_retry_session()
+
+    assert session.get_adapter("https://example.org").max_retries.total == 0
+
+
 def test_overpass_retry_session_sets_user_agent():
     session = overpass.create_retry_session()
 
