@@ -48,7 +48,7 @@ ground selection, negative elevations, CRS and nodata handling.
 The new features use `Object`, `MultiLineString`, `MultiSurface`, `Solid` and
 `SemanticRegion`; no new native feature hierarchy or Protobuf geometry type is
 needed. Native `.dtcc` remains an ordinary `DTCC.ModelFile` Protobuf message using
-wire version 6.
+wire version 7.
 
 An imported polygon CompositeSurface uses a MultiSurface carrier and
 `representation.role == 'cityjson:CompositeSurface'`. This explicit role preserves

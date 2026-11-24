@@ -902,6 +902,10 @@ def save(mesh, path, center_on_origin=False, **kwargs):
 
     For canonical .dtcc output, validate_schema=False bypasses semantic evaluation.
 
+    Other formats write their supported geometry and static data subset;
+    attached time series are omitted without changing the source mesh.
+    Save as .dtcc to preserve time series and their metadata.
+
     Parameters
     ----------
     mesh : Mesh

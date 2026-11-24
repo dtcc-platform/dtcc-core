@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from dtcc_core.builder import BoundaryCornerReport, find_boundary_corners
-from dtcc_core.model import VolumeMesh
+from dtcc_core.model import TimeSeries, VolumeMesh, exchange
 
 
 def two_cells():
@@ -302,6 +302,21 @@ def test_attached_data_rejection_and_noop_preservation(data):
     result = mesh.repair_boundary_corners(boundary_markers=[])
     assert len(getattr(result, data)) == 1
     assert getattr(result, data) is not getattr(mesh, data)
+
+
+def test_corner_repair_rejects_cell_series_when_subdivision_is_needed():
+    mesh = two_cells()
+    mesh.time_series = [
+        TimeSeries(times=["2026-01-01"], values=[[10, 20]], association="cell")
+    ]
+    before = exchange.dumps(mesh)
+    with pytest.raises(ValueError, match="time series"):
+        mesh.repair_boundary_corners()
+    assert exchange.dumps(mesh) == before
+
+    unchanged = mesh.repair_boundary_corners(boundary_markers=[])
+    assert exchange.dumps(unchanged) == before
+    assert unchanged.time_series[0] is not mesh.time_series[0]
 
 
 def test_noop_refreshes_record_without_changing_context_or_history():

@@ -82,6 +82,9 @@ class FieldSlice(PointCloud):
         bounds, or the sample bounds when none are stored, after the slice's
         transform and, when reprojected, after reprojecting their x and y.
 
+        Attached time series are omitted without changing the source model.
+        Save as .dtcc to preserve them.
+
         Parameters
         ----------
         include_z : bool, optional

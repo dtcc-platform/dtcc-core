@@ -86,7 +86,7 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
 
     def remove_points(self, indices: np.ndarray) -> "PointCloud":
         """
-        Remove points from the point cloud using the given indices.
+        Remove points and their vertex- or sample-associated time series values.
 
         Parameters
         ----------
@@ -102,15 +102,27 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         indices = np.array(indices).astype(int)
         if len(indices) == 0:
             return self
-        self.points = np.delete(self.points, indices, axis=0)
-        if len(self.classification) > 0:
-            self.classification = np.delete(self.classification, indices, axis=0)
-        if len(self.intensity) > 0:
-            self.intensity = np.delete(self.intensity, indices, axis=0)
-        if len(self.return_number) > 0:
-            self.return_number = np.delete(self.return_number, indices, axis=0)
-        if len(self.num_returns) > 0:
-            self.num_returns = np.delete(self.num_returns, indices, axis=0)
+        keep = np.ones(len(self.points), dtype=bool)
+        keep[indices] = False
+        series_list = []
+        for series in self.time_series:
+            if series.association in ("vertex", "sample"):
+                if series.num_elements != len(self.points):
+                    raise ValueError(
+                        f"TimeSeries {series.name!r} has {series.num_elements} "
+                        f"elements for {len(self.points)} points."
+                    )
+                series = series._copy_with_values(series.values[:, keep])
+            series_list.append(series)
+
+        selected = {"points": self.points[keep]}
+        for name in ("classification", "intensity", "return_number", "num_returns"):
+            values = getattr(self, name)
+            if len(values):
+                selected[name] = np.asarray(values)[keep]
+        for name, values in selected.items():
+            setattr(self, name, values)
+        self.time_series = series_list
         self.calculate_bounds()
         return self
 
@@ -136,6 +148,8 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
         """
         Merge another point cloud into this point cloud.
 
+        Time series require an explicit mapping and raise NotImplementedError.
+
         Parameters
         ----------
         other : PointCloud
@@ -148,6 +162,10 @@ class PointCloud(PointCloudBuilderMixin, PointcloudFilterMixin, Geometry):
 
         """
 
+        if other.time_series or (self.time_series and len(other.points)):
+            raise NotImplementedError(
+                "Merging point clouds cannot transfer time series"
+            )
         if len(other.points) == 0:
             return self
 
