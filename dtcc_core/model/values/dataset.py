@@ -11,6 +11,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from .._equality import values_equal
 from ..model import Model
 
 
@@ -87,9 +88,11 @@ class DatasetValue(Model):
         return iter(self.value)
 
     def __eq__(self, other) -> bool:
-        if isinstance(other, DatasetValue):
-            return self.value == other.value
-        return self.value == other
+        """Compare wrapped values, or the wrapped value with a raw value."""
+        return values_equal(self, other)
+
+    def _eq_unwrap(self):
+        return self.value
 
     def get(self, key, default=None):
         """Return ``mapping.get(key, default)`` for mapping values."""

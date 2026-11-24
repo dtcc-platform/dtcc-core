@@ -1,7 +1,7 @@
 # Copyright(C) 2023 Anders Logg
 # Licensed under the MIT License
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -26,10 +26,57 @@ def _step(extent: float, count: int, dimension: str) -> float:
     return extent / count
 
 
+def _domain_or_field(grid, name):
+    """Field value for ==; an unset domain reads as its default, unchanged."""
+    if name == "_bounds" and grid._bounds is None:
+        return grid._default_domain()
+    return getattr(grid, name)
+
+
 def _z_tolerance(levels: ArrayLike) -> float:
     # Rounding in each boundary grows with its magnitude and the layers summed into it.
     levels = np.asarray(levels, dtype=float)
     return levels.size * np.finfo(float).eps * np.max(np.abs(levels))
+
+
+def _loses_double_precision(levels: np.ndarray) -> bool:
+    # Float16/32/64 values are exact as doubles; integers and wider floats may round.
+    return not (levels.dtype.kind == "f" and levels.dtype.itemsize <= 8) and any(
+        float(level) != level for level in levels.tolist()
+    )
+
+
+def _float_levels(levels) -> np.ndarray | None:
+    """Return real 1-D levels as float64, or None if they have no exact form."""
+    if levels is None:
+        return None
+    try:
+        array = np.asarray(levels)
+    except (TypeError, ValueError):
+        return None
+    if (
+        array.ndim != 1
+        or array.dtype.kind not in "iuf"
+        or _loses_double_precision(array)
+    ):
+        return None
+    # Building an array from a mixed list can round its integers.
+    if isinstance(levels, (list, tuple)) and list(levels) != array.tolist():
+        return None
+    return array.astype(np.float64)
+
+
+def _level_limits(levels) -> tuple[float, float] | None:
+    """Return the first and last level, NaN if masked; None if not real 1-D."""
+    try:
+        array = np.asanyarray(levels)
+    except (TypeError, ValueError):
+        return None
+    if array.ndim != 1 or array.size == 0 or array.dtype.kind not in "iuf":
+        return None
+    mask = np.ma.getmaskarray(array)
+    first, last = (np.nan if mask[i] else float(array[i]) for i in (0, -1))
+    return first, last
 
 
 @dataclass(repr=False)
@@ -45,9 +92,15 @@ class Grid(Geometry):
     """
 
     # The domain is intrinsic state; None alone means it has not been initialized.
+    # == compares it, reading an unset domain as the default from cell counts.
     _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
+
+    def _default_domain(self):
+        return Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
+
+    _eq_field_value = _domain_or_field
 
     def _summary_items(self):
         return [
@@ -69,7 +122,7 @@ class Grid(Geometry):
         """
         _validate_dimensions(width=self.width, height=self.height)
         if self._bounds is None:
-            self._bounds = Bounds(xmin=0, ymin=0, xmax=self.width, ymax=self.height)
+            self._bounds = self._default_domain()
         return self._bounds
 
     @property
@@ -166,11 +219,33 @@ class VolumeGrid(Geometry):
     """
 
     # The domain is intrinsic state; None alone means it has not been initialized.
+    # == compares it, reading an unset domain as the default from cell counts
+    # and z_levels.
     _bounds: Bounds | None = field(default=None)
     width: int = 0
     height: int = 0
     depth: int = 0
     z_levels: ArrayLike | None = field(default=None, kw_only=True)
+
+    def _default_domain(self):
+        limits = _level_limits(self.z_levels)
+        return Bounds(
+            xmin=0,
+            ymin=0,
+            zmin=0 if limits is None else limits[0],
+            xmax=self.width,
+            ymax=self.height,
+            zmax=self.depth if limits is None else limits[1],
+        )
+
+    def _eq_field_value(self, name):
+        """Field value for ==; exact levels outside a MaskedArray compare in float64."""
+        if name != "z_levels":
+            return _domain_or_field(self, name)
+        if isinstance(self.z_levels, np.ma.MaskedArray):
+            return self.z_levels
+        levels = _float_levels(self.z_levels)
+        return self.z_levels if levels is None else levels
 
     def _summary_items(self):
         return [
@@ -188,23 +263,6 @@ class VolumeGrid(Geometry):
                 self.depth = self.z_levels.size - 1
             self._validate_z_levels()
             self.z_levels = self.z_levels.astype(float, copy=True)
-
-    def __eq__(self, other):
-        # Layer boundaries compare by value; other fields compare as dataclass fields.
-        if other.__class__ is not self.__class__:
-            return NotImplemented
-        if (self.z_levels is None) != (other.z_levels is None):
-            return False
-        if self.z_levels is not None and not np.array_equal(
-            self.z_levels, other.z_levels
-        ):
-            return False
-        compared = [
-            f.name for f in fields(VolumeGrid) if f.compare and f.name != "z_levels"
-        ]
-        return tuple(getattr(self, name) for name in compared) == tuple(
-            getattr(other, name) for name in compared
-        )
 
     @classmethod
     def from_zsteps(
@@ -247,10 +305,7 @@ class VolumeGrid(Geometry):
             raise ValueError("VolumeGrid z_levels must have depth + 1 entries.")
         if levels.dtype.kind not in "iuf" or not np.isfinite(levels).all():
             raise ValueError("VolumeGrid z_levels must contain finite real numbers.")
-        # Float16/32/64 values are exact as doubles; integers and wider floats may round.
-        if not (levels.dtype.kind == "f" and levels.dtype.itemsize <= 8) and any(
-            float(level) != level for level in levels.tolist()
-        ):
+        if _loses_double_precision(levels):
             raise ValueError("VolumeGrid z_levels would lose precision in a double.")
         if not np.all(levels[1:] > levels[:-1]):
             raise ValueError("VolumeGrid z_levels must be strictly increasing.")
@@ -274,14 +329,7 @@ class VolumeGrid(Geometry):
         _validate_dimensions(width=self.width, height=self.height, depth=self.depth)
         self._validate_z_levels()
         if self._bounds is None:
-            self._bounds = Bounds(
-                xmin=0,
-                ymin=0,
-                zmin=0 if self.z_levels is None else float(self.z_levels[0]),
-                xmax=self.width,
-                ymax=self.height,
-                zmax=self.depth if self.z_levels is None else float(self.z_levels[-1]),
-            )
+            self._bounds = self._default_domain()
         return self._bounds
 
     @property
