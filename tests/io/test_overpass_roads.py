@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 import pytest
 
 from dtcc_core.io.data import overpass, wrapper
@@ -62,6 +64,80 @@ def test_overpass_uses_bounded_connect_and_read_timeouts(monkeypatch):
 
     assert data["elements"] == []
     assert timeouts == [(2.5, 7.5)]
+
+
+def _slow_server_session(seconds_to_answer, timeouts):
+    """Fake session whose server answers after ``seconds_to_answer``."""
+    import requests
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"elements": []}
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            timeouts.append(timeout)
+            if timeout[1] < seconds_to_answer:
+                raise requests.exceptions.ReadTimeout("Read timed out.")
+            return Response()
+
+    return Session()
+
+
+def test_overpass_waits_for_a_server_slower_than_30_seconds(monkeypatch):
+    timeouts = []
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", None)
+    monkeypatch.setattr(
+        overpass, "create_retry_session", lambda: _slow_server_session(43, timeouts)
+    )
+
+    data = overpass.query_overpass_with_failover(
+        f"[out:json][timeout:{overpass.OVERPASS_SERVER_TIMEOUT_SECONDS}];node(1);out;"
+    )
+
+    assert data["elements"] == []
+    assert len(timeouts) == 1
+
+
+@pytest.mark.parametrize(
+    "query, server_timeout",
+    [
+        ("[out:json][timeout:25];node(1);out;", 25),
+        ("[out:json] [ timeout : 120 ];node(1);out;", 120),
+        ("[out:json];node(1);out;", 180),  # Overpass server default
+    ],
+)
+def test_overpass_read_timeout_follows_query_timeout(
+    monkeypatch, query, server_timeout
+):
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", None)
+    monkeypatch.setattr(overpass, "OVERPASS_QUEUE_ALLOWANCE_SECONDS", 60.0)
+
+    assert overpass._overpass_read_timeout(query) == server_timeout + 60.0
+
+
+def test_overpass_read_timeout_environment_override_is_kept(monkeypatch):
+    timeouts = []
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", 12.0)
+    monkeypatch.setattr(
+        overpass, "create_retry_session", lambda: _slow_server_session(0, timeouts)
+    )
+
+    overpass.query_overpass_with_failover("[out:json][timeout:25];node(1);out;")
+
+    assert timeouts == [(overpass.OVERPASS_CONNECT_TIMEOUT_SECONDS, 12.0)]
+
+
+def test_overpass_endpoints_are_distinct_servers():
+    hosts = [urlparse(endpoint).hostname for endpoint in overpass.OVERPASS_ENDPOINTS]
+
+    assert len(hosts) == len(set(hosts))
+    # DNS alias of overpass.private.coffee.
+    assert "overpass.kumi.systems" not in hosts
 
 
 def test_overpass_retry_session_sets_user_agent():

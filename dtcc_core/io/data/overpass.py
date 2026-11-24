@@ -27,9 +27,11 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # Where we store local cache metadata
 CACHE_METADATA_FILE = os.path.join(BASE_CACHE_DIR, "cache_metadata.json")
 
+# Each entry is a separate server. Do not add DNS aliases of a listed server
+# (overpass.kumi.systems points at overpass.private.coffee): failing over to
+# the same server only adds waiting.
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
 ROAD_CACHE_VERSION = 4
@@ -39,13 +41,22 @@ OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
 OVERPASS_CONNECT_TIMEOUT_SECONDS = float(
     os.environ.get("DTCC_OVERPASS_CONNECT_TIMEOUT", "8")
 )
-OVERPASS_READ_TIMEOUT_SECONDS = float(
-    os.environ.get("DTCC_OVERPASS_READ_TIMEOUT", "30")
+# A fixed read timeout set through the environment. When unset, the read
+# timeout follows each query's own [timeout:N] (see _overpass_read_timeout).
+_READ_TIMEOUT_ENV = os.environ.get("DTCC_OVERPASS_READ_TIMEOUT")
+OVERPASS_READ_TIMEOUT_SECONDS = float(_READ_TIMEOUT_ENV) if _READ_TIMEOUT_ENV else None
+# Extra seconds on top of the query's server timeout for waiting in the
+# server's queue and transferring the response.
+OVERPASS_QUEUE_ALLOWANCE_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_QUEUE_ALLOWANCE", "60")
 )
+# Overpass applies this server timeout when a query sets no [timeout:N].
+OVERPASS_DEFAULT_QUERY_TIMEOUT_SECONDS = 180
 OVERPASS_RETRIES = int(os.environ.get("DTCC_OVERPASS_RETRIES", "1"))
 OVERPASS_SERVER_TIMEOUT_SECONDS = int(
     os.environ.get("DTCC_OVERPASS_SERVER_TIMEOUT", "25")
 )
+_QUERY_TIMEOUT_PATTERN = re.compile(r"\[\s*timeout\s*:\s*(\d+)\s*\]")
 OVERPASS_USER_AGENT = os.environ.get(
     "DTCC_OVERPASS_USER_AGENT",
     "dtcc-core/0.9.8 (https://github.com/dtcc-platform/dtcc-core)",
@@ -95,11 +106,30 @@ def create_retry_session(
     return session
 
 
+def _overpass_read_timeout(query):
+    """
+    Return how long to wait for an Overpass response to ``query``, in seconds.
+
+    The server may spend up to the query's ``[timeout:N]`` working, after
+    waiting for a free slot, so the client waits that long plus
+    ``OVERPASS_QUEUE_ALLOWANCE_SECONDS``. A query without ``[timeout:N]`` gets
+    the server default of 180 s. ``DTCC_OVERPASS_READ_TIMEOUT`` replaces the
+    result with a fixed value.
+    """
+    if OVERPASS_READ_TIMEOUT_SECONDS is not None:
+        return OVERPASS_READ_TIMEOUT_SECONDS
+    match = _QUERY_TIMEOUT_PATTERN.search(query)
+    server_timeout = (
+        int(match.group(1)) if match else OVERPASS_DEFAULT_QUERY_TIMEOUT_SECONDS
+    )
+    return server_timeout + OVERPASS_QUEUE_ALLOWANCE_SECONDS
+
+
 def query_overpass_with_failover(
     query,
     timeout=None,
     connect_timeout=OVERPASS_CONNECT_TIMEOUT_SECONDS,
-    read_timeout=OVERPASS_READ_TIMEOUT_SECONDS,
+    read_timeout=None,
 ):
     """
     Query Overpass API with automatic failover between endpoints.
@@ -115,7 +145,9 @@ def query_overpass_with_failover(
     connect_timeout
         Timeout for DNS/TCP/TLS connection setup in seconds.
     read_timeout
-        Timeout while waiting for the Overpass response in seconds.
+        Timeout while waiting for the Overpass response in seconds. When
+        None, it follows the query's ``[timeout:N]``; see
+        :func:`_overpass_read_timeout`.
 
     Returns
     -------
@@ -129,6 +161,8 @@ def query_overpass_with_failover(
     """
     if timeout is not None:
         read_timeout = timeout
+    if read_timeout is None:
+        read_timeout = _overpass_read_timeout(query)
 
     request_timeout = (connect_timeout, read_timeout)
     last_error = None
