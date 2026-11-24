@@ -62,9 +62,9 @@ not proof that observations do not exist. Failures do not masquerade as absence.
 For SMHI, candidates include `station_id`, `station_name`, `catalogue_location`,
 metadata `source_url`, and `periods`. Every period includes UTC `start` and
 `end_exclusive`, its archive (`latest-months` or `corrected-archive`), metadata
-`source_url`, historical `location` and geodesic `distance_m`. Provider-inclusive
-millisecond endpoints are converted to exclusive endpoints by adding one
-millisecond. Archive envelopes are intersected with the parameter's station
+`source_url`, historical `location` and geodesic `distance_m`. SMHI timestamps
+are whole seconds and each inclusive `to` covers its last second, so endpoints
+are converted to exclusive endpoints by adding one second. Archive envelopes are intersected with the parameter's station
 bounds and nearby position-history segments; gaps and moves are not bridged.
 Inactive stations remain eligible for historical periods. Overlapping archives
 remain distinct. Candidates are sorted by the minimum distance over their
@@ -160,8 +160,17 @@ distance_m = selection["distance_m"]
 checks declared time/position coverage, and selects one common station using
 WGS84 ellipsoidal horizontal distances. Inactive stations can supply historical
 data. Catalogue first/last dates can enclose gaps: stations without position
-coverage are excluded and reported in `selection["excluded_stations"]`. Malformed
-discovery metadata and upstream failures are reported separately.
+coverage are excluded and reported in `selection["excluded_stations"]`.
+
+Only stations whose catalogue position lies within `max_distance_m` plus a 20 km
+relocation margin are examined; no SMHI station's position history lies farther
+than that from its catalogue position, and a live test checks this. A station
+whose metadata cannot be fetched or is malformed is excluded with reason
+`fetch_failed` or `invalid_metadata`, its error is added to `upstream_errors`,
+and selection continues with the other stations. If no other station matches,
+the selection is `discovery_failed` rather than `no_matching_station`, since the
+failed station might have matched. `strict_live=True` raises instead. Failures
+of the parameter catalogues also mark the selection `discovery_failed`.
 
 For a station that moved, selection uses the maximum distance over applicable
 position-history segments, keeping the radius valid throughout the request.
@@ -255,7 +264,7 @@ The [comparison demo](../../demos/weather_history_comparison.py) requests the sa
 SWEREF99 TM point in Stockholm and the same three-day UTC interval from both
 providers. It plots the three `TimeSeries` pairs on shared time axes, with units,
 source labels and the SMHI station distance. Edit `request` to change the dates
-or location; `end` is exclusive. Station discovery can take a few minutes.
+or location; `end` is exclusive.
 
 SMHI observations come from the nearest eligible station, while Open-Meteo
 returns ERA5 grid-based reanalysis at the requested location. Differences can

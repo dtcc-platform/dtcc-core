@@ -379,7 +379,8 @@ def test_smhi_moved_station_reports_maximum_distance_and_history(server):
         station = server[0][f"{SMHI}/parameter/{pid}/station/20.json"]
         first = station["position"][0]
         second = {**first, "from": midpoint, "longitude": 18.07, "latitude": 59.36}
-        first["to"] = midpoint - 1
+        # SMHI's inclusive "to" is the last whole second before the next "from".
+        first["to"] = midpoint - 1000
         station["position"].append(second)
     selection = history("smhi").attributes["selection"]
     assert selection["station_id"] == 20 and len(selection["position_history"]) == 2
@@ -393,10 +394,93 @@ def test_smhi_moved_station_reports_maximum_distance_and_history(server):
     )
 
 
-def test_smhi_unknown_position_does_not_silently_select_another_station(server):
+def test_smhi_unknown_position_excludes_station_and_reports_error(server):
     del server[0][f"{SMHI}/parameter/1/station/20.json"]["position"]
     result = history("smhi")
+    selection = result.attributes["selection"]
+    assert selection["status"] == "matched" and selection["station_id"] == 30
+    assert selection["excluded_stations"] == [
+        {"station_id": 20, "parameter": "air_temperature", "reason": "invalid_metadata"}
+    ]
+    assert result.attributes["upstream_errors"][0]["failure_class"] == "invalid_payload"
+    with pytest.raises(DatasetUpstreamError):
+        history("smhi", strict_live=True)
+
+
+@pytest.mark.parametrize(
+    ("problem", "reason"),
+    [("conflicting_positions", "invalid_metadata"), ("http_503", "fetch_failed")],
+)
+def test_smhi_bad_station_is_excluded_without_failing_selection(
+    server, problem, reason
+):
+    url = f"{SMHI}/parameter/4/station/30.json"
+    if problem == "http_503":
+        server[0][url] = Response(b"", status=503)
+    else:
+        # Live station 53430 has overlapping positions at different coordinates.
+        position = server[0][url]["position"][0]
+        server[0][url]["position"].append(
+            {**position, "from": START, "longitude": 18.3, "latitude": 59.6}
+        )
+    result = history("smhi")
+    selection = result.attributes["selection"]
+    assert selection["status"] == "matched" and selection["station_id"] == 20
+    assert selection["excluded_stations"] == [
+        {"station_id": 30, "parameter": "wind_speed", "reason": reason}
+    ]
+    assert result.attributes["upstream_error_count"] == 1
+    with pytest.raises(DatasetUpstreamError):
+        history("smhi", strict_live=True)
+
+
+def test_smhi_failed_nearby_station_does_not_claim_no_station(server):
+    server[0][f"{SMHI}/parameter/1/station/20.json"] = Response(b"", status=503)
+    result = history("smhi", max_distance_m=1_300)
     assert not result and result.attributes["selection"]["status"] == "discovery_failed"
+    assert result.attributes["upstream_error_count"] == 1
+
+
+def test_smhi_period_failure_excludes_station_and_selects_next(server):
+    for name in ("latest-months", "corrected-archive"):
+        url = f"{SMHI}/parameter/3/station/20/period/{name}.json"
+        server[0][url] = Response(b"", status=503)
+    result = history("smhi")
+    selection = result.attributes["selection"]
+    assert selection["status"] == "matched" and selection["station_id"] == 30
+    assert selection["excluded_stations"] == [
+        {"station_id": 20, "parameter": "wind_direction", "reason": "fetch_failed"}
+    ]
+    assert result.attributes["upstream_error_count"] == 1
+
+
+def test_smhi_skips_station_documents_beyond_relocation_margin(server):
+    # Station 30's catalogue position is max_distance_m + 20 km + 1 m away.
+    lon, lat, _ = Geod(ellps="WGS84").fwd(18.05, 59.34, 90, 21_301)
+    for pid in (1, 3, 4):
+        catalog = server[0][f"{SMHI}/parameter/{pid}.json"]
+        entry = next(s for s in catalog["station"] if s["key"] == "30")
+        entry.update(longitude=lon, latitude=lat)
+    result = history("smhi", max_distance_m=1_300)
+    assert result.attributes["selection"]["station_id"] == 20
+    assert not any("station/30" in url for url, _ in server[1])
+
+
+def test_smhi_finds_station_that_moved_within_relocation_margin(server):
+    # Station 30 used to stand 1 km from the query; its catalogue position is
+    # 15 km beyond max_distance_m, like the largest SMHI relocation (15.1 km).
+    geod = Geod(ellps="WGS84")
+    old_lon, old_lat, _ = geod.fwd(18.05, 59.34, 0, 1_000)
+    new_lon, new_lat, _ = geod.fwd(18.05, 59.34, 0, 17_000)
+    for pid in (1, 3, 4):
+        catalog = server[0][f"{SMHI}/parameter/{pid}.json"]
+        entry = next(s for s in catalog["station"] if s["key"] == "30")
+        entry.update(longitude=new_lon, latitude=new_lat)
+        position = server[0][f"{SMHI}/parameter/{pid}/station/30.json"]["position"][0]
+        position.update(longitude=old_lon, latitude=old_lat)
+    selection = history("smhi", max_distance_m=2_000).attributes["selection"]
+    assert selection["station_id"] == 30
+    assert selection["distance_m"] == pytest.approx(1_000)
 
 
 def test_smhi_catalogue_time_extent_does_not_hide_position_coverage_gaps(server):

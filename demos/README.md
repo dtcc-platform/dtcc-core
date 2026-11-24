@@ -125,4 +125,4 @@ failures raise errors. Close the window or press Ctrl+C to stop.
 
 The historical weather comparison fetches 1–3 January 2020 in UTC and displays
 three shared-time panels. Run `uv run python demos/weather_history_comparison.py`
-from the repository root. SMHI station discovery can take a few minutes.
+from the repository root.

@@ -185,7 +185,7 @@ class WeatherHistoryDatasetArgs(_WeatherHistoryQueryArgs):
         if duration <= 0:
             raise ValueError("Expected start < end")
         if duration > self.max_days * 86_400_000_000_000:
-            raise WeatherHistoryLimitError("Historical weather exceeded max_days")
+            raise ValueError("Historical weather exceeded max_days")
         return self
 
 

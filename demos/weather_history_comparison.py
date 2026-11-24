@@ -11,7 +11,7 @@ request = dict(
     parameters=["air_temperature", "wind_speed", "wind_direction"],
     strict_live=True,
 )
-print("Fetching SMHI station observations (station discovery can take a few minutes).")
+print("Fetching SMHI station observations.")
 smhi = dtcc.datasets.weather_history(source="smhi", max_distance_m=50_000, **request)
 print("Fetching Open-Meteo ERA5 reanalysis.")
 era5 = dtcc.datasets.weather_history(source="open_meteo", **request)

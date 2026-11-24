@@ -24,10 +24,15 @@ _PARAMETERS = {
     "wind_direction": (3, "grader", "degrees"),
 }
 _MS = 1_000_000
+# Upper bound on how far an SMHI station has moved from its catalogue position.
+# The largest relocation in the metobs position histories is 15.1 km; a live
+# test checks that this margin still covers every station.
+RELOCATION_MARGIN_M = 20_000
 
 
 def _interval(resource):
-    return int(resource["from"]) * _MS, (int(resource["to"]) + 1) * _MS
+    # SMHI timestamps are whole seconds and "to" includes its whole last second.
+    return int(resource["from"]) * _MS, (int(resource["to"]) + 1000) * _MS
 
 
 def _covers(intervals, start, end):
@@ -97,7 +102,65 @@ def _periods(station, start, end, client):
     return result
 
 
-def _select(args, client, lon, lat, excluded):
+def _catalogue_distance(entries, station_id, lon, lat, geod):
+    return min(
+        geod.inv(
+            lon,
+            lat,
+            float(items[station_id]["longitude"]),
+            float(items[station_id]["latitude"]),
+        )[2]
+        for items in entries.values()
+    )
+
+
+def _station_failed(args, excluded, errors, station_id, name, exc):
+    if args.strict_live:
+        raise exc
+    invalid = exc.failure_class == "invalid_payload"
+    excluded.append(
+        {
+            "station_id": station_id,
+            "parameter": name,
+            "reason": "invalid_metadata" if invalid else "fetch_failed",
+        }
+    )
+    errors.append(exc)
+
+
+def _station_documents(args, client, entries, station_id, query, excluded, errors):
+    """Return a station's documents and positions, or None after excluding it."""
+    start, end, lon, lat, geod = query
+    documents, positions = {}, None
+    for name in args.parameter_names:
+        try:
+            with _guard(_ROOT):
+                url = _link(entries[name][station_id], "station", "application/json")
+            with _guard(url):
+                station = client.json(url)
+                current = _positions(station, start, end, lon, lat, geod)
+                if current is not None:
+                    _consistent_positions(current, current, geod)
+                    if positions is not None:
+                        _consistent_positions(positions, current, geod)
+        except DatasetUpstreamError as exc:
+            _station_failed(args, excluded, errors, station_id, name, exc)
+            return None
+        if current is None:
+            excluded.append(
+                {
+                    "station_id": station_id,
+                    "parameter": name,
+                    "reason": "position_coverage",
+                }
+            )
+            return None
+        positions = positions or current
+        documents[name] = station
+    return documents, positions
+
+
+def _select(args, client, lon, lat, excluded, errors):
     start, end = _ns(args.start), _ns(args.end)
     geod = Geod(ellps="WGS84")
     version = client.json(_ROOT)
@@ -115,41 +178,43 @@ def _select(args, client, lon, lat, excluded):
             if _covers([_interval(item)], start, end)
         }
     common = set.intersection(*(set(items) for items in entries.values()))
+    # A station's history stays within RELOCATION_MARGIN_M of its catalogue
+    # position, so farther stations cannot be within max_distance_m.
+    limit = args.max_distance_m + RELOCATION_MARGIN_M
     ranked = []
     for station_id in sorted(common):
-        documents, positions = {}, None
-        for name in args.parameter_names:
-            station = client.json(
-                _link(entries[name][station_id], "station", "application/json")
-            )
-            current = _positions(station, start, end, lon, lat, geod)
-            if current is None:
-                excluded.append(
-                    {
-                        "station_id": station_id,
-                        "parameter": name,
-                        "reason": "position_coverage",
-                    }
-                )
-                break
-            _consistent_positions(current, current, geod)
-            if positions is not None:
-                _consistent_positions(positions, current, geod)
-            else:
-                positions = current
-            documents[name] = station
-        if len(documents) != len(args.parameter_names):
+        try:
+            with _guard(_ROOT):
+                if _catalogue_distance(entries, station_id, lon, lat, geod) > limit:
+                    continue
+        except DatasetUpstreamError as exc:
+            _station_failed(args, excluded, errors, station_id, None, exc)
             continue
-        distance = max(p["distance_m"] for p in positions)
-        if distance <= args.max_distance_m:
-            ranked.append((distance, station_id, documents, positions))
+        found = _station_documents(
+            args,
+            client,
+            entries,
+            station_id,
+            (start, end, lon, lat, geod),
+            excluded,
+            errors,
+        )
+        if found is not None:
+            documents, positions = found
+            distance = max(p["distance_m"] for p in positions)
+            if distance <= args.max_distance_m:
+                ranked.append((distance, station_id, documents, positions))
     for distance, station_id, documents, positions in sorted(
         ranked, key=lambda row: row[:2]
     ):
-        periods = {
-            name: _periods(station, start, end, client)
-            for name, station in documents.items()
-        }
+        periods, name = {}, None
+        try:
+            for name, station in documents.items():
+                with _guard(_ROOT):
+                    periods[name] = _periods(station, start, end, client)
+        except DatasetUpstreamError as exc:
+            _station_failed(args, excluded, errors, station_id, name, exc)
+            continue
         if all(
             _covers([_interval(period) for _key, period in items], start, end)
             for items in periods.values()
@@ -223,7 +288,9 @@ def _build_smhi(args, result, client, lon, lat, errors):
     result.attributes["selection"] = selection
     try:
         with _guard(_ROOT):
-            selected = _select(args, client, lon, lat, selection["excluded_stations"])
+            selected = _select(
+                args, client, lon, lat, selection["excluded_stations"], errors
+            )
     except DatasetUpstreamError as exc:
         selection["status"] = "discovery_failed"
         if args.strict_live:
@@ -231,7 +298,10 @@ def _build_smhi(args, result, client, lon, lat, errors):
         errors.append(exc)
         return
     if selected is None:
-        if args.strict_live:
+        if errors:
+            # A station that failed might have matched.
+            selection["status"] = "discovery_failed"
+        elif args.strict_live:
             raise NoMatchingStation(
                 f"No station offers {args.parameter_names} for [{args.start}, {args.end}) "
                 f"within {args.max_distance_m:g} m"
