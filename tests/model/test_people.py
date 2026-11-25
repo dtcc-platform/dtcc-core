@@ -239,8 +239,8 @@ def test_edge_counts_preserve_directed_traversals_across_intermediate_samples():
     path = TimedPath(
         "walk",
         "work",
-        [[0, 1, 2, 0], [1, 2, 2, 0], [2, 3, 2, 0], [4, 1, 2, 0]],
-        edge_ids=("street",) * 3,
+        [[0, 1, 2, 0], [1, 2, 2, 0], [2, 3, 2, 0], [3, 3, 2, 0], [4, 1, 2, 0]],
+        edge_ids=("street",) * 4,
     )
     model.add_child(Person(paths=(path,)))
     counts, endpoints = model.segment_passages()
@@ -260,12 +260,19 @@ def test_simulation_requires_people_in_its_coordinate_frame():
         exchange.dumps(simulation)
 
 
-def test_simulation_rejects_string_vehicle_coordinates():
+@pytest.mark.parametrize(
+    "samples",
+    [
+        [["0", "0", "0", "0"], ["1", "1", "1", "0"]],
+        [[False, 2, 2, 0], [True, 5, 2, 0]],
+    ],
+)
+def test_simulation_rejects_nonnumeric_vehicle_samples(samples):
     track = {
         "id": "route",
         "kind": "bus",
         "line": "1",
-        "samples": [["0", "0", "0", "0"], ["1", "1", "1", "0"]],
+        "samples": samples,
     }
     simulation = PeopleSimulation(
         transform=Transform(srs="EPSG:3006"),

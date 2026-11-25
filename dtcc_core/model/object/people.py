@@ -133,13 +133,21 @@ class TimedPath:
         for edge, segments in groupby(self.edge_ids):
             stop = start + sum(1 for _ in segments)
             # Reversing along the same edge begins a return traversal.
-            for i in range(start + 1, stop):
-                before, here, after = self.samples[i - 1 : i + 2, 1:3]
-                u, v = here - before, after - here
-                if u @ v < 0 and np.isclose(u[0] * v[1], u[1] * v[0]):
+            previous = None
+            for i in range(start, stop):
+                step = self.samples[i + 1, 1:3] - self.samples[i, 1:3]
+                if not step.any():
+                    continue
+                if (
+                    previous is not None
+                    and previous @ step < 0
+                    and np.isclose(previous[0] * step[1], previous[1] * step[0])
+                ):
                     yield edge, self.samples[start : i + 1]
                     start = i
-            yield edge, self.samples[start : stop + 1]
+                previous = step
+            if previous is not None:
+                yield edge, self.samples[start : stop + 1]
             start = stop
 
     def position_at(self, second: float) -> MovementState | None:
@@ -294,8 +302,8 @@ class PeopleSimulation(Object):
                 )
             ids.add(vehicle_id)
             try:
-                samples = np.asarray(track.get("samples"))
-                if samples.dtype.kind not in "iuf":
+                samples = np.asarray(track.get("samples"), dtype=object)
+                if any(type(value) not in (int, float) for value in samples.flat):
                     raise ValueError("samples must be numeric")
                 TimedPath("transit", "service", samples)
             except (TypeError, ValueError, OverflowError) as error:
