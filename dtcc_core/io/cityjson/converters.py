@@ -20,8 +20,9 @@ class CityJSONConfig:
     lod_mapping: dict[GeometryType, float] = None
     # Rounding mode for quantization: "round" (default), "floor", or "ceil"
     rounding_mode: str = "round"
-    # Whether building geometry without semantic regions is written with
-    # ``semantic_types["surface"]`` labels (LoD0 never is). None means: only
+    # Whether default (non-strict) export writes building geometry without
+    # semantic regions with ``semantic_types["surface"]`` labels (LoD0 never
+    # is; strict export never labels it). None means: only
     # when the caller passes ``semantic_types`` with a ``"surface"`` entry.
     # It is resolved once, at construction.
     labels_unclassified_surfaces: bool | None = None
