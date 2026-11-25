@@ -269,3 +269,12 @@ GeoJSON conversions write their documented geometry and static data subset.
 They omit attached time series and leave the source model unchanged. These
 derived formats do not preserve the complete model; use `.dtcc` for a temporal
 round trip. Strict CityJSON retains its rejection of unsupported attachments.
+
+### People and scheduled trajectories
+
+Wire 7 adds Object kinds for Person and PeopleSimulation. TimedPath rows store
+local seconds and absolute projected XYZ. Person and PeopleSimulation use
+additive native bindings under schema 0.9.0, as does TimeSeries. Existing
+kinds keep their wire tags and semantic rules. Readers without the People
+kinds reject those objects. A reader must recognize the concrete kind as
+well as the envelope versions before accepting a People model.
