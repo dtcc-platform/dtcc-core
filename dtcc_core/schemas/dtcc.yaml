@@ -347,6 +347,16 @@ classes:
     description: Native DTCC DeSO; generic object rules, without a claim of CityGML equivalence.
     annotations:
       dtcc_native_type: DeSO
+  Person:
+    is_a: Object
+    description: Synthetic person with a timed daily activity and travel record.
+    annotations:
+      dtcc_native_type: Person
+  PeopleSimulation:
+    is_a: Object
+    description: Bounded view of a regional synthetic population and day.
+    annotations:
+      dtcc_native_type: PeopleSimulation
   PointCloud:
     is_a: Geometry
     description: Native DTCC PointCloud. Numerical state and domain bounds are admitted by

@@ -47,6 +47,8 @@ from .object import (
     GeometryRepresentation,
     Landuse,
     Object,
+    PeopleSimulation,
+    Person,
     RoadNetwork,
     SensorCollection,
     Terrain,
@@ -60,6 +62,7 @@ from .object.dataset_collections import (
 )
 from .object.landuse import LanduseClasses
 from .object.object import _validate_attributes
+from .object.people import TimedPath
 from .values import Field, Raster, TimeSeries
 from .values.raster_tiles import RasterTile, RasterTileCollection
 
@@ -84,6 +87,8 @@ OBJECT_KINDS = {
     SensorCollection: wire.Object.SENSOR_COLLECTION,
     VehicleCollection: wire.Object.VEHICLE_COLLECTION,
     DeSO: wire.Object.DESO,
+    Person: wire.Object.PERSON,
+    PeopleSimulation: wire.Object.PEOPLE_SIMULATION,
 }
 KINDS_OBJECT = {value: key for key, value in OBJECT_KINDS.items()}
 # Root-only Dataset wrappers, exchanged as a transient Object with id "collection".
@@ -1137,6 +1142,22 @@ def validate(model):
                 raise ValueError(
                     "RoadNetwork.length must be finite nonnegative values aligned to edges"
                 )
+        elif type(obj) is Person:
+            for name in (
+                "household_id",
+                "age_band",
+                "role",
+                "home_id",
+                "regular_destination_id",
+            ):
+                _text(getattr(obj, name), f"Person.{name}")
+            obj._validate_day()
+        elif type(obj) is PeopleSimulation:
+            _bounds(obj.view_bounds)
+            if obj.view_bounds.width <= 0 or obj.view_bounds.height <= 0:
+                raise ValueError("PeopleSimulation requires nonempty view bounds")
+            obj._coordinate_reference()
+            obj._validate_vehicle_tracks()
         elif type(obj) is Landuse:
             if not isinstance(obj.landuses, list) or any(
                 type(code) is not LanduseClasses for code in obj.landuses
@@ -1608,6 +1629,27 @@ def _encode_object(value, pb):
     elif type(value) is Landuse:
         pb.landuse.SetInParent()
         pb.landuse.landuses.extend(code.name for code in value.landuses)
+    elif type(value) is Person:
+        person = pb.person
+        person.SetInParent()
+        for name in (
+            "household_id",
+            "age_band",
+            "role",
+            "home_id",
+            "regular_destination_id",
+            "appearance_key",
+        ):
+            setattr(person, name, getattr(value, name))
+        for path in value.paths:
+            item = person.paths.add(
+                state=path.state,
+                purpose=path.purpose,
+                place_id=path.place_id,
+                journey_id=path.journey_id,
+                edge_ids=path.edge_ids,
+            )
+            item.samples.CopyFrom(_encode_array(path.samples))
     for key, item in value.attributes.items():
         pb.attributes[key].CopyFrom(_encode_value(item))
     for group in value.children.values():
@@ -1640,6 +1682,7 @@ def _decode_object(pb, strings, depth=0, cls=None):
         wire.Object.TREE: "tree",
         wire.Object.LANDUSE: "landuse",
         wire.Object.ROAD_NETWORK: "road_network",
+        wire.Object.PERSON: "person",
     }.get(pb.kind)
     if state != expected_state:
         raise ValueError("Canonical object state must match its concrete kind")
@@ -1662,6 +1705,31 @@ def _decode_object(pb, strings, depth=0, cls=None):
             )
         except KeyError as exc:
             raise ValueError("Unknown canonical Landuse code") from exc
+    elif state == "person":
+        extra = {
+            name: _decode_text(getattr(pb.person, name), strings)
+            for name in (
+                "household_id",
+                "age_band",
+                "role",
+                "home_id",
+                "regular_destination_id",
+            )
+        }
+        extra["appearance_key"] = pb.person.appearance_key
+        extra["paths"] = tuple(
+            TimedPath(
+                *(
+                    _decode_text(getattr(path, name), strings)
+                    for name in ("state", "purpose")
+                ),
+                _decode_array(path.samples),
+                _decode_text(path.place_id, strings),
+                _decode_text(path.journey_id, strings),
+                tuple(_decode_text(edge, strings) for edge in path.edge_ids),
+            )
+            for path in pb.person.paths
+        )
     value = (cls or KINDS_OBJECT[pb.kind])(
         id=_decode_text(pb.id, strings),
         semantic_type=_decode_text(pb.semantic_type, strings) or None,

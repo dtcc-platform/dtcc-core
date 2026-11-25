@@ -15,6 +15,7 @@ from .landuse import Landuse, LanduseClasses
 from .sensor_collection import SensorCollection
 from .vehicle_collection import VehicleCollection
 from .deso import DeSO
+from .people import PeopleSimulation, Person
 
 __all__ = [
     "Object",
@@ -37,4 +38,6 @@ __all__ = [
     "SensorCollection",
     "VehicleCollection",
     "DeSO",
+    "PeopleSimulation",
+    "Person",
 ]

@@ -30,6 +30,8 @@ OBJECTS = (
     "SensorCollection",
     "VehicleCollection",
     "DeSO",
+    "Person",
+    "PeopleSimulation",
 )
 GEOMETRIES = (
     "Grid",
@@ -64,6 +66,14 @@ UNSUPPORTED = (
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 
 
+def _model_fixture(name, **kwargs):
+    value = getattr(model, name)(**kwargs)
+    if name == "PeopleSimulation":
+        value.transform = model.Transform(srs="EPSG:3006")
+        value.attributes["view_bounds"] = [0, 0, 10, 10]
+    return value
+
+
 def test_every_public_model_has_a_serialization_classification():
     public_models = {
         name
@@ -79,7 +89,7 @@ def test_every_public_model_has_a_serialization_classification():
 
 @pytest.mark.parametrize("name", SUPPORTED)
 def test_minimal_model_round_trips_bytes_and_protobuf_json(name):
-    source = getattr(model, name)()
+    source = _model_fixture(name)
     if name in ("Field", "TimeSeries"):
         source.association = "sample"
     if name == "Solid":
@@ -194,8 +204,8 @@ def test_unsupported_model_serialization_fails_explicitly(name):
 @pytest.mark.parametrize("name", OBJECTS)
 def test_nested_objects_preserve_type_attributes_and_children(name):
     root = model.City(id="city")
-    child = getattr(model, name)(id="feature")
-    child.attributes = {"name": "A", "optional": None, "tags": ["urban", 2, True]}
+    child = _model_fixture(name, id="feature")
+    child.attributes.update({"name": "A", "optional": None, "tags": ["urban", 2, True]})
     part = model.Object(id="part")
     part.add_geometry(model.Point(x=2, y=3, z=4), "location")
     child.add_child(part)

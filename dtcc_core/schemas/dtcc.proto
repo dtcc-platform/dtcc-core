@@ -43,6 +43,8 @@ message Object {
     FIELD_SLICE = 17;
     STREAMLINE_COLLECTION = 18;
     RASTER_TILE_COLLECTION = 19;
+    PERSON = 20;
+    PEOPLE_SIMULATION = 21;
   }
   Kind kind = 1;
   string id = 2;
@@ -59,7 +61,25 @@ message Object {
     Tree tree = 12;
     Landuse landuse = 13;
     RoadNetwork road_network = 14;
+    Person person = 15;
   }
+}
+message Person {
+  string household_id = 1;
+  string age_band = 2;
+  string role = 3;
+  string home_id = 4;
+  string regular_destination_id = 5;
+  uint32 appearance_key = 6;
+  repeated TimedPath paths = 7;
+}
+message TimedPath {
+  string state = 1;
+  string purpose = 2;
+  string place_id = 3;
+  string journey_id = 4;
+  Array samples = 5; // Rows of local clock seconds, easting, northing, height.
+  repeated string edge_ids = 6;
 }
 message Tree {
   Array position = 1;
