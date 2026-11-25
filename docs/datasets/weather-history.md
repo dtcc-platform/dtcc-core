@@ -162,21 +162,25 @@ WGS84 ellipsoidal horizontal distances. Inactive stations can supply historical
 data. Catalogue first/last dates can enclose gaps: stations without position
 coverage are excluded and reported in `selection["excluded_stations"]`.
 
-Only stations whose catalogue position lies within `max_distance_m` plus a 20 km
-relocation margin are examined; no SMHI station's position history lies farther
-than that from its catalogue position, and a live test checks this. A station
-whose metadata cannot be fetched or is malformed is excluded with reason
+Station eligibility uses historical positions for the requested dates.
+DTCC examines position histories for common stations with catalogue time
+coverage, including stations whose current locations are far from the query.
+It stops checking a station when a parameter's position history rules it out.
+This can require many metadata requests for long or densely observed periods.
+A station whose metadata cannot be fetched or is malformed is excluded with reason
 `fetch_failed` or `invalid_metadata`, its error is added to `upstream_errors`,
 and selection continues with the other stations. If no other station matches,
 the selection is `discovery_failed` rather than `no_matching_station`, since the
 failed station might have matched. `strict_live=True` raises instead. Failures
 of the parameter catalogues also mark the selection `discovery_failed`.
 
-For a station that moved, selection uses the maximum distance over applicable
-position-history segments, keeping the radius valid throughout the request.
-Exact ties use numeric station ID. Results retain station ID/name, the position
-at the request's start, WGS84 coordinates, output-CRS position history and
-per-segment distances. Readings are not interpolated to the query point.
+Selection uses the maximum distance over applicable position-history segments
+across all requested parameters, keeping the radius valid throughout the request.
+Overlapping positions must agree within one metre. Exact ties use numeric station
+ID. Results retain station ID/name, the position at the request's start, WGS84
+coordinates, output-CRS position history and per-segment distances. The reported
+history comes from the first requested parameter in alphabetical order. Readings
+are not interpolated to the query point.
 
 Corrected archive records replace provisional readings and quality codes at
 overlapping timestamps, including corrected missing readings. Raw quality and
@@ -220,8 +224,9 @@ when only one measurement succeeds. Strict mode continues to raise on failures.
 The collection maps `(location_id, parameter)` to `TimeSeries` and exposes
 `locations`, `series_metadata`, `observations` and `attributes`. Its `metadata`
 property keeps the standard DTCC dataset-context meaning. `to_dataframe()` returns
-long-form UTC readings with source/model, station coordinates, selection distance,
-units and optional quality. Derived standalone series do not inherit raw quality.
+long-form UTC readings with source/model, coordinates at each reading's time,
+selection distance, units and optional quality. Derived standalone series do not
+inherit raw quality.
 
 `strict_live=True` raises `DatasetUpstreamError` for upstream failures and
 `NoMatchingStation` for no eligible SMHI station. Otherwise inspect

@@ -1,8 +1,10 @@
 """Shared transport and normalization for historical weather providers."""
 
+import csv
 from contextlib import contextmanager
 
 import numpy as np
+from pyproj.exceptions import ProjError
 
 from ..io import HttpLimitError, HttpTransportError, ResponseCache, http_client
 from ..model import Point, TimeSeries
@@ -75,6 +77,7 @@ def _guard(target, client=None):
         IndexError,
         StopIteration,
         OverflowError,
+        csv.Error,
     ) as exc:
         raise _invalid(target, type(exc).__name__) from exc
 
@@ -171,6 +174,8 @@ def _link(resource, rel, media_type):
         for item in resource["link"]
         if item["rel"] == rel and item["type"] == media_type
     )
+    if not isinstance(href, str):
+        raise ValueError("Expected an SMHI resource URL")
     # SMHI publishes absolute links on its metobs download host.
     parsed = urlparse(href)
     if parsed.scheme != "https" or parsed.netloc != "opendata-download-metobs.smhi.se":
@@ -179,9 +184,14 @@ def _link(resource, rel, media_type):
 
 
 def _output_point(lon, lat, height, crs):
-    coords = reproject_array(
-        np.array([[lon, lat, height]], dtype=float), "EPSG:4326", crs
-    )[0]
+    try:
+        coords = reproject_array(
+            np.array([[lon, lat, height]], dtype=float), "EPSG:4326", crs
+        )[0]
+    except ProjError as exc:
+        raise ValueError(
+            "Weather location cannot be represented in requested CRS"
+        ) from exc
     point = Point(x=float(coords[0]), y=float(coords[1]), z=float(coords[2]))
     point.transform.srs = crs
     return point

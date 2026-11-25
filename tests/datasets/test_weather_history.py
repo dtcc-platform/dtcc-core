@@ -1,12 +1,14 @@
 """Historical weather selection, source semantics and location reprojection."""
 
 import copy
+import csv
 import json
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx2
 import numpy as np
 import pytest
+from pydantic import ValidationError
 from pyproj import Geod, Transformer
 
 from dtcc_core import datasets
@@ -22,6 +24,7 @@ from dtcc_core.model import Bounds, Point, TimeSeries, TimeSeriesCollection
 
 SMHI = "https://opendata-download-metobs.smhi.se/api/version/1.0"
 OPEN = "https://archive-api.open-meteo.com/v1/archive"
+ORTHOGRAPHIC_CRS = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m"
 NAMES = ["air_temperature", "wind_speed", "wind_direction"]
 START = int(np.datetime64("2020-01-01T00:00", "ms").astype(np.int64))
 END = START + 86_400_000
@@ -373,6 +376,36 @@ def test_smhi_equal_distance_tie_uses_station_id(server):
     assert history("smhi").attributes["selection"]["station_id"] == 20
 
 
+@pytest.mark.parametrize(
+    "parameters", [("air_temperature", "wind_speed"), ("wind_speed", "air_temperature")]
+)
+def test_smhi_radius_uses_every_parameters_position(server, parameters):
+    geod = Geod(ellps="WGS84")
+    for pid, distance in ((1, 100), (4, 100.75)):
+        lon, lat, _ = geod.fwd(18.05, 59.34, 90, distance)
+        position = server[0][f"{SMHI}/parameter/{pid}/station/20.json"]["position"][0]
+        position.update(longitude=lon, latitude=lat)
+
+    outside = history("smhi", parameters=parameters, max_distance_m=100.5)
+    assert outside.attributes["selection"]["status"] == "no_matching_station"
+    inside = history("smhi", parameters=parameters, max_distance_m=101)
+    selection = inside.attributes["selection"]
+    assert selection["station_id"] == 20
+    assert selection["distance_m"] == pytest.approx(100.75)
+
+
+def test_smhi_checks_positions_between_all_parameters(server):
+    geod = Geod(ellps="WGS84")
+    for pid, distance in ((1, 100), (3, 100.75), (4, 99.25)):
+        lon, lat, _ = geod.fwd(18.05, 59.34, 90, distance)
+        position = server[0][f"{SMHI}/parameter/{pid}/station/20.json"]["position"][0]
+        position.update(longitude=lon, latitude=lat)
+
+    result = history("smhi")
+    assert result.attributes["selection"]["station_id"] == 30
+    assert result.attributes["upstream_errors"][0]["failure_class"] == "invalid_payload"
+
+
 def test_smhi_moved_station_reports_maximum_distance_and_history(server):
     midpoint = START + 43_200_000
     for pid in (1, 3, 4):
@@ -382,20 +415,26 @@ def test_smhi_moved_station_reports_maximum_distance_and_history(server):
         # SMHI's inclusive "to" is the last whole second before the next "from".
         first["to"] = midpoint - 1000
         station["position"].append(second)
-    selection = history("smhi").attributes["selection"]
+    result = history("smhi")
+    selection = result.attributes["selection"]
     assert selection["station_id"] == 20 and len(selection["position_history"]) == 2
     assert selection["distance_m"] == pytest.approx(
         Geod(ellps="WGS84").inv(18.05, 59.34, 18.07, 59.36)[2]
     )
     assert selection["station_location"].x == 18.06
+    table = result.to_dataframe()
+    temperature = table[table["parameter"] == "air_temperature"]
+    assert temperature["x"].tolist() == [18.06] * 12 + [18.07] * 12
+    assert temperature["y"].tolist() == [59.35] * 12 + [59.36] * 12
     assert (
         history("smhi", max_distance_m=1500).attributes["selection"]["status"]
         == "no_matching_station"
     )
 
 
-def test_smhi_unknown_position_excludes_station_and_reports_error(server):
-    del server[0][f"{SMHI}/parameter/1/station/20.json"]["position"]
+@pytest.mark.parametrize("missing_field", ["position", "title"])
+def test_smhi_missing_station_metadata_excludes_station(server, missing_field):
+    del server[0][f"{SMHI}/parameter/1/station/20.json"][missing_field]
     result = history("smhi")
     selection = result.attributes["selection"]
     assert selection["status"] == "matched" and selection["station_id"] == 30
@@ -403,8 +442,95 @@ def test_smhi_unknown_position_excludes_station_and_reports_error(server):
         {"station_id": 20, "parameter": "air_temperature", "reason": "invalid_metadata"}
     ]
     assert result.attributes["upstream_errors"][0]["failure_class"] == "invalid_payload"
-    with pytest.raises(DatasetUpstreamError):
+    with pytest.raises(DatasetUpstreamError) as exc:
         history("smhi", strict_live=True)
+    assert exc.value.failure_class == "invalid_payload"
+
+
+def test_smhi_missing_catalogue_summary_reports_failed_discovery(server):
+    catalogue = f"{SMHI}/parameter/1.json"
+    del server[0][catalogue]["summary"]
+    result = history("smhi")
+    assert not result
+    assert result.attributes["selection"]["status"] == "discovery_failed"
+    assert result.attributes["upstream_errors"][0]["failure_class"] == "invalid_payload"
+    with pytest.raises(DatasetUpstreamError) as exc:
+        history("smhi", strict_live=True)
+    assert exc.value.failure_class == "invalid_payload"
+    assert exc.value.target == catalogue
+
+
+def test_smhi_availability_keeps_candidates_after_invalid_station_link(server):
+    catalogue = server[0][f"{SMHI}/parameter/1.json"]
+    catalogue["station"][0]["link"][0]["href"] = 42
+    args = dict(
+        source="smhi",
+        location=(18.05, 59.34),
+        crs="EPSG:4326",
+        max_distance_m=50_000,
+        parameters="air_temperature",
+        cache_ttl_s=0,
+    )
+
+    result = datasets.weather_history.availability(**args)
+    assert not result["complete"]
+    parameter = result["parameters"]["air_temperature"]
+    assert parameter["status"] == "partial"
+    assert [c["station_id"] for c in parameter["candidates"]] == [20, 30]
+    assert result["upstream_errors"][0]["failure_class"] == "invalid_payload"
+    with pytest.raises(DatasetUpstreamError) as exc:
+        datasets.weather_history.availability(**args, strict_live=True)
+    assert exc.value.failure_class == "invalid_payload"
+
+
+@pytest.mark.parametrize("operation", ["open_meteo", "smhi", "availability"])
+def test_weather_reports_locations_outside_requested_crs(server, operation):
+    source = "open_meteo" if operation == "open_meteo" else "smhi"
+    args = dict(
+        location=(0, 0),
+        crs=ORTHOGRAPHIC_CRS,
+        parameters=["air_temperature"],
+        cache_ttl_s=0,
+    )
+    if source == "open_meteo":
+        server[0][OPEN].update(longitude=120, latitude=0)
+    else:
+        args["max_distance_m"] = 20_000_000
+        for sid in (10, 20, 30):
+            station = server[0][f"{SMHI}/parameter/1/station/{sid}.json"]
+            station["position"][0].update(longitude=120, latitude=0)
+
+    if operation == "availability":
+        fetch = datasets.weather_history.availability
+        result = fetch(source=source, **args)
+        assert not result["complete"]
+        assert result["parameters"]["air_temperature"]["status"] == "unknown"
+        errors = result["upstream_errors"]
+    else:
+        fetch = history
+        result = fetch(source=source, **args)
+        assert not result and not result.locations
+        errors = result.attributes["upstream_errors"]
+    assert errors[0]["failure_class"] == "invalid_payload"
+    with pytest.raises(DatasetUpstreamError) as exc:
+        fetch(source=source, **args, strict_live=True)
+    assert exc.value.failure_class == "invalid_payload"
+
+
+def test_smhi_does_not_project_lower_ranked_stations(server):
+    station = server[0][f"{SMHI}/parameter/1/station/30.json"]
+    station["position"][0].update(longitude=120, latitude=0)
+
+    result = history(
+        "smhi",
+        parameters=["air_temperature"],
+        location=(0, 0),
+        crs=ORTHOGRAPHIC_CRS,
+        max_distance_m=20_000_000,
+        strict_live=True,
+    )
+
+    assert result.attributes["selection"]["station_id"] == 10
 
 
 @pytest.mark.parametrize(
@@ -454,24 +580,20 @@ def test_smhi_period_failure_excludes_station_and_selects_next(server):
     assert result.attributes["upstream_error_count"] == 1
 
 
-def test_smhi_skips_station_documents_beyond_relocation_margin(server):
-    # Station 30's catalogue position is max_distance_m + 20 km + 1 m away.
-    lon, lat, _ = Geod(ellps="WGS84").fwd(18.05, 59.34, 90, 21_301)
-    for pid in (1, 3, 4):
-        catalog = server[0][f"{SMHI}/parameter/{pid}.json"]
-        entry = next(s for s in catalog["station"] if s["key"] == "30")
-        entry.update(longitude=lon, latitude=lat)
+def test_smhi_uses_position_history_to_rule_out_distant_stations(server):
     result = history("smhi", max_distance_m=1_300)
     assert result.attributes["selection"]["station_id"] == 20
-    assert not any("station/30" in url for url, _ in server[1])
+    station_urls = [url for url, _ in server[1] if "/station/30" in url]
+    assert station_urls == [f"{SMHI}/parameter/1/station/30.json"]
 
 
-def test_smhi_finds_station_that_moved_within_relocation_margin(server):
-    # Station 30 used to stand 1 km from the query; its catalogue position is
-    # 15 km beyond max_distance_m, like the largest SMHI relocation (15.1 km).
+@pytest.mark.parametrize("catalogue_distance", [17_000, 25_000])
+def test_smhi_finds_relocated_station_from_its_position_history(
+    server, catalogue_distance
+):
     geod = Geod(ellps="WGS84")
     old_lon, old_lat, _ = geod.fwd(18.05, 59.34, 0, 1_000)
-    new_lon, new_lat, _ = geod.fwd(18.05, 59.34, 0, 17_000)
+    new_lon, new_lat, _ = geod.fwd(18.05, 59.34, 0, catalogue_distance)
     for pid in (1, 3, 4):
         catalog = server[0][f"{SMHI}/parameter/{pid}.json"]
         entry = next(s for s in catalog["station"] if s["key"] == "30")
@@ -512,6 +634,22 @@ def test_smhi_duplicate_source_rows_fail_without_losing_other_parameters(server)
     assert result.attributes["upstream_errors"][0]["failure_class"] == "invalid_payload"
     with pytest.raises(DatasetUpstreamError):
         history("smhi", strict_live=True)
+
+
+def test_smhi_csv_reader_error_preserves_other_sources(server):
+    url = f"{SMHI}/parameter/1/station/20/period/corrected-archive/data.csv"
+    oversized_field = "x" * (csv.field_size_limit() + 1)
+    server[0][url] += f"\n2020-01-01;00:00:00;11;G;{oversized_field}"
+
+    result = history("smhi")
+    assert len(result) == 3
+    assert result[("smhi:20", "air_temperature")].values[0, 0] == 99
+    assert result.attributes["partial_result"]
+    assert result.attributes["upstream_errors"][0]["failure_class"] == "invalid_payload"
+    with pytest.raises(DatasetUpstreamError) as exc:
+        history("smhi", strict_live=True)
+    assert exc.value.failure_class == "invalid_payload"
+    assert exc.value.target == url
 
 
 def test_smhi_discovery_failure_does_not_claim_no_station(server):
@@ -604,6 +742,24 @@ def test_api_key_is_excluded_from_context_and_failures(server):
     result = history(api_key="test-secret")
     assert "test-secret" not in str(result.attributes)
     assert result.attributes["upstream_errors"][0]["failure_class"] == "connection"
+
+
+@pytest.mark.parametrize(
+    "updates, message",
+    [
+        ({"end": "2019-12-31"}, "Expected start < end"),
+        ({"source": "smhi", "max_distance_m": 1000}, "apply only to Open-Meteo"),
+        ({"api_key": ["test-secret"]}, "valid string"),
+    ],
+)
+def test_api_key_is_excluded_from_validation_errors(updates, message):
+    with pytest.raises(ValidationError, match=message) as exc:
+        history(**{"api_key": "test-secret", **updates})
+
+    error = exc.value
+    assert "test-secret" not in str(error)
+    assert "test-secret" not in repr(error.errors())
+    assert "test-secret" not in error.json()
 
 
 @pytest.mark.parametrize(

@@ -20,6 +20,7 @@ def _build_open_meteo(args, result, client, lon, lat, errors):
     records = {name: {} for name in args.parameter_names}
     successful = False
     returned_location = None
+    grid_point = None
     left, end = _ns(args.start), _ns(args.end)
     while left < end:
         right = min(end, left + args.chunk_days * 86_400_000_000_000)
@@ -45,6 +46,8 @@ def _build_open_meteo(args, result, client, lon, lat, errors):
                 )
                 if returned_location is not None and returned_location != location:
                     raise ValueError("Open-Meteo changed grid location between chunks")
+                if returned_location is None:
+                    grid_point = _output_point(*location, args.crs)
                 returned_location = location
                 for name, readings in parsed.items():
                     if records[name].keys() & readings.keys():
@@ -63,7 +66,7 @@ def _build_open_meteo(args, result, client, lon, lat, errors):
         "kind": "model_sample",
         "crs": args.crs,
         "requested_point": result.attributes["requested_point"],
-        "point": _output_point(grid_lon, grid_lat, elevation, args.crs),
+        "point": grid_point,
         "latitude": grid_lat,
         "longitude": grid_lon,
         "elevation": elevation,

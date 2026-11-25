@@ -1,5 +1,6 @@
 """Located historical weather from SMHI stations or Open-Meteo ERA5."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -11,6 +12,7 @@ from pydantic import (
     Field,
     FiniteFloat,
     PrivateAttr,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -187,6 +189,20 @@ class WeatherHistoryDatasetArgs(_WeatherHistoryQueryArgs):
         if duration > self.max_days * 86_400_000_000_000:
             raise ValueError("Historical weather exceeded max_days")
         return self
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _validate_without_credential_input(cls, values, handler):
+        try:
+            return handler(values)
+        except ValidationError as exc:
+            if isinstance(values, Mapping) and "api_key" not in values:
+                raise
+            # Model-level errors can attach the whole request as input.
+            sanitized = ValidationError.from_exception_data(
+                exc.title, exc.errors(include_input=False, include_url=False)
+            )
+        raise sanitized
 
 
 class WeatherHistoryDataset(DatasetDescriptor):

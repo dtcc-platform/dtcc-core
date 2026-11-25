@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from ..model import Model
 from .time_series import TimeSeries
 
@@ -76,9 +78,9 @@ class TimeSeriesCollection(Model, Mapping):
     def to_dataframe(self):
         """Return long-form readings with locations, provenance and raw quality.
 
-        The time column is UTC. Pandas is imported only when this method is
-        called. Raw observation codes describe these readings, not values
-        created by resampling or interpolating a standalone TimeSeries.
+        The time column is UTC. Position history supplies coordinates at each
+        reading's timestamp. Raw observation codes describe these readings, not
+        values created by resampling or interpolating a standalone TimeSeries.
         """
         import pandas as pd
 
@@ -103,10 +105,28 @@ class TimeSeriesCollection(Model, Mapping):
         rows = []
         for key, series in self.items():
             location = self.locations[key[0]]
-            point = location.get("point")
+            default_point = location.get("point")
+            positions = [
+                (
+                    np.datetime64(segment["from"], "ns"),
+                    np.datetime64(segment["to_exclusive"], "ns"),
+                    segment["point"],
+                )
+                for segment in location.get("position_history", ())
+            ]
             metadata = self.series_metadata.get(key, {})
             ancillary = self.observations.get(key, {})
             for index, stamp in enumerate(series.times):
+                point = default_point
+                if positions:
+                    point = next(
+                        (
+                            point
+                            for start, end, point in positions
+                            if start <= stamp < end
+                        ),
+                        default_point,
+                    )
                 observation = ancillary.get(str(stamp), {})
                 values = series.values[index].reshape(series.num_elements, series.dim)
                 for element in range(series.num_elements):

@@ -24,10 +24,6 @@ _PARAMETERS = {
     "wind_direction": (3, "grader", "degrees"),
 }
 _MS = 1_000_000
-# Upper bound on how far an SMHI station has moved from its catalogue position.
-# The largest relocation in the metobs position histories is 15.1 km; a live
-# test checks that this margin still covers every station.
-RELOCATION_MARGIN_M = 20_000
 
 
 def _interval(resource):
@@ -102,18 +98,6 @@ def _periods(station, start, end, client):
     return result
 
 
-def _catalogue_distance(entries, station_id, lon, lat, geod):
-    return min(
-        geod.inv(
-            lon,
-            lat,
-            float(items[station_id]["longitude"]),
-            float(items[station_id]["latitude"]),
-        )[2]
-        for items in entries.values()
-    )
-
-
 def _station_failed(args, excluded, errors, station_id, name, exc):
     if args.strict_live:
         raise exc
@@ -129,10 +113,12 @@ def _station_failed(args, excluded, errors, station_id, name, exc):
 
 
 def _station_documents(args, client, entries, station_id, query, excluded, errors):
-    """Return a station's documents and positions, or None after excluding it."""
+    """Collect an eligible station's metadata and maximum historical distance."""
     start, end, lon, lat, geod = query
-    documents, positions = {}, None
-    for name in args.parameter_names:
+    documents, position_history = {}, []
+    all_positions = []
+    distance = 0.0
+    for name in sorted(args.parameter_names):
         try:
             with _guard(_ROOT):
                 url = _link(entries[name][station_id], "station", "application/json")
@@ -140,9 +126,14 @@ def _station_documents(args, client, entries, station_id, query, excluded, error
                 station = client.json(url)
                 current = _positions(station, start, end, lon, lat, geod)
                 if current is not None:
+                    farthest = max(p["distance_m"] for p in current)
+                    if farthest > args.max_distance_m:
+                        return None
                     _consistent_positions(current, current, geod)
-                    if positions is not None:
-                        _consistent_positions(positions, current, geod)
+                    _consistent_positions(all_positions, current, geod)
+                    title = station["title"]
+                    if not isinstance(title, str) or not title.strip():
+                        raise ValueError("Missing SMHI station title")
         except DatasetUpstreamError as exc:
             _station_failed(args, excluded, errors, station_id, name, exc)
             return None
@@ -155,9 +146,11 @@ def _station_documents(args, client, entries, station_id, query, excluded, error
                 }
             )
             return None
-        positions = positions or current
+        position_history = position_history or current
+        all_positions.extend(current)
+        distance = max(distance, farthest)
         documents[name] = station
-    return documents, positions
+    return documents, position_history, distance
 
 
 def _select(args, client, lon, lat, excluded, errors):
@@ -168,28 +161,23 @@ def _select(args, client, lon, lat, excluded, errors):
     catalogs, entries = {}, {}
     for name in args.parameter_names:
         pid, expected_unit, _unit = _PARAMETERS[name]
-        catalog = client.json(_link(resources[pid], "parameter", "application/json"))
-        if catalog["valueType"] != "SAMPLING" or catalog["unit"] != expected_unit:
-            raise ValueError("Unsupported SMHI measurement semantics or unit")
+        url = _link(resources[pid], "parameter", "application/json")
+        with _guard(url):
+            catalog = client.json(url)
+            if catalog["valueType"] != "SAMPLING" or catalog["unit"] != expected_unit:
+                raise ValueError("Unsupported SMHI measurement semantics or unit")
+            summary = catalog["summary"]
+            if not isinstance(summary, str) or not summary.strip():
+                raise ValueError("Missing SMHI parameter summary")
+            entries[name] = {
+                int(item["key"]): item
+                for item in catalog["station"]
+                if _covers([_interval(item)], start, end)
+            }
         catalogs[name] = catalog
-        entries[name] = {
-            int(item["key"]): item
-            for item in catalog["station"]
-            if _covers([_interval(item)], start, end)
-        }
     common = set.intersection(*(set(items) for items in entries.values()))
-    # A station's history stays within RELOCATION_MARGIN_M of its catalogue
-    # position, so farther stations cannot be within max_distance_m.
-    limit = args.max_distance_m + RELOCATION_MARGIN_M
     ranked = []
     for station_id in sorted(common):
-        try:
-            with _guard(_ROOT):
-                if _catalogue_distance(entries, station_id, lon, lat, geod) > limit:
-                    continue
-        except DatasetUpstreamError as exc:
-            _station_failed(args, excluded, errors, station_id, None, exc)
-            continue
         found = _station_documents(
             args,
             client,
@@ -200,10 +188,8 @@ def _select(args, client, lon, lat, excluded, errors):
             errors,
         )
         if found is not None:
-            documents, positions = found
-            distance = max(p["distance_m"] for p in positions)
-            if distance <= args.max_distance_m:
-                ranked.append((distance, station_id, documents, positions))
+            documents, positions, distance = found
+            ranked.append((distance, station_id, documents, positions))
     for distance, station_id, documents, positions in sorted(
         ranked, key=lambda row: row[:2]
     ):
@@ -212,14 +198,25 @@ def _select(args, client, lon, lat, excluded, errors):
             for name, station in documents.items():
                 with _guard(_ROOT):
                     periods[name] = _periods(station, start, end, client)
+            if not all(
+                _covers([_interval(period) for _key, period in items], start, end)
+                for items in periods.values()
+            ):
+                continue
+            name = next(iter(documents))
+            url = _link(entries[name][station_id], "station", "application/json")
+            with _guard(url):
+                for position in positions:
+                    position["point"] = _output_point(
+                        position["longitude"],
+                        position["latitude"],
+                        position["height"],
+                        args.crs,
+                    )
         except DatasetUpstreamError as exc:
             _station_failed(args, excluded, errors, station_id, name, exc)
             continue
-        if all(
-            _covers([_interval(period) for _key, period in items], start, end)
-            for items in periods.values()
-        ):
-            return station_id, distance, positions, documents, periods, catalogs
+        return station_id, distance, positions, documents, periods, catalogs
     return None
 
 
@@ -308,21 +305,17 @@ def _build_smhi(args, result, client, lon, lat, errors):
             )
         return
     station_id, distance, positions, documents, periods, catalogs = selected
-    station = documents[args.parameter_names[0]]
+    station = next(iter(documents.values()))
     position = positions[0]
-    point = _output_point(
-        position["longitude"], position["latitude"], position["height"], args.crs
-    )
+    point = position["point"]
     history = [
         {
             "from": str(np.datetime64(p["start"], "ns")),
             "to_exclusive": str(np.datetime64(p["end"], "ns")),
             **{
-                key: p[key] for key in ("longitude", "latitude", "height", "distance_m")
+                key: p[key]
+                for key in ("longitude", "latitude", "height", "distance_m", "point")
             },
-            "point": _output_point(
-                p["longitude"], p["latitude"], p["height"], args.crs
-            ),
         }
         for p in positions
     ]
