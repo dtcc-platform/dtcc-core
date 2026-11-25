@@ -38,7 +38,16 @@ except ImportError:
 SCB_DESO_WFS_URL = "https://geodata.scb.se/geoserver/stat/wfs"
 SCB_PXWEB_API_BASE_URL = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START"
 SCB_DESO_SUPPORTED_YEARS = (2018, 2025)
-SCB_DESO_STATISTICS = ("population", "households", "cars", "employment")
+DESO_AGE_BANDS = ("-4", *(f"{age}-{age + 4}" for age in range(5, 80, 5)), "80-")
+DESO_HOUSEHOLD_TYPES = ("ESUB", "ESMB", "SBUB", "SBMB", "OVRIGA")
+SCB_DESO_STATISTICS = (
+    "population",
+    "households",
+    "cars",
+    "employment",
+    "age",
+    "household_types",
+)
 SCB_CONNECT_TIMEOUT_SECONDS = float(os.environ.get("DTCC_SCB_CONNECT_TIMEOUT", "8"))
 SCB_READ_TIMEOUT_SECONDS = float(os.environ.get("DTCC_SCB_READ_TIMEOUT", "30"))
 SCB_USER_AGENT = os.environ.get(
@@ -55,7 +64,7 @@ SCB_API_REQUEST_HEADERS = {
 _STATISTIC_QUERIES = {
     "population": {
         "url": f"{SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/FolkmDesoAldKon",
-        "year_values": (2024, 2025),
+        "year_values": tuple(range(2018, 2026)),
         "fields": [
             {
                 "name": "population_total",
@@ -71,7 +80,7 @@ _STATISTIC_QUERIES = {
     },
     "households": {
         "url": f"{SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/HushallDesoTyp",
-        "year_values": (2024, 2025),
+        "year_values": tuple(range(2018, 2026)),
         "fields": [
             {
                 "name": "households_total",
@@ -131,6 +140,66 @@ _STATISTIC_QUERIES = {
         ],
     },
 }
+
+for _topic, _base, _dimension, _codes in (
+    ("age", "population", "Alder", DESO_AGE_BANDS),
+    ("household_types", "households", "Hushallstyp", DESO_HOUSEHOLD_TYPES),
+):
+    _definition = _STATISTIC_QUERIES[_base]
+    _field = _definition["fields"][0]
+    _STATISTIC_QUERIES[_topic] = {
+        **_definition,
+        "fields": [
+            {
+                **_field,
+                "name": f"{_topic}_{code}",
+                "description": f"SCB DeSO {_topic} count for category {code}.",
+                "selections": {**_field["selections"], _dimension: code},
+            }
+            for code in _codes
+        ],
+    }
+
+
+def fetch_deso_control_table(codes, year, topic):
+    """Return the raw SCB payload and request for a batched demographic control."""
+    definition = _STATISTIC_QUERIES[
+        {"population": "age", "households": "household_types"}[topic]
+    ]
+    total = _STATISTIC_QUERIES[topic]["fields"][0]["selections"]
+    columns = {
+        key: list(
+            dict.fromkeys(
+                [value, *(field["selections"][key] for field in definition["fields"])]
+            )
+        )
+        for key, value in total.items()
+    }
+    statistic_year = _statistic_year(topic, year)
+    selections = {
+        "Region": [_scb_deso_region_code(code, statistic_year) for code in codes],
+        **columns,
+        "Tid": [str(statistic_year)],
+    }
+    payload = {
+        "query": [
+            {"code": key, "selection": {"filter": "item", "values": values}}
+            for key, values in selections.items()
+        ],
+        "response": {"format": "JSON"},
+    }
+    url = definition["url"]
+    response = requests.post(
+        url,
+        json=payload,
+        headers=SCB_API_REQUEST_HEADERS,
+        timeout=_scb_request_timeout(),
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        raise ValueError(f"The SCB DeSO {topic} response has no data rows")
+    return {"url": url, "request": payload, "response": data}
 
 
 def download_deso(
@@ -273,8 +342,8 @@ def attach_deso_statistics(
         return deso
 
     topics = _normalize_statistics(statistics)
-    _validate_statistics_geometry(deso)
     statistics_years = _statistics_years(topics, year)
+    _validate_statistics_geometry(deso, statistics_years)
     fields = download_deso_statistics(
         codes=deso.codes,
         statistics=topics,
@@ -476,10 +545,16 @@ def _normalize_statistics(statistics: Sequence[str]) -> list[str]:
     return topics
 
 
-def _validate_statistics_geometry(deso: DeSO) -> None:
-    year = deso.attributes.get("year", 2025)
-    if year != 2025:
-        raise ValueError("DeSO statistics v1 currently supports DeSO 2025 only.")
+def _validate_statistics_geometry(deso: DeSO, statistics_years: dict[str, int]) -> None:
+    geometry_year = deso.attributes.get("year", 2025)
+    if any(
+        geometry_year != (2018 if year <= 2023 else 2025)
+        for year in statistics_years.values()
+    ):
+        raise ValueError(
+            "DeSO statistics through 2023 require DeSO 2018 geometry. "
+            "Statistics from 2024 require DeSO 2025 geometry."
+        )
 
 
 def _statistics_years(topics: Sequence[str], year: int | None = None) -> dict[str, int]:

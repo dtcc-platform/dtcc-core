@@ -1,6 +1,6 @@
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import Field
 
@@ -10,19 +10,21 @@ from dtcc_core.model import DeSO
 from .dataset import DatasetBaseArgs, DatasetDescriptor, geojson_bytes
 from .providers import provider_entry
 
+Statistic = Literal[
+    "population", "households", "cars", "employment", "age", "household_types"
+]
+
 
 class DeSOArgs(DatasetBaseArgs):
     """Arguments for the DeSO statistical area boundaries dataset."""
 
     source: Literal["SCB"] = Field("SCB", description="Data source")
     year: Literal[2018, 2025] = Field(2025, description="DeSO geometry vintage")
-    statistics: (
-        list[Literal["population", "households", "cars", "employment"]] | None
-    ) = Field(
+    statistics: list[Statistic] | None = Field(
         None,
         description=(
             "Optional SCB DeSO statistics to attach as area-aligned fields "
-            "(population, households, cars, employment)."
+            "(population, households, cars, employment, age, household_types)."
         ),
     )
     statistics_year: int | None = Field(
@@ -83,7 +85,7 @@ class DeSODataset(DatasetDescriptor):
             "name": "SCB Statistikdatabasen DeSO statistics",
             "role": "source_provider",
             "selected_when": "statistics is not None",
-            "topics": ["population", "households", "cars", "employment"],
+            "topics": list(get_args(Statistic)),
             "source_terms_status": "requires_review",
         },
     ]
@@ -147,7 +149,7 @@ class DeSODataset(DatasetDescriptor):
     ]
     key_points = [
         "Supported geometry vintages are 2018 and 2025",
-        "Optional statistics topics are population, households, cars, and employment",
+        f"Optional statistics topics: {', '.join(get_args(Statistic))}",
         "statistics_year selects a supported SCB API year for requested topics",
         "Fields are area-aligned by DeSO code",
     ]
@@ -176,7 +178,7 @@ class DeSODataset(DatasetDescriptor):
     view_hints = {
         "preferred_geometry": "polygons",
         "default_crs": "EPSG:3006",
-        "statistics_topics": ["population", "households", "cars", "employment"],
+        "statistics_topics": list(get_args(Statistic)),
         "geometry_years": [2018, 2025],
     }
     presentation_warnings = [

@@ -34,6 +34,45 @@ def test_filter_deso_geodataframe_by_bounds():
     assert filtered["desokod"].tolist() == ["inside"]
 
 
+@pytest.mark.parametrize(
+    ("topic", "dimension", "category"),
+    [("population", "Alder", "80-"), ("households", "Hushallstyp", "ESUB")],
+)
+def test_fetch_historical_deso_controls_batches_totals_and_categories(
+    monkeypatch, topic, dimension, category
+):
+    from unittest.mock import Mock
+
+    payload = {"data": [{"key": ["zone", category, "2019"], "values": [".."]}]}
+    post = Mock()
+    post.return_value.json.return_value = payload
+    monkeypatch.setattr(deso_data.requests, "post", post)
+
+    archive = deso_data.fetch_deso_control_table(["zone"], 2019, topic)
+
+    query = {
+        item["code"]: item["selection"]["values"]
+        for item in archive["request"]["query"]
+    }
+    assert query["Region"] == ["zone"]
+    assert query["Tid"] == ["2019"]
+    assert query[dimension][0].lower() == "totalt"
+    assert category in query[dimension]
+    post.assert_called_once()
+    assert archive["response"] == payload
+
+
+def test_fetch_deso_controls_rejects_an_error_payload(monkeypatch):
+    from unittest.mock import Mock
+
+    post = Mock()
+    post.return_value.json.return_value = {"error": "No result"}
+    monkeypatch.setattr(deso_data.requests, "post", post)
+
+    with pytest.raises(ValueError, match="SCB.*data rows"):
+        deso_data.fetch_deso_control_table(["zone"], 2019, "population")
+
+
 def test_download_deso_statistics_parses_scb_response(monkeypatch, tmp_path):
     posted = []
     messages = []
@@ -198,13 +237,14 @@ def test_download_deso_statistics_uses_cached_values(monkeypatch, tmp_path):
     assert any("Using cached SCB DeSO statistic" in message for message in messages)
 
 
-def test_attach_deso_statistics_adds_area_fields(monkeypatch):
+@pytest.mark.parametrize(("geometry_year", "year"), [(2018, 2019), (2025, 2025)])
+def test_attach_deso_statistics_adds_area_fields(monkeypatch, geometry_year, year):
     gdf = gpd.GeoDataFrame(
         {"desokod": ["inside"]},
         geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])],
         crs="EPSG:3006",
     )
-    deso = deso_from_geodataframe(gdf, year=2025)
+    deso = deso_from_geodataframe(gdf, year=geometry_year)
 
     monkeypatch.setattr(
         "dtcc_core.io.data.deso.download_deso_statistics",
@@ -218,11 +258,11 @@ def test_attach_deso_statistics_adds_area_fields(monkeypatch):
         ],
     )
 
-    attach_deso_statistics(deso, statistics=["population"], year=2025)
+    attach_deso_statistics(deso, statistics=["population"], year=year)
 
     assert deso.attributes["statistics"] == ["population"]
-    assert deso.attributes["statistics_year"] == 2025
-    assert deso.attributes["statistics_years"] == {"population": 2025}
+    assert deso.attributes["statistics_year"] == year
+    assert deso.attributes["statistics_years"] == {"population": year}
     assert deso.areas[0].attributes["population_total"] == 123.0
     assert deso.fields["population_total"].values.tolist() == [[123.0]]
 
@@ -326,3 +366,29 @@ def test_filter_deso_geodataframe_accepts_a_point():
     )
 
     assert filter_deso_geodataframe(gdf, (5, 5, 5, 5))["desokod"].tolist() == ["A"]
+
+
+@pytest.mark.parametrize(("geometry_year", "year"), [(2025, 2019), (2018, 2024)])
+def test_statistics_reject_mismatched_boundaries(geometry_year, year):
+    from dtcc_core.model import DeSO
+
+    with pytest.raises(ValueError, match="geometry"):
+        attach_deso_statistics(DeSO(attributes={"year": geometry_year}), ["age"], year)
+
+
+def test_missing_deso_controls_remain_distinct_from_zero(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    post = Mock()
+    post.return_value.json.return_value = {
+        "data": [
+            {"key": ["observed"], "values": ["0"]},
+            {"key": ["suppressed"], "values": [".."]},
+        ]
+    }
+    monkeypatch.setattr(deso_data.requests, "post", post)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
+    controls = download_deso_statistics(
+        ["observed", "suppressed", "absent"], ["population"], year=2019
+    )
+    np.testing.assert_equal(controls[0].values[:, 0], [0, np.nan, np.nan])
