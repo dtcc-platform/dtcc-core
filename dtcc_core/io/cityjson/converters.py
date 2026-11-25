@@ -20,6 +20,11 @@ class CityJSONConfig:
     lod_mapping: dict[GeometryType, float] = None
     # Rounding mode for quantization: "round" (default), "floor", or "ceil"
     rounding_mode: str = "round"
+    # Whether building geometry without semantic regions is written with
+    # ``semantic_types["surface"]`` labels (LoD0 never is). None means: only
+    # when the caller passes ``semantic_types`` with a ``"surface"`` entry.
+    # It is resolved once, at construction.
+    labels_unclassified_surfaces: bool | None = None
 
     def __post_init__(self):
         """
@@ -30,6 +35,10 @@ class CityJSONConfig:
         ValueError
             If ``rounding_mode`` is not one of ``\"round\"``, ``\"floor\"``, or ``\"ceil\"``.
         """
+        if self.labels_unclassified_surfaces is None:
+            self.labels_unclassified_surfaces = (
+                self.semantic_types is not None and "surface" in self.semantic_types
+            )
         if self.semantic_types is None:
             self.semantic_types = {
                 "surface": "WallSurface",

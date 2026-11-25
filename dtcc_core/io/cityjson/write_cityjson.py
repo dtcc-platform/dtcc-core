@@ -416,8 +416,11 @@ def _add_object_geometries(
                     geom_data.pop("semantics", None)
             obj_data["geometry"].append(geom_data)
 
+        # Region-free building geometry carries no classification, so it is
+        # written without semantics unless the caller configured a surface
+        # type. LoD0 footprints are never labelled.
         if (
-            record.lod == "0"
+            (record.lod == "0" or not config.labels_unclassified_surfaces)
             and isinstance(obj, (Building, BuildingPart))
             and isinstance(geometry, (Mesh, Surface, MultiSurface, Solid))
             and not geometry.regions

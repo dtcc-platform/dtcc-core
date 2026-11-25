@@ -1,6 +1,8 @@
 """Native footprints and all labelled building representations through CityJSON."""
 
+import dataclasses
 import json
+import logging
 from copy import deepcopy
 from pathlib import Path
 
@@ -11,10 +13,14 @@ from shapely.geometry import box
 from dtcc_core import io
 from dtcc_core.builder import building_from_footprint, footprints_from_lod1
 from dtcc_core.io.cityjson.cityjson import load
+from dtcc_core.io.cityjson.converters import CityJSONConfig
 from dtcc_core.io.cityjson.write_cityjson import to_cityjson
 from dtcc_core.model import Building, BuildingPart, City, Field, GeometryType, Solid
 from tests.builder.test_footprints_from_lod1 import _city, _source, _volume
 from tests.builder.test_prism_decomposition import BASE, TOWER, _input, _prism
+
+# Per-surface WallSurface labels, which the writer adds only on request.
+_WALL_LABELS = CityJSONConfig(semantic_types={"surface": "WallSurface"})
 
 
 @pytest.mark.parametrize("strict", [False, True])
@@ -166,7 +172,9 @@ def test_previous_writer_footprint_loads_only_permissively(tmp_path):
 def test_permissive_unsupported_content_warns_and_keeps_supported_geometry(
     kind, caplog
 ):
-    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    document = to_cityjson(
+        _city(building_from_footprint(BASE, 10, id="b")), config=_WALL_LABELS
+    )
     building = document["CityObjects"]["b"]
     if kind == "child":
         building["children"] = ["installation"]
@@ -201,7 +209,9 @@ def test_permissive_unsupported_content_warns_and_keeps_supported_geometry(
 
 @pytest.mark.parametrize("kind", ["index", "semantics", "legacy_shape"])
 def test_permissive_compatibility_does_not_hide_malformed_supported_content(kind):
-    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    document = to_cityjson(
+        _city(building_from_footprint(BASE, 10, id="b")), config=_WALL_LABELS
+    )
     geometry = document["CityObjects"]["b"]["geometry"][1]
     if kind == "index":
         geometry["semantics"]["surfaces"][0]["type"] = "+Foo"
@@ -245,7 +255,6 @@ def test_composite_surface_roundtrip_and_closed_lod1_conversion(
     geometries = document["CityObjects"]["b"]["geometry"]
     geometries[:] = [geometries[1]]
     geometries[0]["type"] = "CompositeSurface"
-    geometries[0].pop("semantics")
     city = load(document, strict=import_strict)
     converted = footprints_from_lod1(city)
     assert _volume(converted.buildings) == pytest.approx(4000)
@@ -258,11 +267,35 @@ def test_composite_surface_roundtrip_and_closed_lod1_conversion(
     assert _volume(footprints_from_lod1(restored).buildings) == pytest.approx(4000)
 
 
+def _label_roof_ground_walls(document, geometry):
+    """Give a written box LoD1 the Roof/Ground/Wall split a source file has."""
+    z = [vertex[2] for vertex in document["vertices"]]
+    top, bottom = max(z), min(z)
+    names = ["RoofSurface", "GroundSurface", "WallSurface"]
+    values = []
+    for surface in geometry["boundaries"]:
+        levels = {z[index] for index in surface[0]}
+        values.append(0 if levels == {top} else 1 if levels == {bottom} else 2)
+    assert sorted(set(values)) == [0, 1, 2]
+    geometry["semantics"] = {
+        "surfaces": [{"type": name} for name in names],
+        "values": values,
+    }
+
+
 def test_imported_standard_semantics_still_require_explicit_conversion():
     document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
     geometries = document["CityObjects"]["b"]["geometry"]
     geometries[:] = [geometries[1]]
+    _label_roof_ground_walls(document, geometries[0])
     city = load(document)
+    assert [
+        region.semantic_type.split("#")[-1] for region in city.buildings[0].lod1.regions
+    ] == [
+        "RoofSurface",
+        "GroundSurface",
+        "WallSurface",
+    ]
     with pytest.raises(ValueError, match="unsupported_metadata"):
         footprints_from_lod1(city)
 
@@ -276,3 +309,132 @@ def test_unclassified_footprint_is_not_labelled_as_a_wall(strict, tmp_path):
     restored = load(path, strict=strict).buildings[0]
     assert restored.lod0.regions == []
     assert restored.lod0.zmax == 12
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_unclassified_lod1_is_not_labelled_as_walls(strict, tmp_path):
+    city = _city(building_from_footprint(BASE, 10, id="b"))
+    path = tmp_path / "box.city.json"
+    city.save(path, strict=strict)
+    written = json.loads(path.read_text())["CityObjects"]["b"]["geometry"]
+    assert all(not g.get("semantics", {}).get("surfaces") for g in written)
+    restored = io.load_city(path)
+    assert restored.buildings[0].lod1.regions == []
+    report = footprints_from_lod1(restored, overwrite_lod0=True).attributes[
+        "footprints_from_lod1"
+    ]
+    assert report["converted"] == 1
+
+
+def test_configured_surface_type_still_labels_unclassified_lod1():
+    document = to_cityjson(
+        _city(building_from_footprint(BASE, 10, id="b")), config=_WALL_LABELS
+    )
+    lod0, lod1 = document["CityObjects"]["b"]["geometry"]
+    assert "semantics" not in lod0
+    assert {s["type"] for s in lod1["semantics"]["surfaces"]} == {"WallSurface"}
+
+
+def test_previous_writer_wall_labels_load_without_regions():
+    path = Path(__file__).parent / "fixtures" / "legacy-footprint.city.json"
+    city = load(json.loads(path.read_text()))
+    building = city.buildings[0]
+    assert building.lod0.regions == []
+    assert building.lod1.regions == []
+    report = footprints_from_lod1(city, overwrite_lod0=True).attributes[
+        "footprints_from_lod1"
+    ]
+    assert report["converted"] == 1
+
+
+def test_previous_writer_solid_wall_labels_load_without_regions():
+    building = building_from_footprint(BASE, 10, id="b")
+    lod1 = building.lod1
+    solid = Solid(surfaces=lod1.surfaces, shells=[np.arange(len(lod1.surfaces))])
+    building.add_geometry(solid, GeometryType.LOD2)
+    document = to_cityjson(_city(building), config=_WALL_LABELS)
+    written = document["CityObjects"]["b"]["geometry"][-1]
+    assert written["type"] == "Solid"
+    assert written["semantics"]["values"] == [list(range(len(lod1.surfaces)))]
+    assert load(document).buildings[0].lod2.regions == []
+
+
+@pytest.mark.parametrize(
+    "semantics",
+    [
+        # One shared entity, as source files usually write it.
+        lambda n: {"surfaces": [{"type": "WallSurface"}], "values": [0] * n},
+        # Per-surface entities that carry attributes.
+        lambda n: {
+            "surfaces": [{"type": "WallSurface", "material": "brick"}] * n,
+            "values": list(range(n)),
+        },
+        # Per-surface entities with one surface left unlabelled.
+        lambda n: {
+            "surfaces": [{"type": "WallSurface"}] * (n - 1),
+            "values": [*range(n - 1), None],
+        },
+    ],
+)
+def test_source_wall_labels_are_kept(semantics):
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometries = document["CityObjects"]["b"]["geometry"]
+    geometries[1]["semantics"] = semantics(len(geometries[1]["boundaries"]))
+    assert load(document).buildings[0].lod1.regions
+
+
+def _blanket_labels(count):
+    return {
+        "surfaces": [{"type": "WallSurface"} for _ in range(count)],
+        "values": list(range(count)),
+    }
+
+
+def test_previous_writer_wall_labels_are_dropped_with_a_debug_message(caplog):
+    caplog.set_level(logging.DEBUG, logger="dtcc-core")
+    document = to_cityjson(
+        _city(building_from_footprint(BASE, 10, id="b")), config=_WALL_LABELS
+    )
+    assert load(document).buildings[0].lod1.regions == []
+    assert "ignoring WallSurface labels on every surface" in caplog.text
+
+
+@pytest.mark.parametrize("kind", ["too_few_assignments", "nested_multisurface"])
+def test_wall_label_compatibility_does_not_hide_malformed_semantics(kind):
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometry = document["CityObjects"]["b"]["geometry"][1]
+    count = len(geometry["boundaries"])
+    if kind == "too_few_assignments":
+        geometry["semantics"] = _blanket_labels(count - 3)
+    else:
+        semantics = _blanket_labels(count)
+        semantics["values"] = [[value] for value in semantics["values"]]
+        geometry["semantics"] = semantics
+    with pytest.raises(ValueError):
+        load(document)
+
+
+def test_wall_only_geometry_keeps_per_surface_wall_labels():
+    document = to_cityjson(_city(building_from_footprint(BASE, 10, id="b")))
+    geometries = document["CityObjects"]["b"]["geometry"]
+    geometry = geometries[1]
+    z = [vertex[2] for vertex in document["vertices"]]
+    geometry["boundaries"] = [
+        polygon
+        for polygon in geometry["boundaries"]
+        if len({z[index] for index in polygon[0]}) > 1
+    ]
+    geometry["semantics"] = _blanket_labels(len(geometry["boundaries"]))
+    geometries[:] = [geometry]
+    regions = load(document).buildings[0].lod1.regions
+    assert len(regions) == len(geometry["boundaries"]) == 4
+
+
+def test_copied_default_config_does_not_label_unclassified_lod1():
+    city = _city(building_from_footprint(BASE, 10, id="b"))
+    copied = dataclasses.replace(CityJSONConfig(), rounding_mode="floor")
+    lod1 = to_cityjson(city, config=copied)["CityObjects"]["b"]["geometry"][1]
+    assert "semantics" not in lod1
+    labelled = CityJSONConfig(labels_unclassified_surfaces=True)
+    lod1 = to_cityjson(city, config=labelled)["CityObjects"]["b"]["geometry"][1]
+    assert {s["type"] for s in lod1["semantics"]["surfaces"]} == {"WallSurface"}
