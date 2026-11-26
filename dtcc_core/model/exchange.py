@@ -1157,7 +1157,7 @@ def validate(model):
             if obj.view_bounds.width <= 0 or obj.view_bounds.height <= 0:
                 raise ValueError("PeopleSimulation requires nonempty view bounds")
             obj._coordinate_reference()
-            obj._validate_vehicle_tracks()
+            obj._validate_playback()
         elif type(obj) is Landuse:
             if not isinstance(obj.landuses, list) or any(
                 type(code) is not LanduseClasses for code in obj.landuses

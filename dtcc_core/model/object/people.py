@@ -1,13 +1,14 @@
 """Synthetic people and their timed daily movement."""
 
 from bisect import bisect_right
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from itertools import groupby, pairwise
 from math import atan2
-from numbers import Integral
+from numbers import Integral, Real
 
 import numpy as np
+from shapely import line_locate_point, points
 from shapely.geometry import LineString, Point, box
 
 from ..geometry import Bounds
@@ -16,6 +17,142 @@ from .roadnetwork import RoadNetwork
 
 DAY_SECONDS = 86_400
 STATES = frozenset({"indoor", "outdoor", "wait", "walk", "cycle", "car", "transit"})
+
+
+def _walking_stages(paths):
+    stages = []
+    for path in paths:
+        walking = path.state in {"walk", "wait"}
+        if stages:
+            previous = stages[-1]
+            if (
+                not walking
+                or path.journey_id != previous.journey_id
+                or path.start != previous.end
+                or not np.array_equal(path.samples[0, 1:], previous.samples[-1, 1:])
+            ):
+                yield stages
+                stages = []
+        if walking:
+            stages.append(path)
+    if stages:
+        yield stages
+
+
+def _edge_runs(paths):
+    """Join walking stages and retain an intervening wait on a continuing edge."""
+    for stages in _walking_stages(paths):
+        edges = []
+        for path in stages:
+            if path.state == "wait":
+                edges.extend([None] * (len(path.samples) - 1))
+            else:
+                edges.extend(path.edge_ids or ("",) * (len(path.samples) - 1))
+        runs = [(edge, len(list(steps))) for edge, steps in groupby(edges)]
+        for i in range(1, len(runs) - 1):
+            edge, length = runs[i]
+            before, after = runs[i - 1][0], runs[i + 1][0]
+            if edge is None and before and before == after:
+                runs[i] = before, length
+        if not any(edge for edge, _ in runs):
+            continue
+        samples = stages[0].samples
+        if len(stages) > 1:
+            samples = np.concatenate([samples, *(p.samples[1:] for p in stages[1:])])
+        start = 0
+        for edge, pieces in groupby(runs, key=lambda run: run[0]):
+            stop = start + sum(length for _, length in pieces)
+            if edge:
+                yield edge, samples[start : stop + 1]
+            start = stop
+
+
+def _edge_line(xy, *, inferred=False):
+    """Orient open edges lexicographically and preserve the network order of loops."""
+    start, end = tuple(xy[0]), tuple(xy[-1])
+    if start > end or (
+        inferred
+        and start == end
+        and tuple(map(tuple, xy[::-1])) < tuple(map(tuple, xy))
+    ):
+        xy = xy[::-1]
+    return LineString(xy[np.r_[True, np.any(xy[1:] != xy[:-1], axis=1)]])
+
+
+def _edge_traversals(samples, line=None):
+    """Split a timed run whenever the pedestrian reverses along the edge."""
+    xy = samples[:, 1:3]
+    steps = np.diff(xy, axis=0)
+    lengths = np.linalg.norm(steps, axis=1)
+    moving = np.flatnonzero(lengths)
+    if not len(moving):
+        return
+    unit = steps[moving] / lengths[moving, None]
+    signs = np.zeros(len(moving))
+    if line is not None:
+        progress = np.diff(line_locate_point(line, points(xy)))[moving]
+        if line.is_closed:
+            length = line.length
+            progress[progress > length / 2] -= length
+            progress[progress < -length / 2] += length
+        signs = np.sign(np.where(abs(progress) > 1e-8, progress, 0.0))
+    start = 0
+    direction = signs[0]
+    for k, i in enumerate(moving[1:], 1):
+        before, after = signs[k - 1 : k + 1]
+        if before and after:
+            reversing = before != after
+        else:
+            # Compare the sine of the turn angle independently of step length.
+            u, v = unit[k - 1 : k + 1]
+            reversing = u @ v < 0 and abs(u[0] * v[1] - u[1] * v[0]) <= 1e-6
+        if reversing:
+            yield samples[start : i + 1], direction
+            start = i
+            direction = after
+        elif not direction:
+            direction = after
+    yield samples[start:], direction
+
+
+def _screenline_endpoints(start, end):
+    a, b = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+    if a.shape != (2,) or b.shape != (2,):
+        raise ValueError("Screenline requires distinct finite XY endpoints")
+    direction = b - a
+    length_squared = float(direction @ direction)
+    if not np.isfinite(length_squared) or not length_squared:
+        raise ValueError("Screenline requires distinct finite XY endpoints")
+    return a, direction, length_squared
+
+
+def _screenline_contact(samples, signed, a, direction, length_squared):
+    """Return the first contact and its incoming segment between opposite sides."""
+    if len(samples) == 2:
+        fraction = signed[0] / (signed[0] - signed[1])
+        point = samples[0] + fraction * (samples[1] - samples[0])
+        along = (point[1:3] - a) @ direction / length_squared
+        return (point, 0) if 0 < along < 1 else (None, None)
+    along = (samples[1:-1, 1:3] - a) @ direction / length_squared
+    for i, pos in enumerate(along, 1):
+        if 0 < pos < 1:
+            return samples[i], i - 1
+        if i < len(along):
+            following = along[i]
+            if (pos <= 0 < following) or (pos >= 1 > following):
+                endpoint = 0 if pos <= 0 else 1
+                fraction = (endpoint - pos) / (following - pos)
+                return samples[i] + fraction * (samples[i + 1] - samples[i]), i
+    return None, None
+
+
+def _numeric_array(values):
+    array = np.asarray(values, dtype=object)
+    if any(
+        isinstance(value, bool) or not isinstance(value, Real) for value in array.flat
+    ):
+        raise ValueError("coordinates and samples must be numeric")
+    return array.astype(float)
 
 
 @dataclass(frozen=True)
@@ -125,30 +262,6 @@ class TimedPath:
     def length(self) -> float:
         """Path length in metres."""
         return float(np.linalg.norm(np.diff(self.samples[:, 1:], axis=0), axis=1).sum())
-
-    def _edge_traversals(self):
-        """Group consecutive samples along each directed network edge."""
-
-        start = 0
-        for edge, segments in groupby(self.edge_ids):
-            stop = start + sum(1 for _ in segments)
-            # Reversing along the same edge begins a return traversal.
-            previous = None
-            for i in range(start, stop):
-                step = self.samples[i + 1, 1:3] - self.samples[i, 1:3]
-                if not step.any():
-                    continue
-                if (
-                    previous is not None
-                    and previous @ step < 0
-                    and np.isclose(previous[0] * step[1], previous[1] * step[0])
-                ):
-                    yield edge, self.samples[start : i + 1]
-                    start = i
-                previous = step
-            if previous is not None:
-                yield edge, self.samples[start : stop + 1]
-            start = stop
 
     def position_at(self, second: float) -> MovementState | None:
         """Interpolate on the authoritative segment, preserving corners and waits."""
@@ -280,7 +393,7 @@ class PeopleSimulation(Object):
                 )
         return crs
 
-    def _validate_vehicle_tracks(self):
+    def _vehicle_tracks(self):
         tracks = self.attributes.get("vehicles", ())
         if not isinstance(tracks, (tuple, list)):
             raise ValueError(
@@ -302,14 +415,58 @@ class PeopleSimulation(Object):
                 )
             ids.add(vehicle_id)
             try:
-                samples = np.asarray(track.get("samples"), dtype=object)
-                if any(type(value) not in (int, float) for value in samples.flat):
-                    raise ValueError("samples must be numeric")
-                TimedPath("transit", "service", samples)
+                samples = TimedPath(
+                    "transit", "service", _numeric_array(track.get("samples"))
+                ).samples
             except (TypeError, ValueError, OverflowError) as error:
                 raise ValueError(
                     f"Scheduled vehicle {vehicle_id!r}: {error}"
                 ) from error
+            yield track, samples
+
+    def _screenline(self):
+        line = self.attributes.get("screenline")
+        if line is None:
+            return None
+        if not isinstance(line, dict) or not isinstance(line.get("name"), str):
+            raise ValueError("Screenline requires a name")
+        bin_seconds = line.get("bin_seconds")
+        if type(bin_seconds) is not int or bin_seconds <= 0:
+            raise ValueError("Screenline bin_seconds must be a positive integer")
+        start, end = (_numeric_array(line.get(key)) for key in ("start", "end"))
+        _screenline_endpoints(start, end)
+        return line
+
+    def _buildings(self):
+        buildings = self.attributes.get("buildings", ())
+        if not isinstance(buildings, (list, tuple)):
+            raise ValueError("PeopleSimulation buildings must be a list")
+        for building in buildings:
+            if not isinstance(building, dict) or not isinstance(
+                building.get("id"), str
+            ):
+                raise ValueError("Playback buildings require a string id")
+            try:
+                ring = _numeric_array(building.get("ring"))
+            except (TypeError, ValueError, OverflowError) as error:
+                raise ValueError(
+                    "Playback buildings require a finite XY ring"
+                ) from error
+            if (
+                ring.ndim != 2
+                or ring.shape[1] != 2
+                or not np.isfinite(ring).all()
+                or len(np.unique(ring, axis=0)) < 3
+            ):
+                raise ValueError("Playback buildings require a finite XY ring")
+            yield building, ring
+
+    def _validate_playback(self):
+        self._screenline()
+        for _ in self._buildings():
+            pass
+        for _ in self._vehicle_tracks():
+            pass
 
     def household_members(self, household_id: str) -> tuple[str, ...]:
         """Resolve membership even when some members or the household home are outside the view."""
@@ -335,17 +492,12 @@ class PeopleSimulation(Object):
     ):
         """Count oriented crossings of the open screenline from start to end.
 
-        A transition from its left to right is +1. The clock interval is
-        half-open. A touch and return contributes zero. Filter network edge IDs
-        or heights when the same screenline also intersects a different level.
+        A transition from its left to right is +1. A walk along the line is
+        timed at its first entry into the screenline segment. The clock
+        interval is half-open. A touch and return contributes zero. Filter
+        network edge IDs or heights when the line intersects a different level.
         """
-        a, b = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
-        if a.shape != (2,) or b.shape != (2,):
-            raise ValueError("Screenline requires distinct finite XY endpoints")
-        direction = b - a
-        length_squared = float(direction @ direction)
-        if not np.isfinite(length_squared) or not length_squared:
-            raise ValueError("Screenline requires distinct finite XY endpoints")
+        a, direction, length_squared = _screenline_endpoints(start, end)
         lower, upper = interval
         if not 0 <= lower <= upper <= DAY_SECONDS:
             raise ValueError(
@@ -376,21 +528,21 @@ class PeopleSimulation(Object):
                 for i, j in pairwise(indices):
                     if (signed[i] > 0) == (signed[j] > 0):
                         continue
-                    edge = edges[i]
+                    point, segment = _screenline_contact(
+                        samples[i : j + 1],
+                        signed[i : j + 1],
+                        a,
+                        direction,
+                        length_squared,
+                    )
+                    if point is None:
+                        continue
+                    edge = edges[i + segment]
                     if allowed is not None and edge not in allowed:
                         continue
-                    fraction = (
-                        signed[i] / (signed[i] - signed[j]) if j == i + 1 else 1.0
-                    )
-                    point = samples[i] + fraction * (samples[i + 1] - samples[i])
-                    along = (point[1:3] - a) @ direction / length_squared
-                    if (
-                        lower <= point[0] < upper
-                        and 0 < along < 1
-                        and (
-                            height_range is None
-                            or height_range[0] <= point[3] < height_range[1]
-                        )
+                    if lower <= point[0] < upper and (
+                        height_range is None
+                        or height_range[0] <= point[3] < height_range[1]
                     ):
                         events.append(
                             PedestrianPassage(
@@ -402,44 +554,105 @@ class PeopleSimulation(Object):
                         )
         return sorted(events, key=lambda event: (event.second, event.person_id))
 
+    def _road_edge_lines(self, requested):
+        indexed, named = {}, {}
+        for roads in self.get_children(RoadNetwork):
+            count = len(roads.edges)
+            columns = {
+                name: values
+                for name in ("id", "osm_way_id", "segment_index")
+                if isinstance(
+                    values := roads.attributes.get(name), (list, tuple, np.ndarray)
+                )
+                and (not isinstance(values, np.ndarray) or values.ndim == 1)
+                and len(values) == count
+            }
+            ids = columns.get("id")
+            ways = columns.get("osm_way_id")
+            segment_indices = columns.get("segment_index", range(count))
+            geometry = roads.linestrings
+            for i, nodes in enumerate(roads.edges):
+                edge_ids = []
+                if ids is not None and ids[i] is not None:
+                    edge_ids.append(str(ids[i]))
+                if ways is not None and ways[i] is not None:
+                    edge_ids.append(f"{ways[i]}:{segment_indices[i]}")
+                keys = [
+                    key for key in edge_ids if key in requested and key not in named
+                ]
+                idx = str(i)
+                by_index = idx in requested and idx not in indexed
+                if not keys and not by_index:
+                    continue
+                vertices = (
+                    geometry[i].vertices
+                    if len(geometry) == count
+                    else roads.vertices[nodes]
+                )
+                xy = vertices[:, :2]
+                if len(xy) >= 2 and np.any(xy != xy[0]):
+                    line = _edge_line(xy)
+                    named.update(dict.fromkeys(keys, line))
+                    if by_index:
+                        indexed[idx] = line
+        return indexed | named
+
     def segment_passages(self, bin_seconds: int = 300):
         """Return directional per-edge counts and endpoints keyed by clock bin.
 
-        The event time is the segment midpoint time. Direction is positive
-        for ascending lexicographic XY endpoints. Only midpoints in the
-        delivery area contribute. Units are pedestrian traversals per bin.
+        A traversal is timed at its wall-clock midpoint, including waits on
+        the continuing edge. Only midpoints in the delivery area contribute.
+        Direction is positive toward the larger lexicographic XY endpoint,
+        or along the network geometry on a loop. Without matching network
+        geometry, the longest observed traversal supplies the edge reference.
         """
         if not isinstance(bin_seconds, int) or bin_seconds <= 0:
             raise ValueError("bin_seconds must be a positive integer")
         bounds = self.view_bounds
         counts = Counter()
         coordinates = {}
+        runs = defaultdict(list)
         for person in self.people:
-            for path in person.paths:
-                if path.state != "walk":
-                    continue
-                for edge, samples in path._edge_traversals():
-                    if not edge:
-                        continue
-                    a, b = samples[0], samples[-1]
+            for edge, samples in _edge_runs(person.paths):
+                runs[edge].append(samples)
+        road_lines = self._road_edge_lines(runs.keys())
+        for edge, samples_list in runs.items():
+            line = road_lines.get(edge)
+            if line is None:
+                candidates = (
+                    _edge_line(traversal[:, 1:3], inferred=True)
+                    for samples in samples_list
+                    for traversal, _ in _edge_traversals(samples)
+                )
+                line = max(
+                    candidates, key=lambda item: (item.length, item.wkb), default=None
+                )
+            if line is None:
+                continue
+            endpoints = line.coords[0], line.coords[-1]
+            for samples in samples_list:
+                for traversal, direction in _edge_traversals(samples, line):
+                    a, b = traversal[0], traversal[-1]
                     second = (a[0] + b[0]) / 2
-                    # The timed midpoint follows the sampled path around bends.
-                    x = np.interp(second, samples[:, 0], samples[:, 1])
-                    y = np.interp(second, samples[:, 0], samples[:, 2])
+                    x = np.interp(second, traversal[:, 0], traversal[:, 1])
+                    y = np.interp(second, traversal[:, 0], traversal[:, 2])
                     if not (
                         bounds.xmin <= x < bounds.xmax
                         and bounds.ymin <= y < bounds.ymax
                     ):
                         continue
-                    start, end = tuple(a[1:3]), tuple(b[1:3])
-                    direction = 1 if start < end else -1
+                    if not direction:
+                        direction = 1 if tuple(a[1:3]) < tuple(b[1:3]) else -1
+                    direction = int(direction)
                     counts[int(second // bin_seconds), edge, direction] += 1
-                    coordinates[edge, direction] = (start, end)
+                    coordinates[edge, direction] = (
+                        endpoints if direction > 0 else endpoints[::-1]
+                    )
         return counts, coordinates
 
     def screenline_profile(self):
         """Return the configured demonstration screenline and its binned counts."""
-        line = self.attributes.get("screenline")
+        line = self._screenline()
         if line is None:
             return None
         counts = Counter(
@@ -538,7 +751,6 @@ class PeopleSimulation(Object):
         crs_transform = Transformer.from_crs(
             self._coordinate_reference(), crs, always_xy=True
         )
-        self._validate_vehicle_tracks()
         features = []
         for person in self.people:
             age = person.attributes.get("synthetic_age")
@@ -597,7 +809,7 @@ class PeopleSimulation(Object):
                     {
                         "id": building["id"],
                         "ring": np.column_stack(
-                            crs_transform.transform(*np.asarray(building["ring"]).T)
+                            crs_transform.transform(*ring.T)
                         ).tolist(),
                         **{
                             key: building[key]
@@ -605,24 +817,22 @@ class PeopleSimulation(Object):
                             if key in building
                         },
                     }
-                    for building in self.attributes.get("buildings", ())
+                    for building, ring in self._buildings()
                 ],
                 "vehicles": [
                     {
                         "id": vehicle["id"],
                         "kind": vehicle["kind"],
                         "line": vehicle["line"],
-                        "seconds": [sample[0] for sample in vehicle["samples"]],
+                        "seconds": samples[:, 0].tolist(),
                         "coordinates": np.column_stack(
                             (
-                                *crs_transform.transform(
-                                    *np.asarray(vehicle["samples"])[:, 1:3].T
-                                ),
-                                np.asarray(vehicle["samples"])[:, 3],
+                                *crs_transform.transform(*samples[:, 1:3].T),
+                                samples[:, 3],
                             )
                         ).tolist(),
                     }
-                    for vehicle in self.attributes.get("vehicles", ())
+                    for vehicle, samples in self._vehicle_tracks()
                 ],
                 **{
                     key: self.attributes[key]

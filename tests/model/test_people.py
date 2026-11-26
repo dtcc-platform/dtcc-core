@@ -1,15 +1,21 @@
+import json
+
 import numpy as np
 import pytest
 from pyproj import Transformer
 
 from dtcc_core.model import (
     City,
+    GeometryType,
+    LineString,
+    MultiLineString,
     PeopleSimulation,
     Person,
+    RoadNetwork,
     Transform,
     exchange,
 )
-from dtcc_core.model.object.people import TimedPath
+from dtcc_core.model.object import TimedPath
 
 
 def daily_person(second=10):
@@ -139,8 +145,6 @@ def test_animated_plot_updates_pedestrian_positions(monkeypatch):
 
 
 def test_playback_derivative_carries_presentation_facts(tmp_path):
-    import json
-
     from dtcc_core import datasets
     from dtcc_core.datasets import load_model_package
 
@@ -247,6 +251,171 @@ def test_edge_counts_preserve_directed_traversals_across_intermediate_samples():
     assert counts == {(0, "street", 1): 1, (0, "street", -1): 1}
     assert endpoints["street", 1] == ((1, 2), (3, 2))
     assert endpoints["street", -1] == ((3, 2), (1, 2))
+
+
+def test_edge_counts_join_a_wait_on_the_same_edge_in_wall_clock_time():
+    model = PeopleSimulation(attributes={"view_bounds": [-10, -10, 20, 20]})
+    model.add_child(
+        Person(
+            paths=(
+                TimedPath(
+                    "walk", "work", [[0, 0, 0, 0], [50, 5, 0, 0]], edge_ids=("main",)
+                ),
+                TimedPath("wait", "work", [[50, 5, 0, 0], [140, 5, 0, 0]]),
+                TimedPath(
+                    "walk",
+                    "work",
+                    [[140, 5, 0, 0], [160, 10, 0, 0]],
+                    edge_ids=("main",),
+                ),
+            )
+        )
+    )
+    assert model.segment_passages(60)[0] == {(1, "main", 1): 1}
+
+
+@pytest.mark.parametrize("network", [False, True])
+def test_curved_edge_counts_have_shared_orientation_and_stable_endpoints(network):
+    model = PeopleSimulation(attributes={"view_bounds": [-100, -100, 100, 100]})
+    xy = np.array([[0, 0], [10, 0], [10, -10], [5, -10]])
+    if network:
+        roads = RoadNetwork(
+            vertices=xy[[0, -1]],
+            edges=np.array([[0, 1]]),
+            attributes={"id": ["bend"]},
+        )
+        roads.add_geometry(
+            MultiLineString(linestrings=[LineString(vertices=xy)]),
+            GeometryType.MULTILINESTRING,
+        )
+        model.add_child(roads)
+    for ident, trace in (("full", xy), ("partial", xy[1:]), ("reverse", xy[-1:0:-1])):
+        samples = np.column_stack((np.arange(len(trace)), trace, np.zeros(len(trace))))
+        path = TimedPath("walk", "work", samples, edge_ids=("bend",) * (len(trace) - 1))
+        model.add_child(Person(id=ident, paths=(path,)))
+    counts, endpoints = model.segment_passages()
+    assert counts == {(0, "bend", 1): 2, (0, "bend", -1): 1}
+    assert endpoints == {
+        ("bend", 1): ((0, 0), (5, -10)),
+        ("bend", -1): ((5, -10), (0, 0)),
+    }
+
+
+def test_loop_counts_follow_network_order_across_the_seam():
+    model = PeopleSimulation(attributes={"view_bounds": [-10, -10, 20, 20]})
+    xy = np.array([[0, 0], [0, 5], [5, 5], [5, 0], [0, 0]])
+    roads = RoadNetwork(
+        vertices=xy[:1],
+        edges=np.array([[0, 0]]),
+        attributes={"id": 42, "osm_way_id": [1234], "segment_index": [8]},
+    )
+    roads.add_geometry(
+        MultiLineString(linestrings=[LineString(vertices=xy)]),
+        GeometryType.MULTILINESTRING,
+    )
+    model.add_child(roads)
+    for ident, trace in (
+        ("forward", xy),
+        ("reverse", xy[::-1]),
+        ("seam", xy[[3, 4, 1]]),
+    ):
+        samples = np.column_stack((np.arange(len(trace)), trace, np.zeros(len(trace))))
+        path = TimedPath(
+            "walk", "work", samples, edge_ids=("1234:8",) * (len(trace) - 1)
+        )
+        model.add_child(Person(id=ident, paths=(path,)))
+    assert model.segment_passages()[0] == {
+        (0, "1234:8", 1): 2,
+        (0, "1234:8", -1): 1,
+    }
+
+
+def test_edge_counts_detect_reversal_with_roundoff_at_projected_northings():
+    y = 6_400_000.0
+    model = PeopleSimulation(attributes={"view_bounds": [-1, y - 1, 2000, y + 1]})
+    path = TimedPath(
+        "walk",
+        "work",
+        [[0, 0, y, 0], [100, 1000, y, 0], [200, 0, np.nextafter(y, np.inf), 0]],
+        edge_ids=("street", "street"),
+    )
+    model.add_child(Person(paths=(path,)))
+    assert model.segment_passages()[0] == {(0, "street", 1): 1, (0, "street", -1): 1}
+
+
+@pytest.mark.parametrize(("first", "last", "second"), [(15, 5, 15), (5, 15, 10)])
+def test_passage_along_screenline_counts_the_first_entry(first, last, second):
+    model = PeopleSimulation()
+    path = TimedPath(
+        "walk",
+        "work",
+        [[0, -1, first, 0], [10, 0, first, 0], [20, 0, last, 0], [30, 1, last, 0]],
+    )
+    model.add_child(Person(paths=(path,)))
+    (passage,) = model.passages((0, 0), (0, 10))
+    assert passage.second == second
+
+
+@pytest.mark.parametrize(
+    ("attributes", "error"),
+    [
+        (
+            {
+                "screenline": {
+                    "name": "line",
+                    "start": [0, 0],
+                    "end": [0, 10],
+                    "bin_seconds": 0,
+                }
+            },
+            "Screenline bin_seconds",
+        ),
+        (
+            {
+                "screenline": {
+                    "name": "line",
+                    "start": [0, 0],
+                    "end": [0, 0],
+                    "bin_seconds": 300,
+                }
+            },
+            "Screenline requires distinct",
+        ),
+        (
+            {"buildings": [{"id": "building", "ring": [[0, 0], [1, 1]]}]},
+            "finite XY ring",
+        ),
+        ({"buildings": [{"ring": [[0, 0], [1, 0], [1, 1]]}]}, "string id"),
+    ],
+)
+def test_exchange_and_geojson_reject_invalid_playback_geometry(attributes, error):
+    model = PeopleSimulation(
+        transform=Transform(srs="EPSG:3006"),
+        attributes={"view_bounds": [0, 0, 20, 20], **attributes},
+    )
+    with pytest.raises(ValueError, match=error):
+        exchange.dumps(model)
+    with pytest.raises(ValueError, match=error):
+        model.to_geojson()
+
+
+@pytest.mark.parametrize("dtype", [np.float64, np.int64])
+def test_vehicle_numpy_samples_export_as_json_numbers(dtype):
+    samples = np.array([[0, 0, 0, 0], [10, 5, 5, 0]], dtype=dtype)
+    model = PeopleSimulation(
+        transform=Transform(srs="EPSG:3006"),
+        attributes={
+            "view_bounds": [0, 0, 20, 20],
+            "vehicles": [
+                {"id": "trip", "kind": "bus", "line": "1", "samples": samples}
+            ],
+        },
+    )
+    expected = json.loads(json.dumps(model.to_geojson()))
+    assert expected["people"]["vehicles"][0]["seconds"] == [0, 10]
+    if dtype is np.float64:
+        model.attributes["vehicles"][0]["samples"] = [list(row) for row in samples]
+        assert exchange.loads(exchange.dumps(model)).to_geojson() == expected
 
 
 def test_simulation_requires_people_in_its_coordinate_frame():
