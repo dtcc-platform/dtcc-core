@@ -217,9 +217,17 @@ class MultiSurface(Geometry):
         return len(self.surfaces)
 
     def merge(self, other):
-        """Merge two MultiSurfaces."""
+        """Merge two MultiSurfaces without remapping collection-level series.
+
+        Collection-level time series raise NotImplementedError. Series on
+        individual surfaces travel with those surfaces.
+        """
         if not isinstance(other, MultiSurface):
             raise ValueError("Can only merge with another MultiSurface.")
+        if self.time_series or other.time_series:
+            raise NotImplementedError(
+                "Merging MultiSurfaces cannot transfer time series"
+            )
         existing_ids = {region.id for region in self.regions if region.id is not None}
         if any(
             region.id in existing_ids

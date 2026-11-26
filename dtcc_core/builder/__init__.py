@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 
+from .geometry.create.structured import BoxMesh, RectangleMesh
 from . import model_conversion
 from . import meshing
 from . import geometry
@@ -23,7 +24,12 @@ from .building.modify import split_footprint_walls
 
 from .city.modify import clean_building_surfaces
 
-from .cleaning import clean_footprints, UnresolvedFootprintCleaningError
+from .cleaning import (
+    clean_footprints,
+    building_cells,
+    FootprintCell,
+    UnresolvedFootprintCleaningError,
+)
 
 from .register import register_model_method
 
@@ -52,6 +58,8 @@ _LAZY_IMPORTS = {
     "compute_building_heights": "dtcc_core.builder.geometry_builders.buildings",
     "set_building_heights_from_attribute": "dtcc_core.builder.geometry_builders.buildings",
     "build_lod1_buildings": "dtcc_core.builder.geometry_builders.buildings",
+    "building_from_footprint": "dtcc_core.builder.geometry_builders.buildings",
+    "footprints_from_lod1": "dtcc_core.builder.geometry_builders.buildings",
     "build_lod2_buildings": "dtcc_core.builder.geometry_builders.lod2",
     "extrude_building": "dtcc_core.builder.geometry_builders.buildings",
     "building_heights_from_pointcloud": "dtcc_core.builder.geometry_builders.buildings",
@@ -79,14 +87,23 @@ from .meshing.surface_refinement import SurfaceRefinementOptions
 from .meshing.boundary_conformance import conform_boundary
 
 __all__ = [
+    "BoundaryCornerReport",
+    "find_boundary_corners",
+    "repair_boundary_corners",
+    "BoxMesh",
+    "RectangleMesh",
     "extract_roof_points",
     "compute_building_heights",
     "build_lod1_buildings",
+    "building_from_footprint",
+    "footprints_from_lod1",
     "build_lod2_buildings",
     "RoofFitOptions",
     "SurfaceRefinementOptions",
     "supported_shapes",
     "clean_footprints",
+    "building_cells",
+    "FootprintCell",
     "UnresolvedFootprintCleaningError",
     "build_building_shell",
     "build_city_surface_mesh",
@@ -113,3 +130,9 @@ __all__ = [
 ]
 
 from .meshing.compact_surface import CompactSurfaceOptions
+
+from .meshing.volume_corners import (
+    BoundaryCornerReport,
+    find_boundary_corners,
+    repair_boundary_corners,
+)

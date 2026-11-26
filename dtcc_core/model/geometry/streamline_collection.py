@@ -129,6 +129,9 @@ class StreamlineCollection(Model):
         domain bounds, or the bounds of the lines when none are stored, after
         reprojecting their x and y when reprojected.
 
+        Attached time series are omitted without changing the source model.
+        Save as .dtcc to preserve them.
+
         Parameters
         ----------
         include_z : bool, optional

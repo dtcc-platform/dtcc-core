@@ -162,9 +162,15 @@ def _fetch_token(
             raise ValueError("token response did not contain access_token")
         return token
     except requests.RequestException as exc:
+        # The key is in the Authorization header, which requests can repeat in
+        # its error text, so neither that text nor the original error is kept.
         raise DatasetDescriptor.build_upstream_error(
-            "transit_vehicles", "fetch_vasttrafik_token", TOKEN_URL, exc
-        ) from exc
+            "transit_vehicles",
+            "fetch_vasttrafik_token",
+            TOKEN_URL,
+            exc,
+            include_error_text=False,
+        ) from None
 
 
 def _resolve_authentication_key(explicit_key: str | None) -> str | None:
@@ -225,10 +231,16 @@ def _fetch_positions(
                     "the same application/key to Planera Resa v4 in the "
                     "Västtrafik developer portal."
                 ),
-            ) from exc
+            ) from None
+        # The token is in the Authorization header, which requests can repeat
+        # in its error text, so neither that text nor the original error is kept.
         raise DatasetDescriptor.build_upstream_error(
-            "transit_vehicles", "fetch_vasttrafik_positions", POSITIONS_URL, exc
-        ) from exc
+            "transit_vehicles",
+            "fetch_vasttrafik_positions",
+            POSITIONS_URL,
+            exc,
+            include_error_text=False,
+        ) from None
 
 
 def _parse_positions(data: Any) -> list[VehicleRecord]:

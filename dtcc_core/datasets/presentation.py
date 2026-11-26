@@ -679,8 +679,19 @@ def _requested_domain_label(context) -> str:
     if not bounds or len(bounds) < 4:
         return "Request bounds not specified"
     xmin, ymin, xmax, ymax = (float(value) for value in bounds[:4])
-    width = max(xmax - xmin, 0.0)
-    height = max(ymax - ymin, 0.0)
+    if (
+        context.request.dataset_name == "printable_city_tiles"
+        and context.request.parameters.get("crs") == "EPSG:4326"
+    ):
+        from pyproj import Geod
+
+        geod = Geod(ellps="WGS84")
+        mid_lat, mid_lon = (ymin + ymax) / 2, (xmin + xmax) / 2
+        _, _, width = geod.inv(xmin, mid_lat, xmax, mid_lat)
+        _, _, height = geod.inv(mid_lon, ymin, mid_lon, ymax)
+    else:
+        width = max(xmax - xmin, 0.0)
+        height = max(ymax - ymin, 0.0)
     return f"{_format_distance(width)} x {_format_distance(height)}"
 
 

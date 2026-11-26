@@ -155,6 +155,10 @@ def _check_mesh_metadata(mesh, *, allow_transform=False):
         )
     if mesh.fields:
         raise NotImplementedError("The C++ geometry adapter cannot transfer fields")
+    if mesh.time_series:
+        raise NotImplementedError(
+            "The C++ geometry adapter cannot transfer time series"
+        )
     if mesh.dataset_context is not None:
         raise NotImplementedError(
             "The C++ geometry adapter cannot transfer Dataset Context"
@@ -196,9 +200,9 @@ def mesh_to_builder_mesh(mesh: Mesh):
         native-range integer per face. Nonempty normals must contain one finite
         real triple per face.
     NotImplementedError
-        If the mesh carries a nonidentity transform, SRS, fields, semantic
-        regions, Dataset Context or schema declarations. These require explicit
-        handling in Python; the native mesh stores numerical data only.
+        If the mesh carries a nonidentity transform, SRS, fields, time series,
+        semantic regions, Dataset Context or schema declarations. The native
+        mesh stores numerical data only.
 
     """
     _check_mesh_metadata(mesh)
@@ -255,9 +259,9 @@ def volume_mesh_to_builder_volume_mesh(
         integers within the vertex range, or nonempty markers are not one
         native-range integer per cell.
     NotImplementedError
-        If the mesh carries a nonidentity transform, SRS, fields, semantic
-        regions, Dataset Context or schema declarations. These require explicit
-        handling in Python; the native mesh stores numerical data only.
+        If the mesh carries a nonidentity transform, SRS, fields, time series,
+        semantic regions, Dataset Context or schema declarations. The native
+        mesh stores numerical data only.
 
     """
     _check_mesh_metadata(volume_mesh)

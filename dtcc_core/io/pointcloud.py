@@ -217,8 +217,8 @@ def load_list(
     return pc
 
 
-def _load_csv(path, point_only=False, delimiter=",", bounds=None, **kwargs):
-    pts = np.loadtxt(path, delimiter=delimiter)
+def _load_csv(path, points_only=False, delimiter=",", bounds=None, **kwargs):
+    pts = np.loadtxt(path, delimiter=delimiter, ndmin=2)
     valid_pts = bounds_filter_points(pts, bounds)
     if len(valid_pts) == 0:
         warning(f"Pointcloud {path} has no points")
@@ -228,7 +228,7 @@ def _load_csv(path, point_only=False, delimiter=",", bounds=None, **kwargs):
         return None
     pc = PointCloud()
     pc.points = pts[:, :3][valid_pts]
-    if not point_only and pts.shape[1] >= 4:
+    if not points_only and pts.shape[1] >= 4:
         pc.classification = pts[:, 3][valid_pts].astype(np.uint8)
     else:
         pc.classification = np.ones(pc.points.shape[0]).astype(np.uint8)
@@ -310,7 +310,9 @@ def save(pointcloud, outfile, format=None, **kwargs):
 
 
 def _save_csv(pointcloud, outfile):
-    pts = np.array([[p.x, p.y, p.z] for p in pointcloud.points])
+    pts = np.asarray(pointcloud.points)[:, :3]
+    if len(pointcloud.classification) == len(pts):
+        pts = np.column_stack((pts, pointcloud.classification))
     np.savetxt(outfile, pts, delimiter=",")
 
 

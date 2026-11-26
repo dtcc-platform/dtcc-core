@@ -485,6 +485,7 @@ CASES = [
         violates="flat_in_exported_frame",
         sources=_site(),
     ),
+    Case("printable_city_tiles", arguments={"scale": 300}, sources=_site()),
     Case("city_flat_mesh", sources=_site()),
     Case(
         "city_flat_mesh",
@@ -611,6 +612,30 @@ CASES = [
         arguments={"server_url": TILE_SERVER},
         sources=_tile_server(),
         producer="_realize",
+    ),
+    Case(
+        "built_up",
+        sources={
+            "dtcc_core.io.data.download_built_up": (
+                lambda **_: PRODUCTS["built_up", None]("populated", None)
+            )
+        },
+    ),
+    Case(
+        "settlement_class",
+        sources={
+            "dtcc_core.io.data.download_settlement_class": (
+                lambda **_: PRODUCTS["settlement_class", None]("populated", None)
+            )
+        },
+    ),
+    Case(
+        "satellite_imagery",
+        sources={
+            "dtcc_core.datasets.satellite_imagery.dtcc_core.io.data.download_imagery": (
+                lambda **_: PRODUCTS["satellite_imagery", None]("populated", None)
+            )
+        },
     ),
 ]
 
@@ -755,6 +780,15 @@ def _assert_artifacts(package, fmt=None):
     listed = json.loads(_read(package, "manifest.json"))["artifacts"]
     assert listed == [a.model_dump(mode="json") for a in package.artifacts]
     assert [a.role for a in package.artifacts].count("canonical_model") == 1
+    print_tiles = package.manifest.identity.name == "printable_city_tiles"
+    if print_tiles:
+        assert {a.path for a in package.artifacts} == {
+            CANONICAL_MODEL,
+            "artifacts/base_tile.stl",
+            "artifacts/tile_0_0.stl",
+            "artifacts/layout.json",
+            "artifacts/preview.geojson",
+        }
     for artifact in package.artifacts:
         content = _read(package, artifact.path)
         assert artifact.sha256 == hashlib.sha256(content).hexdigest()
@@ -763,11 +797,12 @@ def _assert_artifacts(package, fmt=None):
             assert artifact.path == CANONICAL_MODEL
             assert artifact.media_type == CANONICAL_MEDIA_TYPE
         elif artifact.role == "derived":
-            assert artifact.format == fmt
-            assert artifact.media_type == DatasetDescriptor.format_media_type(fmt)
+            expected = artifact.path.rsplit(".", 1)[1] if print_tiles else fmt
+            assert artifact.format == expected
+            assert artifact.media_type == DatasetDescriptor.format_media_type(expected)
             assert artifact.derived_from == CANONICAL_MODEL
-            assert (artifact.crs == "EPSG:4326") == (fmt == "geojson")
-            assert (artifact.placement is not None) == (fmt != "geojson")
+            assert (artifact.crs == "EPSG:4326") == (expected == "geojson")
+            assert (artifact.placement is not None) == (expected in {"png", "tif"})
         else:
             assert artifact.role == "tile"
             assert artifact.media_type
@@ -783,7 +818,9 @@ def _assert_equal_artifacts(first, second):
 
 
 def _assert_web_content(package, fmt):
-    [artifact] = [a for a in package.artifacts if a.role == "derived"]
+    [artifact] = [
+        a for a in package.artifacts if a.role == "derived" and a.format == fmt
+    ]
     content = _read(package, artifact.path)
     if fmt == "geojson":
         payload = json.loads(content)

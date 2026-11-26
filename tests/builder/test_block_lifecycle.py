@@ -14,7 +14,7 @@ import shapely
 from shapely.geometry import box, shape
 
 from dtcc_core import io
-from dtcc_core.builder import build_lod1_buildings
+from dtcc_core.builder import build_lod1_buildings, building_cells
 from dtcc_core.builder.cleaning import walls as walls_module
 from dtcc_core.builder.cleaning.blocks import (
     MERGED_FROM_KEY,
@@ -22,6 +22,7 @@ from dtcc_core.builder.cleaning.blocks import (
     SOURCE_ID_KEY,
     WALLS_KEY,
     block_walls,
+    fallback_roof,
     set_part_roof,
     set_source_footprint,
     source_footprint,
@@ -319,13 +320,17 @@ def test_new_block_ids_are_derived_from_their_parts():
 
 
 def test_a_block_read_back_without_part_attributes_is_divided_by_its_parts(tmp_path):
-    # The CityJSON reader keeps neither part IDs nor part attributes: parts
-    # then have their own footprints as their sources.
+    # External parts without provenance use their own footprints as sources.
     cleaned = city_of(
         building("a", box(0, 0, 10, 10), 10.0, height=10, ground=0),
         building("b", box(10, 0, 20, 10), 20.0, height=20, ground=0),
     ).clean_footprints()
     io.save_city(cleaned, tmp_path / "cleaned.json")
+    document = json.loads((tmp_path / "cleaned.json").read_text())
+    for obj in document["CityObjects"].values():
+        if obj["type"] == "BuildingPart":
+            obj.pop("attributes", None)
+    (tmp_path / "cleaned.json").write_text(json.dumps(document))
     loaded = io.load_city(tmp_path / "cleaned.json")
     assert all(
         SOURCE_ID_KEY not in p.attributes for p in loaded.buildings[0].building_parts
@@ -705,6 +710,79 @@ def test_the_cause_of_a_fallback_is_kept_with_the_block(monkeypatch, tmp_path, c
     strict = cleaned.clean_footprints(strict=True).buildings[0].attributes[WALLS_KEY]
     assert strict["outcome"] == "fallback"
     assert strict["detail"] == {"reason": "strict", **record["detail"]}
+
+
+@pytest.mark.parametrize("z", [0.0, 12.0])
+def test_a_fallback_block_keeps_its_tallest_height(monkeypatch, z):
+    # Footprints at one level (no roofs, or a common ground): only the
+    # heights tell the tower from the house.
+    def warn(self):
+        labelled = _original_xy(self)
+        report = {**labelled.report, "wall_pairs": 1, "min_wall_distance": 0.01}
+        return walls_module.LabelledRegion(
+            labelled.region, labelled.cells, "warning", report
+        )
+
+    monkeypatch.setattr(walls_module._WallRepair, "_xy", warn)
+    cleaned = city_of(
+        building("tower", box(0, 0, 10, 10), z, height=60.0),
+        building("house", box(5, 0, 40, 10), z, height=6.0),
+    ).clean_footprints(strict=True)
+    (block,) = cleaned.buildings
+    assert block.attributes[WALLS_KEY]["outcome"] == "fallback"
+    assert block.estimated_height == 60.0
+    assert block.get_geometry(GeometryType.LOD0).zmax == z
+    # The block is one cell, with the height of the block.
+    (cell,) = building_cells(cleaned)
+    assert (cell.building_id, cell.part_id, cell.source_ids) == (
+        block.id,
+        None,
+        ("tower", "house"),
+    )
+    assert (cell.roof_z, cell.height) == (z, 60.0)
+    assert cell.polygon.area == pytest.approx(400.0)
+
+
+def test_building_cells_follow_the_current_roofs_of_the_parts():
+    tower = building("tower", box(0, 0, 10, 10), 60.0, height=60.0, ground=0.0)
+    house = building("house", box(5, 0, 40, 10), 6.0, height=6.0, ground=0.0)
+    shed = building("shed", box(50, 0, 55, 5), 3.0, height=3.0)
+    cleaned = city_of(tower, house, shed).clean_footprints()
+    block, _ = cleaned.buildings
+
+    cells = building_cells(cleaned)
+
+    assert [
+        (c.building_id, c.part_id, c.source_ids, c.roof_z, c.height, c.ground_height)
+        for c in cells
+    ] == [
+        (block.id, "tower", ("tower",), 60.0, 60.0, 0.0),
+        (block.id, "house", ("house",), 6.0, 6.0, 0.0),
+        ("shed", None, ("shed",), 3.0, 3.0, None),
+    ]
+    assert [c.polygon.area for c in cells] == pytest.approx([100.0, 300.0, 25.0])
+
+    # Raised above the tower, the house wins the overlap. Its own footprint is
+    # stale until the walls are updated; its cell is not.
+    house_part = block.building_parts[1]
+    set_part_roof(house_part, 80.0)
+    house_part.estimated_height = 80.0
+    assert polygon_of(house_part.get_geometry(GeometryType.LOD0)).area == 300.0
+    by_part = {c.part_id: c for c in building_cells(block)}
+    assert (by_part["house"].roof_z, by_part["house"].height) == (80.0, 80.0)
+    assert by_part["house"].polygon.area == pytest.approx(350.0)
+    assert by_part["tower"].polygon.area == pytest.approx(50.0)
+
+
+def test_fallback_roof_averages_only_close_roofs_and_heights():
+    areas, roofs = [100.0, 300.0], [10.0, 11.0]
+    assert fallback_roof([0, 1], areas, roofs, [9.0, 10.0]) == pytest.approx(
+        (10.75, 9.75)
+    )
+    assert fallback_roof([0, 1], areas, roofs, [9.0, 12.0]) == (11.0, 12.0)
+    assert fallback_roof([0, 1], areas, roofs, [9.0, None]) == pytest.approx(
+        (10.75, 9.0)
+    )
 
 
 @pytest.mark.parametrize("owner", ["city", "terrain"])

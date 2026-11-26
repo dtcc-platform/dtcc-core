@@ -266,7 +266,7 @@ def place_category(tags: dict):
 
 
 def _query_places(bounds: Bounds) -> list:
-    from ...datasets.geospatial import bounds_to_wgs84
+    from ...reproject.bounds import bounds_to_wgs84
 
     min_lon, min_lat, max_lon, max_lat = bounds_to_wgs84(bounds.tuple, "EPSG:3006")
     box = f"({min_lat},{min_lon},{max_lat},{max_lon})"

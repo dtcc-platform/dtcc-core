@@ -147,6 +147,9 @@ class DeSO(Object):
         replace same-named attributes. Positions are two-dimensional because
         the areas have no height.
 
+        Attached time series are omitted without changing the source model.
+        Save as .dtcc to preserve them.
+
         Parameters
         ----------
         crs : str, optional
