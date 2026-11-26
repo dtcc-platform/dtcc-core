@@ -30,6 +30,7 @@ OBJECTS = (
     "SensorCollection",
     "VehicleCollection",
     "DeSO",
+    "PlaceCollection",
 )
 GEOMETRIES = (
     "Grid",

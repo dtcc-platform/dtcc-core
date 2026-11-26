@@ -34,6 +34,7 @@ require network access.
 | [dataset_smoke.py](dataset_smoke.py) | Synthetic smoke slice and streamlines | `smoke_slice.plot()` / `smoke_streamlines.plot()` |
 | [dataset_building_footprints.py](dataset_building_footprints.py) | Building footprint context | `footprints.plot()` |
 | [dataset_roads.py](dataset_roads.py) | OpenStreetMap road network | `roads.plot(column="highway")` |
+| [dataset_place.py](dataset_place.py) | OpenStreetMap places of interest by category | `places.plot()` |
 | [dataset_space_syntax.py](dataset_space_syntax.py) | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | [dataset_deso.py](dataset_deso.py) | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
 | [dataset_built_up.py](dataset_built_up.py) | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg | `built_up_1975.plot()` / `built_up_2020.plot()` |

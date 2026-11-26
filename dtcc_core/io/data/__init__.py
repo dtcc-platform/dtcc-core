@@ -11,6 +11,7 @@ from .wrapper import (
     download_roadnetwork,
     download_imagery,
 )
+from .osm_places import download_places
 from .digitalearth import list_available_dates
 from .deso import attach_deso_statistics, download_deso, download_deso_statistics
 from .ghsl import download_built_up, download_settlement_class
@@ -21,6 +22,7 @@ __all__ = [
     "download_pointcloud",
     "download_footprints",
     "download_roadnetwork",
+    "download_places",
     "download_imagery",
     "list_available_dates",
     "download_deso",

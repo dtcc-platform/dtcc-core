@@ -1,3 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from shapely.geometry import Polygon
@@ -18,6 +22,63 @@ except ImportError:
 
 
 pytestmark = pytest.mark.skipif(gpd is None, reason="GeoPandas is required")
+
+
+def test_concurrent_polygon_downloads_publish_complete_cache(monkeypatch, tmp_path):
+    gdf = gpd.GeoDataFrame(
+        {"desokod": ["inside"]},
+        geometry=[Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])],
+        crs="EPSG:3006",
+    )
+    fixture_path = tmp_path / "source.gpkg"
+    gdf.to_file(fixture_path, driver="GPKG")
+    content = fixture_path.read_bytes()
+    response = SimpleNamespace(content=content, raise_for_status=lambda: None)
+    monkeypatch.setattr(deso_data.requests, "get", lambda *args, **kwargs: response)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path / "cache")
+    replace = deso_data.os.replace
+    finished_writing = Barrier(2)
+
+    def synchronized_replace(source, destination):
+        finished_writing.wait(timeout=10)
+        replace(source, destination)
+
+    monkeypatch.setattr(deso_data.os, "replace", synchronized_replace)
+    bounds = Bounds(-1, -1, 3, 3)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(deso_data.download_deso_geodataframe, bounds) for _ in range(2)
+        ]
+        results = [future.result(timeout=20) for future in futures]
+
+    for result in results:
+        assert result.desokod.tolist() == ["inside"]
+    cache_path = deso_data._cache_path(bounds, 2025)
+    assert cache_path.read_bytes() == content
+    assert list(cache_path.parent.iterdir()) == [cache_path]
+
+
+def test_concurrent_statistics_writes_publish_complete_cache(monkeypatch, tmp_path):
+    cache_path = tmp_path / "statistics.npy"
+    values = np.array([123.0, 456.0])
+    replace = deso_data.os.replace
+    finished_writing = Barrier(2)
+
+    def synchronized_replace(source, destination):
+        finished_writing.wait(timeout=10)
+        replace(source, destination)
+
+    monkeypatch.setattr(deso_data.os, "replace", synchronized_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(deso_data._write_statistics_cache, cache_path, values)
+            for _ in range(2)
+        ]
+        for future in futures:
+            future.result(timeout=20)
+
+    np.testing.assert_array_equal(np.load(cache_path, allow_pickle=False), values)
+    assert list(tmp_path.iterdir()) == [cache_path]
 
 
 def test_filter_deso_geodataframe_by_bounds():
