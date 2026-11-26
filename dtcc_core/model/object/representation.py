@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from .._equality import model_equal
 from ..geometry import Bounds, Geometry
 from ..values import Raster
 
@@ -26,6 +27,9 @@ class GeometryRepresentation:
     ValueError
         If ``lod`` or ``role`` is given but is not a non-empty string.
     """
+
+    # Not a Model subclass, so it installs the shared model equality itself.
+    __eq__ = model_equal
 
     geometry: Geometry | Raster | Bounds
     lod: str | None = None

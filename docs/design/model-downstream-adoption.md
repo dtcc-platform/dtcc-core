@@ -3,7 +3,7 @@
 Status: implemented and verified locally, 13 September 2026.
 
 This milestone updates the existing Core, Sim, Upload, Atlas and Tangible Twin
-workflows for native wire version 6 and standard semantic schema 0.9.0. The native
+workflows for native wire version 7 and standard semantic schema 0.9.0. The native
 format is `dtcc`, suffix `.dtcc`, media type
 `application/vnd.dtcc.model+protobuf`, and dataset data kind `model`.
 Legacy Protobuf layouts are not restored. Dataset Manifest v2 remains supported
@@ -47,10 +47,11 @@ TetGen Wrapper use numerical/native interfaces and require no format changes.
 ## Contract evidence
 
 `scripts/generate_dataset_contract.py` now emits both the existing v2 golden
-package and a deterministic `canonical.dtccpkg`: a native uint8 raster, its PNG
-preview, companion georeferencing file and context. Upload tests transport these
-through authenticated publication/download; with Core installed, they also use
-the real publication client and reconstruct the downloaded model/context.
+package and a deterministic `canonical.dtccpkg`: a native uint8 raster, its
+map-placed PNG preview with `placement` and `rendering` metadata in the manifest
+(no world file), and context. Upload tests transport these through authenticated
+publication/download; with Core installed, they also use the real publication
+client and reconstruct the downloaded model/context.
 Atlas tests exercise discovery, argument schema and actual download endpoints;
 a clean Python subprocess uses real Core rather than the usual Atlas test mocks.
 Tangible tests use the same package in its browser-module and CLI import paths.

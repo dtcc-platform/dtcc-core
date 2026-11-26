@@ -3,6 +3,7 @@ import gc
 import importlib
 import json
 import math
+import shutil
 import struct
 import traceback
 import warnings
@@ -37,7 +38,7 @@ from dtcc_core.io import raster_tiles
 from dtcc_core.io.data import cache as data_cache
 from dtcc_core.io.data import orthophoto as client
 from dtcc_core.io.raster_tiles import READ_OVERHEAD_BYTES, WorkingMemoryError
-from dtcc_core.model import Bounds, Raster, exchange
+from dtcc_core.model import Bounds, Raster
 from dtcc_core.model.values.raster_tiles import RasterTileCollection
 from tests.datasets.test_dataset_publish import RecordingUploader
 
@@ -698,6 +699,8 @@ MANIFEST_FAILURES = {
     "server error": (FakeResponse(500, "boom"), "http_5xx", 500),
     "timeout": (requests.Timeout("slow"), "timeout", None),
     "connection": (requests.ConnectionError("down"), "connection", None),
+    # SSLError subclasses ConnectionError but is not a transient outage.
+    "tls": (requests.exceptions.SSLError("certificate verify failed"), "tls", None),
 }
 
 
@@ -1320,7 +1323,6 @@ def test_tile_export_is_refused_before_any_request(no_http, tmp_path):
 
 
 NO_SAVER = "Cannot save object: RasterTileCollection. No IO save method"
-NOT_CANONICAL = "Canonical object RasterTileCollection is unsupported"
 
 # Each path's own refusal: the exception class and a pattern of its message.
 TILE_EXPORTS = {
@@ -1338,16 +1340,6 @@ TILE_EXPORTS = {
         lambda tiles, out: export_model_package(tiles, out / "pkg", format="json"),
         ValueError,
         f"Could not export RasterTileCollection as 'json': {NO_SAVER}",
-    ),
-    "canonical package": (
-        lambda tiles, out: export_model_package(tiles, out / "pkg", canonical=True),
-        NotImplementedError,
-        NOT_CANONICAL,
-    ),
-    "canonical encoding": (
-        lambda tiles, out: exchange.dumps(tiles),
-        NotImplementedError,
-        NOT_CANONICAL,
     ),
     "bytes": (
         lambda tiles, out: DatasetDescriptor.export_to_bytes(tiles, "tif"),
@@ -1377,6 +1369,29 @@ def test_tile_collection_export_is_refused_on_every_path(
     assert type(info.value) is expected
     assert str(data_cache.cache_dir) not in str(info.value)
     assert [path for path in out.rglob("*") if path.is_file()] == []
+
+
+@pytest.mark.parametrize("target", ["pkg", "pkg.dtccpkg"])
+def test_tile_collection_exports_a_package_that_outlives_the_cache(
+    server, tmp_path, monkeypatch, no_network, target
+):
+    server.add("a", cell(0), tiff(tmp_path, cell(0)))
+    tiles = call(product="tiles")
+    monkeypatch.setattr(client.requests, "get", forbidden_get)
+    expected = [tile.load() for tile in tiles]
+    package = tiles.export(tmp_path / "out" / target, canonical=True)
+    assert str(data_cache.cache_dir) not in package.manifest.model_dump_json()
+    shutil.rmtree(data_cache.cache_dir)
+    restored = load_model_package(tmp_path / "out" / target)
+    again = tmp_path / "again.dtccpkg"
+    restored.export(again, canonical=True)
+    for loaded in (restored, load_model_package(again)):
+        assert [tile.id for tile in loaded] == [tile.id for tile in tiles]
+        for tile, raster in zip(loaded, expected, strict=True):
+            np.testing.assert_array_equal(tile.load().data, raster.data)
+            assert tile.load().georef == raster.georef
+            np.testing.assert_equal(tile.load().nodata, raster.nodata)
+        assert loaded.dataset_context == tiles.dataset_context
 
 
 # Progress
@@ -1812,6 +1827,25 @@ def test_live_test_skips_transient_failures(failure_class):
 
 
 @pytest.mark.parametrize(
+    ("failure_class", "status_code", "reason"),
+    [
+        ("connection", None, "Chalmers network or VPN"),
+        ("timeout", None, "Chalmers network or VPN"),
+        ("http_5xx", 503, "temporarily unavailable"),
+        ("http_4xx", 429, "temporarily unavailable"),
+    ],
+)
+def test_live_test_skip_reason_names_the_cause(failure_class, status_code, reason):
+    error = upstream_error(failure_class)
+    error.status_code = status_code
+    with pytest.raises(pytest.skip.Exception) as skipped:
+        live._skip_if_transient(error)
+    assert reason in str(skipped.value)
+    if reason == "temporarily unavailable":
+        assert "VPN" not in str(skipped.value)
+
+
+@pytest.mark.parametrize(
     "failure_class", ["http_4xx", "invalid_payload", "configuration"]
 )
 def test_live_test_fails_on_other_failures(failure_class):
@@ -2015,6 +2049,7 @@ LIVE_FAILURES = {
     "http_5xx": lambda: FakeResponse(503, "busy"),
     "http_4xx": lambda: FakeResponse(404, "missing"),
 }
+LIVE_TRANSIENT = {"connection", "timeout", "http_5xx"}
 
 
 @pytest.mark.parametrize("call_number", [1, 2], ids=["mosaic call", "tiles call"])
@@ -2035,10 +2070,10 @@ def test_live_test_classifies_failures_of_both_calls(
     try:
         live.test_orthophoto_live_mosaic_and_tiles(monkeypatch)
     except pytest.skip.Exception as skip:
-        assert failure_class in live.TRANSIENT, f"{failure_class} was skipped"
+        assert failure_class in LIVE_TRANSIENT, f"{failure_class} was skipped"
         assert failure_class in str(skip)
     except DatasetUpstreamError as error:
-        assert failure_class not in live.TRANSIENT, f"{failure_class} failed"
+        assert failure_class not in LIVE_TRANSIENT, f"{failure_class} failed"
         assert error.failure_class == failure_class
     else:
         pytest.fail("the failure must skip or fail the live test")

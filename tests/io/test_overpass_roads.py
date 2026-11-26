@@ -93,7 +93,20 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
                         "bridge": "yes",
                         "tunnel": "no",
                         "junction": "roundabout",
+                        "surface": "asphalt",
+                        "lit": "yes",
+                        "sidewalk:left": "separate",
+                        "cycleway:right": "track",
+                        "width": "7",
+                        "access": "destination",
                     },
+                },
+                {
+                    "type": "node",
+                    "id": 2,
+                    "lat": 57.7005,
+                    "lon": 11.9705,
+                    "tags": {"highway": "crossing", "crossing": "marked"},
                 },
             ],
         }
@@ -117,6 +130,18 @@ def test_overpass_roads_are_segmented_with_traffic_attributes(monkeypatch):
     assert roads["bridge"].tolist() == ["yes", "yes"]
     assert roads["tunnel"].tolist() == ["no", "no"]
     assert roads["junction"].tolist() == ["roundabout", "roundabout"]
+    assert roads["surface"].tolist() == ["asphalt", "asphalt"]
+    assert roads["lit"].tolist() == ["yes", "yes"]
+    assert roads["sidewalk_left"].tolist() == ["separate", "separate"]
+    assert roads["cycleway_right"].tolist() == ["track", "track"]
+    assert roads["width"].tolist() == ["7", "7"]
+    assert roads["access"].tolist() == ["destination", "destination"]
+    assert roads["sidewalk"].isna().all()
+    assert roads["service"].isna().all()
+    # Segments run 3->2 and 2->1 because of oneway=-1; node 2 is a crossing.
+    assert roads["end_node_highway"].fillna("").tolist() == ["crossing", ""]
+    assert roads["end_node_crossing"].fillna("").tolist() == ["marked", ""]
+    assert roads["start_node_highway"].fillna("").tolist() == ["", "crossing"]
     assert roads["source_endpoint"].tolist() == ["endpoint-2", "endpoint-2"]
     assert roads.attrs["source_endpoint"] == "endpoint-2"
 
@@ -223,3 +248,32 @@ def test_download_roadnetwork_defaults_to_osm(monkeypatch):
 
     assert wrapper.download_roadnetwork(bounds) == "roads"
     assert calls == [("roads", "OSM", bounds, "3006")]
+
+
+def test_overpass_failure_lists_every_endpoint(monkeypatch):
+    import requests
+
+    class Response:
+        status_code = 400
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            if endpoint == "endpoint-3":
+                raise requests.Timeout("Read timed out.")
+            return Response()
+
+    monkeypatch.setattr(
+        overpass, "OVERPASS_ENDPOINTS", ["endpoint-1", "endpoint-2", "endpoint-3"]
+    )
+    monkeypatch.setattr(overpass, "create_retry_session", lambda: Session())
+
+    with pytest.raises(RuntimeError) as info:
+        overpass.query_overpass_with_failover("[out:json];")
+
+    message = str(info.value)
+    assert message.startswith(
+        "All Overpass endpoints failed. Last error: Read timed out."
+    )
+    assert "- endpoint-1: HTTP 400" in message
+    assert "- endpoint-2: HTTP 400" in message
+    assert "- endpoint-3: Read timed out." in message

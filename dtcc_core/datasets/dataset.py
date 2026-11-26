@@ -1,4 +1,6 @@
+import copy
 import json
+import re
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -115,6 +117,23 @@ class DatasetBaseArgs(BaseModel):
         return v
 
 
+# Query parameters that carry credentials, such as Trafiklab's ``?key=``. The
+# secret word must start the name or follow a separator or a known prefix, so
+# ``api_key``, ``apikey`` and ``X-Amz-Signature`` match but ``monkey`` does not.
+_SECRET_QUERY_PARAM = re.compile(
+    r"([?&](?:[a-z0-9]+[_-])*"
+    r"(?:api|access|client|private|refresh|secret|session|subscription)?"
+    r"(?:key|token|secret|password|passwd|signature|credential|auth|authorization"
+    r"|sig)=)[^&#\s'\")]+",
+    re.IGNORECASE,
+)
+
+
+def redact_url_secrets(text: str) -> str:
+    """Replace the values of credential query parameters in ``text``."""
+    return _SECRET_QUERY_PARAM.sub(r"\1REDACTED", text)
+
+
 class DatasetUpstreamError(RuntimeError):
     """Typed error for live upstream failures.
 
@@ -225,6 +244,10 @@ class DatasetDescriptor(ABC):
     python_return_type: str = "object"
     timeout_hint: int | None = None
     multi_file_formats: Sequence[str] = ()
+    # One entry per product: canonical package support, the web formats of
+    # export(canonical=True, format=...), their Dataset argument and data
+    # precondition constraints, export options, and exclusions with reasons.
+    export_capabilities: Sequence[dict[str, Any]] = ()
 
     def __init_subclass__(cls, register=True, **kwargs):
         """
@@ -253,7 +276,7 @@ class DatasetDescriptor(ABC):
         args = self.validate(kwargs)
         result = self.build(args)
         result = self.prepare_result(result, args)
-        context = self.create_context(args)
+        context = self._context_for_result(result, args)
         return attach_dataset_context(result, context)
 
     def validate(self, kwargs):
@@ -275,6 +298,10 @@ class DatasetDescriptor(ABC):
         containers without changing internal build/export code paths.
         """
         return result
+
+    def _context_for_result(self, result, args) -> DatasetContext:
+        """Build context for a realized result and its validated request."""
+        return self.create_context(args)
 
     # TODO(Dataset v2): keep DatasetDescriptor during migration; Dataset is a
     # public alias below so new code can use the Dataset name without breaking
@@ -583,6 +610,7 @@ class DatasetDescriptor(ABC):
             "supported_formats": formats,
             "formats": self.format_metadata(),
             "multi_file_formats": list(getattr(self, "multi_file_formats", ())),
+            "export": copy.deepcopy(list(self.export_capabilities)),
             "timeout_hint": getattr(self, "timeout_hint", None),
             "serialization": {
                 "python_object_when_format_omitted": True,
@@ -991,9 +1019,20 @@ class DatasetDescriptor(ABC):
 
     @staticmethod
     def build_upstream_error(
-        dataset: str, operation: str, target: str, exc: Exception
+        dataset: str,
+        operation: str,
+        target: str,
+        exc: Exception,
+        *,
+        include_error_text: bool = True,
     ) -> DatasetUpstreamError:
-        """Classify request-layer failures into a typed upstream error."""
+        """Classify request-layer failures into a typed upstream error.
+
+        Credential query values in the message are redacted. A request that
+        sends its credential in a header passes ``include_error_text=False``:
+        ``requests`` can repeat header values in its error text, so the message
+        then names only the error type and HTTP status.
+        """
         try:
             import requests
         except ImportError:
@@ -1005,6 +1044,10 @@ class DatasetDescriptor(ABC):
         if requests is not None:
             if isinstance(exc, requests.Timeout):
                 failure_class = "timeout"
+            # SSLError subclasses ConnectionError, but a certificate or TLS
+            # failure is not a transient outage.
+            elif isinstance(exc, requests.exceptions.SSLError):
+                failure_class = "tls"
             elif isinstance(exc, requests.ConnectionError):
                 failure_class = "connection"
             elif isinstance(exc, requests.HTTPError):
@@ -1019,7 +1062,16 @@ class DatasetDescriptor(ABC):
             elif isinstance(exc, requests.RequestException):
                 failure_class = "request"
 
-        message = f"{dataset} {operation} failed for {target}: {exc}"
+        if include_error_text:
+            detail = str(exc)
+        else:
+            detail = type(exc).__name__
+            if status_code is not None:
+                detail += f" (HTTP {status_code})"
+        # requests puts the full URL, query string included, in its errors.
+        message = redact_url_secrets(
+            f"{dataset} {operation} failed for {target}: {detail}"
+        )
         return DatasetUpstreamError(
             dataset=dataset,
             operation=operation,
@@ -1098,6 +1150,12 @@ class DatasetDescriptor(ABC):
             else:
                 obj.save(tmpfile, **save_kwargs)
             return Path(tmpfile).read_bytes()
+
+
+def geojson_bytes(model, **options) -> bytes:
+    """Serialize ``model.to_geojson(crs="EPSG:4326", **options)`` as compact JSON."""
+    payload = model.to_geojson(crs="EPSG:4326", **options)
+    return json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 Dataset = DatasetDescriptor

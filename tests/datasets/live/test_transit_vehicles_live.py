@@ -12,6 +12,7 @@ import pytest
 
 import dtcc_core.datasets as datasets
 from dtcc_core.model.object import VehicleCollection
+from tests.datasets.live.live_policy import skip_if_transient
 
 pytestmark = pytest.mark.live
 
@@ -37,6 +38,15 @@ def _require_one_env(names: tuple[str, ...], provider: str) -> str:
     )
 
 
+def _live_buses(provider_name: str, **kwargs) -> VehicleCollection:
+    """Fetch live buses, skipping on transient upstream failures."""
+    try:
+        return datasets.buses(max_vehicles=25, strict_live=True, **kwargs)
+    except Exception as exc:
+        skip_if_transient(exc, f"buses ({provider_name})")
+        raise
+
+
 def _assert_vehicle_collection_contract(vehicles: VehicleCollection) -> None:
     assert isinstance(vehicles, VehicleCollection)
     assert vehicles.attributes["partial_result"] is False
@@ -50,13 +60,12 @@ def test_trafiklab_live_buses_with_credentials():
         "Trafiklab",
     )
 
-    vehicles = datasets.buses(
+    vehicles = _live_buses(
+        "Trafiklab",
         bounds=(17.85, 59.25, 18.15, 59.45),
         crs="EPSG:4326",
         provider="trafiklab",
         api_key=api_key,
-        max_vehicles=25,
-        strict_live=True,
     )
 
     _assert_vehicle_collection_contract(vehicles)
@@ -68,13 +77,12 @@ def test_vasttrafik_live_buses_with_credentials():
         "Västtrafik",
     )
 
-    vehicles = datasets.buses(
+    vehicles = _live_buses(
+        "Västtrafik",
         bounds=(11.85, 57.65, 12.05, 57.78),
         crs="EPSG:4326",
         provider="vasttrafik",
         vasttrafik_authentication_key=authentication_key,
-        max_vehicles=25,
-        strict_live=True,
     )
 
     _assert_vehicle_collection_contract(vehicles)

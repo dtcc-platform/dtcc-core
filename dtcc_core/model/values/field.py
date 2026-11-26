@@ -9,6 +9,30 @@ import numpy as np
 from ..model import Model
 
 
+def _float64_exact(values, label):
+    """Return ``values`` as float64, refusing integers that float64 would round.
+
+    Booleans and floating arrays convert as ``np.asarray(values, dtype=float)``
+    does. For an integer array, an element that does not convert to the same
+    integer raises ``ValueError`` naming ``label`` and the integer.
+    """
+    array = np.asarray(values)
+    result = array.astype(float)
+    if array.dtype.kind in "iu":
+        # Integers below 2**53 are exact in float64; compare the others as
+        # Python integers, which never round.
+        mask = np.abs(result) >= 2.0**53
+        for original, converted in zip(
+            array[mask].tolist(), result[mask].tolist(), strict=True
+        ):
+            if int(converted) != original:
+                raise ValueError(
+                    f"{label} holds the integer {original}, which float64 "
+                    "cannot represent exactly."
+                )
+    return result
+
+
 @dataclass(repr=False)
 class Field(Model):
     """Represents a field (scalar or vector) defined on a geometry.

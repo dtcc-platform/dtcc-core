@@ -539,16 +539,43 @@ def _save_xdmf_volume_mesh(mesh, path):
         marker_sidecar_path.unlink()
 
 
+# glTF is y-up and DTCC is z-up: (x, y, z) maps to (x, z, -y), a proper
+# rotation that keeps triangle winding.
+_Z_UP_TO_Y_UP = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
+
+
 def _save_gltf_mesh(mesh, path):
-    triangles_binary_blob = mesh.faces.flatten().tobytes()
-    points_binary_blob = mesh.vertices.flatten().tobytes()
+    """Save a triangle mesh as glTF 2.0 (.gltf with a .bin file, or .glb).
+
+    Indices are written as uint32 and positions as float32, matching the
+    accessor types. Positions are stored relative to the centre of the
+    bounding box, which goes in the node translation, so projected
+    coordinates such as SWEREF 99 TM northings keep float32 precision. The
+    mesh is rotated from z-up to glTF's y-up.
+    """
+    faces = np.asarray(mesh.faces)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if faces.size == 0:
+        raise ValueError(f"Unable to save mesh to {path}: the mesh has no faces.")
+    if faces.min() < 0 or faces.max() >= len(vertices):
+        raise ValueError(
+            f"Unable to save mesh to {path}: face indices must be in "
+            f"[0, {len(vertices) - 1}], the range of the mesh vertices."
+        )
+    vertices = vertices @ _Z_UP_TO_Y_UP.T
+    origin = (vertices.min(axis=0) + vertices.max(axis=0)) / 2.0
+    positions = (vertices - origin).astype(np.float32)
+    indices = faces.astype(np.uint32)
+
+    triangles_binary_blob = indices.flatten().tobytes()
+    points_binary_blob = positions.flatten().tobytes()
     data = triangles_binary_blob + points_binary_blob
 
     model = pygltflib.GLTF2()
     scene = pygltflib.Scene(nodes=[0])
     model.scenes.append(scene)
     model.scene = 0
-    nodes = pygltflib.Node(mesh=0)
+    nodes = pygltflib.Node(mesh=0, translation=origin.tolist())
     model.nodes.append(nodes)
 
     buffer = pygltflib.Buffer()
@@ -559,19 +586,19 @@ def _save_gltf_mesh(mesh, path):
     triangle_accessor = pygltflib.Accessor(
         bufferView=0,
         componentType=pygltflib.UNSIGNED_INT,
-        count=mesh.faces.size,
+        count=indices.size,
         type=pygltflib.SCALAR,
-        max=[int(mesh.faces.max())],
-        min=[int(mesh.faces.min())],
+        max=[int(indices.max())],
+        min=[int(indices.min())],
     )
     model.accessors.append(triangle_accessor)
     points_accessor = pygltflib.Accessor(
         bufferView=1,
         componentType=pygltflib.FLOAT,
-        count=len(mesh.vertices),
+        count=len(positions),
         type=pygltflib.VEC3,
-        max=mesh.vertices.max(axis=0).tolist(),
-        min=mesh.vertices.min(axis=0).tolist(),
+        max=positions.max(axis=0).tolist(),
+        min=positions.min(axis=0).tolist(),
     )
     model.accessors.append(points_accessor)
 
@@ -733,7 +760,14 @@ def load_volume_mesh(path, **kwargs):
 
 
 def load_mesh_as_city(
-    path, lod=GeometryType.LOD1, merge_coplanar_surfaces=True
+    path,
+    lod=GeometryType.LOD1,
+    merge_coplanar_surfaces=True,
+    *,
+    derive_footprints: bool = False,
+    tolerance: float = 0.002,
+    wall_angle_tolerance: float = 0.1,
+    on_error: str = "raise",
 ) -> City:
     """
     Load a mesh and wrap it as a City object.
@@ -746,13 +780,33 @@ def load_mesh_as_city(
         Level of detail assigned to the imported geometry.
     merge_coplanar_surfaces : bool, default True
         Whether to merge coplanar surfaces on load.
+    derive_footprints : bool, default False
+        Derive roof-level Buildings with ``builder.footprints_from_lod1`` after
+        loading. Requires LOD1. Input connected components are split first;
+        separate source Buildings are never recombined.
+    tolerance : float, default 0.002
+        Footprint conversion's total positional budget in local metres.
+    wall_angle_tolerance : float, default 0.1
+        Footprint conversion's wall-angle tolerance in degrees.
+    on_error : {"raise", "warn"}, default "raise"
+        Footprint conversion failure policy. "warn" keeps each failed source
+        intact and records it in the returned City's conversion report.
+        Nondefault conversion options require ``derive_footprints=True``.
 
     Returns
     -------
     City
-        City containing the mesh geometry.
+        City containing the mesh geometry, or derived footprint Buildings and
+        a conversion report when ``derive_footprints=True``.
     """
-    return generic.load(
+    if not isinstance(derive_footprints, bool):
+        raise TypeError("derive_footprints must be a bool")
+    if derive_footprints:
+        if str(lod).lower() not in ("lod1", "geometrytype.lod1"):
+            raise ValueError("derive_footprints requires LOD1")
+    elif (tolerance, wall_angle_tolerance, on_error) != (0.002, 0.1, "raise"):
+        raise ValueError("Conversion options require derive_footprints=True")
+    city = generic.load(
         path,
         "city_mesh",
         City,
@@ -760,6 +814,16 @@ def load_mesh_as_city(
         lod=lod,
         merge_coplanar_surfaces=merge_coplanar_surfaces,
     )
+    if derive_footprints:
+        from ..builder import footprints_from_lod1
+
+        return footprints_from_lod1(
+            city,
+            tolerance=tolerance,
+            wall_angle_tolerance=wall_angle_tolerance,
+            on_error=on_error,
+        )
+    return city
 
 
 def bounds_center_offset(bounds) -> tuple[float, float, float]:
@@ -837,6 +901,10 @@ def save(mesh, path, center_on_origin=False, **kwargs):
     Save a mesh to a file
 
     For canonical .dtcc output, validate_schema=False bypasses semantic evaluation.
+
+    Other formats write their supported geometry and static data subset;
+    attached time series are omitted without changing the source mesh.
+    Save as .dtcc to preserve time series and their metadata.
 
     Parameters
     ----------

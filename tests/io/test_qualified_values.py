@@ -22,7 +22,7 @@ def test_qualified_values_survive_public_boundaries_without_inference(tmp_path):
     city.save(tmp_path / "qualified.dtcc")
     restored = io.load_city(tmp_path / "qualified.dtcc")
     assert exchange.dumps(restored) == payload
-    assert restored.schema_version == "0.9.0" and exchange.VERSION == 6
+    assert restored.schema_version == "0.9.0" and exchange.VERSION == 7
     building = restored.buildings[0]
     assert building.height is None and building.estimated_height == 9.0
     assert building.attributes["height_measurements"][1]["value"] == 1180

@@ -118,6 +118,21 @@ class CitySurfaceMeshDataset(DatasetDescriptor):
     data_category = "derived"
     result_kind = "mesh"
     python_return_type = "dtcc_core.model.Mesh"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {
+                "geojson": {
+                    "arguments": {},
+                    "preconditions": ["flat_in_exported_frame"],
+                }
+            },
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     provider = [
         provider_entry("lantmateriet", role="source_provider"),
         provider_entry("dtcc-platform", role="processor"),

@@ -26,9 +26,9 @@ from ..common.progress import ProgressTracker, report_progress
 from ..model.geometry import Point
 from ..model.object import Object, VehicleCollection
 from ..model.values import Field as DtccField
+from ..reproject.bounds import bounds_to_wgs84, is_wgs84_crs
 from ..reproject.reproject import reproject_array
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
-from .geospatial import bounds_to_wgs84, is_wgs84_crs
 from .providers import provider_entry
 from .transport.base import SUPPORTED_TRANSIT_MODES, TransitMode
 from .transport.trafiklab_gtfs import (
@@ -151,6 +151,16 @@ class TransitVehiclesDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "vehicle_collection"
     python_return_type = "dtcc_core.model.VehicleCollection"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     timeout_hint = 20
     provider = [
         provider_entry("trafiklab", role="source_provider"),
@@ -732,7 +742,7 @@ def _vehicle_object_from_record(record, x: float, y: float, z: float) -> Object:
     ):
         if value is None:
             continue
-        field = DtccField()
+        field = DtccField(association="sample")
         field.name = name
         field.unit = unit
         field.dim = 1

@@ -10,8 +10,8 @@ from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
 
 from ...common.progress import report_progress
-from ..geometry_policy import COINCIDENCE, canonical_profile_heights
-from .roof_interfaces import RoofAssemblyError
+from ..geometry_policy import COINCIDENCE
+from .roof_interfaces import RoofAssemblyError, roof_edge_incidence, roof_vertex_heights
 from .shared_edges import SharedEdges
 from .surface_faces import SurfaceFace, boundary_rings
 
@@ -166,15 +166,23 @@ def merge_planar(faces):
 
 
 def building_domains(
-    patches, reference, *, allow_source_steps=False, base_z=None, block_bases=None
+    patches,
+    reference,
+    *,
+    allow_source_steps=False,
+    base_z=None,
+    block_bases=None,
+    contact=None,
 ):
-    """Use fitted domains and native or explicit bases, with exposed affine intervals.
+    """Use fitted domains and terrain profiles or flat bases for exposed walls.
 
     Canonical oriented roof edges supply exact incidence. No roof tessellation
     or vertical strip levels enter these domains.
     """
     n = len(patches)
-    if block_bases is not None:
+    if contact is not None:
+        bases = None
+    elif block_bases is not None:
         bases = block_bases
     elif base_z is not None:
         if not np.isfinite(base_z):
@@ -197,25 +205,10 @@ def building_domains(
             if len(ids):
                 level = float(reference.vertices[ids, 2].min())
                 bases[patch.block_id] = min(bases.get(patch.block_id, level), level)
-    # Heights are canonical only at common XY junctions, as in the assembler.
-    at_xy = defaultdict(list)
-    for i, p in enumerate(patches):
-        for ring in [p.polygon.exterior, *p.polygon.interiors]:
-            for xy in np.asarray(ring.coords)[:-1]:
-                at_xy[tuple(xy)].append((float(p.height(xy)), i))
-    heights = {}
-    slopes = {i: p.coefficients[:2] for i, p in enumerate(patches)}
-    for xy, values in at_xy.items():
-        try:
-            canonical = canonical_profile_heights(values, slopes)
-        except ValueError as exc:
-            raise RoofAssemblyError(
-                str(exc), block_ids=[patches[i].block_id for z, i in values]
-            ) from exc
-        heights.update({(xy, i): z for i, z in canonical.items()})
+    heights = roof_vertex_heights(patches)
 
     def height(i, xy):
-        return heights.get((tuple(xy), i), float(patches[i].height(xy)))
+        return heights[(tuple(xy), i)]
 
     roofs = []
     for i, p in enumerate(patches):
@@ -235,19 +228,8 @@ def building_domains(
         )
     # The subdivision stage supplies fully noded oriented rings. Incidence is
     # combinatorial: distance to a short edge midpoint is not ownership.
-    incidence = defaultdict(list)
-    for i, p in enumerate(patches):
-        for ring in [p.polygon.exterior, *p.polygon.interiors]:
-            xy = np.asarray(ring.coords)
-            for a, b in zip(xy[:-1], xy[1:]):
-                key = tuple(sorted((tuple(a), tuple(b))))
-                if key[0] == key[1]:
-                    raise RoofAssemblyError(
-                        "Zero-length canonical roof edge", block_ids=[p.block_id]
-                    )
-                incidence[key].append((i, a, b))
     walls = []
-    for key, incident in sorted(incidence.items()):
+    for _, incident in sorted(roof_edge_incidence(patches).items()):
         if not 1 <= len(incident) <= 2:
             raise RoofAssemblyError(
                 "Nonmanifold canonical roof edge",
@@ -267,12 +249,14 @@ def building_domains(
         )
         low = next((i for i, _, _ in incident if i != high), None)
         top = np.array([height(high, a), height(high, b)])
-        bottom = (
-            np.full(2, bases[patches[high].block_id])
-            if low is None
-            else np.array([height(low, a), height(low, b)])
-        )
+        if low is None:
+            block_id = patches[high].block_id
+            if contact is not None:
+                ground = contact.profile(a, b, block_id)
+            else:
+                ground = np.array([[*a, bases[block_id]], [*b, bases[block_id]]])
         if low is not None:
+            bottom = np.array([height(low, a), height(low, b)])
             if np.max(abs(top - bottom)) <= COINCIDENCE:
                 continue
             if np.min(top - bottom) < -TOLERANCE:
@@ -280,6 +264,7 @@ def building_domains(
                     "Unnoded compact height crossing",
                     block_ids=[patches[high].block_id],
                 )
+            ground = np.c_[[a, b], bottom]
             if (
                 patches[high].source_key == patches[low].source_key
                 and not allow_source_steps
@@ -294,7 +279,7 @@ def building_domains(
         # Every exterior and hole ring has occupied material on its left.
         # The exposed wall points to its right, without an offset-point probe.
         normal = np.array([direction[1], -direction[0], 0.0])
-        ring = np.array([[*a, bottom[0]], [*b, bottom[1]], [*b, top[1]], [*a, top[0]]])
+        ring = np.vstack((ground, [*b, top[1]], [*a, top[0]]))
         ring = np.array(
             [
                 x

@@ -36,6 +36,13 @@ def _mesh_surface_with_builder(
     return builder_mesh_to_mesh(builder_mesh)
 
 
+def _check_surface_collection_time_series(collection):
+    if collection.time_series or any(
+        surface.time_series for surface in collection.surfaces
+    ):
+        raise NotImplementedError("Triangulation cannot transfer time series")
+
+
 def mesh_multisurface(
     ms: MultiSurface,
     triangle_size=None,
@@ -76,6 +83,7 @@ def mesh_multisurface(
     preserves the enclosing transform and leaves the input unchanged. It requires
     nonzero-area rings and surfaces in the enclosing coordinate frame; cleaning,
     welding/snapping and attached field interpolation are not supported.
+    Triangulation requires input without attached time series.
     """
     if ms is not None and any(surface.regions for surface in ms.surfaces):
         raise NotImplementedError(
@@ -83,6 +91,8 @@ def mesh_multisurface(
         )
     if ms is not None and ms.regions:
         return _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher)
+    if ms is not None:
+        _check_surface_collection_time_series(ms)
     if clean:
         ms = clean_multisurface(ms)
     if ms is None:
@@ -117,6 +127,7 @@ def _mesh_surface_collection(ms, triangle_size, weld, snap, clean, mesher):
     """Triangulate a Solid or semantic MultiSurface, transferring membership."""
     from ...model import exchange
 
+    _check_surface_collection_time_series(ms)
     # A public numerical operation accepts mutable native input. Reuse canonical
     # admission for this supported subset rather than duplicating region rules.
     exchange.validate(ms)
@@ -215,7 +226,14 @@ def mesh_surface(
     -------
     Mesh
         Triangular mesh representation of the Surface.
+
+    Raises
+    ------
+    NotImplementedError
+        If the surface has attached time series or semantic regions.
     """
+    if s.time_series:
+        raise NotImplementedError("Triangulation cannot transfer time series")
     if s.regions:
         raise NotImplementedError(
             "Semantic regions must belong to a MultiSurface for triangulation"
@@ -273,6 +291,7 @@ def mesh_multisurfaces(
     -----
     Inputs with semantic regions use the same preservation rules as
     ``mesh_multisurface`` and currently require ``min_mesh_angle=20.7``.
+    Triangulation requires input without attached time series.
     """
 
     if any(ms.regions or any(s.regions for s in ms.surfaces) for ms in multisurfaces):
@@ -290,6 +309,8 @@ def mesh_multisurfaces(
             )
             for ms in multisurfaces
         ]
+    for ms in multisurfaces:
+        _check_surface_collection_time_series(ms)
     if clean:
         multisurfaces = [clean_multisurface(ms) for ms in multisurfaces]
         multisurfaces = [ms for ms in multisurfaces if ms is not None]
@@ -350,8 +371,8 @@ def merge_meshes(meshes: [Mesh], weld=False, snap=0) -> Mesh:
     Inputs must share the exact same transform and SRS; neither reprojection nor
     coordinate-frame conversion is implicit. The output retains a copy of that
     frame. Face normals are retained, or recomputed when snapping changes faces.
-    Fields, semantic regions, Dataset Context and schema declarations require
-    explicit transfer and are rejected. Snap distance uses local units.
+    Fields, time series, semantic regions, Dataset Context and schema declarations
+    require explicit transfer and are rejected. Snap distance uses local units.
     """
     meshes = list(meshes)
     for mesh in meshes:
@@ -412,8 +433,8 @@ def merge(mesh: Mesh, other: Mesh, weld=False, snap=0) -> Mesh:
     Inputs must share the exact same transform and SRS; neither reprojection nor
     coordinate-frame conversion is implicit. The output retains a copy of that
     frame. Face normals are retained, or recomputed when snapping changes faces.
-    Fields, semantic regions, Dataset Context and schema declarations require
-    explicit transfer and are rejected. Snap distance uses local units.
+    Fields, time series, semantic regions, Dataset Context and schema declarations
+    require explicit transfer and are rejected. Snap distance uses local units.
     """
     return merge_meshes([mesh, other], weld=weld, snap=snap)
 
@@ -438,8 +459,8 @@ def snap_vertices(mesh: Mesh, snap_distance: float) -> Mesh:
     -----
     Preserves a copy of the transform/SRS; distance is measured in local units.
     Existing face normals are recomputed after snapping. Degenerate faces cannot
-    receive a normal and raise ValueError. Fields, semantic regions, Dataset
-    Context and schema declarations require explicit transfer and are rejected.
+    receive a normal and raise ValueError. Fields, time series, semantic regions,
+    Dataset Context and schema declarations require explicit transfer and are rejected.
     """
     _check_mesh_metadata(mesh, allow_transform=True)
     builder_mesh = _dtcc_builder.create_mesh(
@@ -483,7 +504,17 @@ def disjoint_meshes(mesh: Mesh) -> list[Mesh]:
     -------
     list[Mesh]
         Meshes, each containing one connected component.
+
+    Raises
+    ------
+    NotImplementedError
+        If the mesh has attached time series.
     """
+    if mesh.time_series:
+        raise NotImplementedError(
+            "Separating mesh components cannot transfer time series"
+        )
+
     # Imported here rather than at module scope to keep scipy off the
     # `import dtcc_core` path. See issue #87.
     from scipy import sparse

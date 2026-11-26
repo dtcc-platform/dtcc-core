@@ -32,9 +32,9 @@ from ..common import info
 from ..model.geometry import Point
 from ..model.object import Object, SensorCollection
 from ..model.values import Field as DtccField
+from ..reproject.bounds import bounds_to_wgs84, is_wgs84_crs
 from ..reproject.reproject import reproject_array
 from .dataset import DatasetBaseArgs, DatasetDescriptor, DatasetUpstreamError
-from .geospatial import bounds_to_wgs84, is_wgs84_crs
 from .providers import provider_entry
 
 # ── Parameter name mapping ───────────────────────────────────────────────
@@ -306,6 +306,16 @@ class HydrologyDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "sensor_collection"
     python_return_type = "dtcc_core.model.SensorCollection"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     provider = [provider_entry("smhi", role="source_provider")]
     source = [
         {

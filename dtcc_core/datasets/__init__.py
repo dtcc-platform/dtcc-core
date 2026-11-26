@@ -32,6 +32,7 @@ from .buildings import BuildingDataset
 from .city import CityDataset
 from .terrain_surface_mesh import TerrainSurfaceMeshDataset
 from .city_surface_mesh import CitySurfaceMeshDataset
+from .printable_city_tiles import PrintableCityTilesDataset
 from .city_flat_mesh import CityFlatMeshDataset
 from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
@@ -41,6 +42,7 @@ from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
 from .roads import RoadsDataset
+from .satellite_imagery import SatelliteImageryDataset
 from .space_syntax import SpaceSyntaxDataset
 from .transit_vehicles import (
     TransitVehiclesDataset,
@@ -52,21 +54,11 @@ from .transit_vehicles import (
 )
 from .deso import DeSODataset
 from .urban_atlas import UrbanAtlasDataset
+from .built_up import BuiltUpDataset
+from .settlement_class import SettlementClassDataset
 from .smoke import SmokeDataset
 from .calibration_grid import CalibrationGridDataset
 from .orthophoto import OrthophotoDataset
-
-# Remote dataset support (optional, requires httpx)
-try:
-    from .remote import (
-        RemoteDatasetDescriptor,
-        RemoteValidationError,
-        register_remote_service,
-        register_remote_descriptors_from_cache,
-        get_cached_discoveries,
-    )
-except ImportError:
-    pass
 
 # Import registry infrastructure from separate module to avoid circular imports
 from .registry import (
@@ -88,6 +80,7 @@ city = get_dataset("city")
 
 terrain_surface_mesh = get_dataset("terrain_surface_mesh")
 city_surface_mesh = get_dataset("city_surface_mesh")
+printable_city_tiles = get_dataset("printable_city_tiles")
 city_flat_mesh = get_dataset("city_flat_mesh")
 city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")
@@ -96,6 +89,7 @@ weather = get_dataset("weather")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")
+satellite_imagery = get_dataset("satellite_imagery")
 space_syntax = get_dataset("space_syntax")
 transit_vehicles = get_dataset("transit_vehicles")
 buses = get_dataset("buses")
@@ -105,12 +99,14 @@ metros = get_dataset("metros")
 ferries = get_dataset("ferries")
 deso = get_dataset("deso")
 urban_atlas = get_dataset("urban_atlas")
+built_up = get_dataset("built_up")
+settlement_class = get_dataset("settlement_class")
 smoke = get_dataset("smoke")
 calibration_grid = get_dataset("calibration_grid")
 orthophoto = get_dataset("orthophoto")
 
 
-_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "remote", "unknown")
+_CATEGORY_ORDER = ("raw", "derived", "synthetic", "simulation", "unknown")
 
 
 def info(print: bool = True) -> str | None:
@@ -135,7 +131,7 @@ def info(print: bool = True) -> str | None:
         sections.append(
             (
                 f"{_format_category_title(category)} ({len(rows)})",
-                ("Dataset", "Product", "Formats", "Source"),
+                ("Dataset", "Product", "Formats", "Source", "Web export"),
                 rows,
             )
         )
@@ -175,8 +171,8 @@ def __getattr__(name):
 
 def _group_dataset_summary_rows(
     datasets_dict: dict[str, DatasetDescriptor],
-) -> dict[str, list[tuple[str, str, str, str]]]:
-    grouped: dict[str, list[tuple[str, str, str, str]]] = {}
+) -> dict[str, list[tuple[str, str, str, str, str]]]:
+    grouped: dict[str, list[tuple[str, str, str, str, str]]] = {}
     for name, dataset in sorted(datasets_dict.items()):
         meta = dataset.describe()
         category = str(meta.get("data_category") or "unknown")
@@ -186,6 +182,7 @@ def _group_dataset_summary_rows(
                 _format_identifier(str(meta.get("result_kind") or "unknown")),
                 _format_supported_formats(meta.get("supported_formats")),
                 _dataset_source(dataset),
+                _format_web_export(meta.get("export")),
             )
         )
     return {category: grouped[category] for category in _ordered_categories(grouped)}
@@ -201,6 +198,21 @@ def _format_supported_formats(formats) -> str:
     if not formats:
         return "python object"
     return ", ".join(str(fmt) for fmt in formats)
+
+
+def _format_web_export(entries) -> str:
+    products = []
+    for entry in entries or ():
+        constrained = entry["constraints"]
+        formats = (
+            ", ".join(
+                f"{fmt}*" if fmt in constrained else fmt for fmt in entry["web_formats"]
+            )
+            or "none"
+        )
+        product = entry["product"]
+        products.append(formats if product is None else f"{product}: {formats}")
+    return "; ".join(products) or "none"
 
 
 def _dataset_source(dataset: DatasetDescriptor) -> str:

@@ -111,6 +111,7 @@ mapping native type names to schema classes.
 | --- | --- |
 | Object | Generic object, containment and declared attributes/references. |
 | City, Building, BuildingPart | Native bindings supply the corresponding validation class when no declared semantic URI matches. [Optional building attributes](building-attributes.md), including separate measured/estimated heights; sibling Building/BuildingPart schema classes and declared containment restrictions. |
+| TreeCollection, BuildingCollection, FootprintCollection, CalibrationGrid, FieldSlice, StreamlineCollection, RasterTileCollection | Root-only result wrappers have no schema binding. The root of a wrapper payload validates as the generic `dtcc:Object` class, with typed members where the wrapper has children (Tree, Building); issue paths identify members as `objects[id]`, and shape violations raise `ValueError` naming the wrapper class. |
 | Tree | Native height and crown_radius project as height and crown_radius; other declared plant attributes retain their meaning. |
 | Landuse | Native enum-name list projects as native_landuses. Source class/function/usage codes are not translated into native codes. |
 | Mesh, Point, Surface, MultiSurface, Solid | Supported standalone roots; semantic regions and field metadata are evaluated. Numerical arrays, topology, transforms and shell structure stay in Core. |
@@ -182,7 +183,7 @@ exchange but do not select or replace the standard contract.
 - New roots with neither schema property set use the bundled default.
 - Loaded roots expose `model.schema_id` and `model.schema_version`. A subsequent
   save preserves that selection. Saving does not alter the source model's metadata.
-- Only wire version 6 is supported. Older layouts are rejected, including with
+- Only wire version 7 is supported. Older layouts are rejected, including with
   validation bypassed. No legacy baseline or migration reader remains.
 - Default reads/writes reject an unavailable schema ID/version. An explicit
   bypass permits handling such data while retaining its declaration for re-save.
