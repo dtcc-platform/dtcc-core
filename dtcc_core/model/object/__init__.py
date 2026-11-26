@@ -15,7 +15,7 @@ from .landuse import Landuse, LanduseClasses
 from .sensor_collection import SensorCollection
 from .vehicle_collection import VehicleCollection
 from .deso import DeSO
-from .people import PeopleSimulation, Person, TimedPath
+from .people import PeopleSimulation, Person, TimedPath as TimedPath
 
 __all__ = [
     "Object",
@@ -40,5 +40,4 @@ __all__ = [
     "DeSO",
     "PeopleSimulation",
     "Person",
-    "TimedPath",
 ]
