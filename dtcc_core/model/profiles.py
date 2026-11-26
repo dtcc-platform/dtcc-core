@@ -13,7 +13,7 @@ from . import exchange
 from ._profile_backend import LinkMLProfile, issue
 from .geometry import Bounds, Geometry, Transform
 from .object import Landuse, Object, Tree
-from .values import Field, Raster
+from .values import Field, Raster, TimeSeries
 
 __all__ = ["SemanticProfile", "ValidationIssue", "ValidationReport"]
 
@@ -138,6 +138,8 @@ def _project(
 
     def project_field(value, base):
         names = ("name", "unit", "description", "association")
+        if isinstance(value, TimeSeries):
+            names += ("role",)
         append(
             json.dumps(["field", base]),
             semantic_type(value),
@@ -155,13 +157,19 @@ def _project(
         while pending:
             geometry, path, parent_id, parent_path, key = pending.pop()
             if native_types is not None:
-                if parent_id is None or getattr(geometry, "fields", None):
+                if (
+                    parent_id is None
+                    or getattr(geometry, "fields", None)
+                    or getattr(geometry, "time_series", None)
+                ):
                     geometry_id = json.dumps(["geometry", path])
                     append(geometry_id, semantic_type(geometry), {}, {}, path, {})
                     if parent_id is None:
                         parent_id, parent_path = geometry_id, path
                 for index, value in enumerate(getattr(geometry, "fields", ())):
                     project_field(value, f"{path}.fields[{index}]")
+                for index, value in enumerate(getattr(geometry, "time_series", ())):
+                    project_field(value, f"{path}.time_series[{index}]")
             for index, region in enumerate(getattr(geometry, "regions", ())):
                 region_base = f"{path}.regions[{index}]"
                 kind = semantic_type(region, region.semantic_type)
@@ -196,7 +204,7 @@ def _project(
                     "linestrings" if hasattr(geometry, "linestrings") else "surfaces"
                 )
                 for index, surface in enumerate(getattr(geometry, child_key, ())):
-                    if surface.fields or surface.regions:
+                    if surface.fields or surface.time_series or surface.regions:
                         child_path = f"{path}.{child_key}[{index}]"
                         pending.append(
                             (
@@ -208,8 +216,10 @@ def _project(
                             )
                         )
 
-    if isinstance(model, Field):
-        project_field(model, "field")
+    if isinstance(model, (Field, TimeSeries)):
+        project_field(
+            model, "time_series" if isinstance(model, TimeSeries) else "field"
+        )
         return records, locations
     if isinstance(model, (Geometry, Raster, Bounds, Transform)):
         project_geometry(model, "geometry", None, None, ["region", "geometry"])

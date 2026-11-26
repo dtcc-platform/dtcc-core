@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from dtcc_core.model import PointCloud
+from dtcc_core.model import Bounds, PointCloud, TimeSeries, exchange
 
 
 @pytest.fixture
@@ -112,3 +112,53 @@ def test_merging_tiles_keeps_classification_integer():
     assert merged.classification.dtype.kind == "u"
     assert merged.classification.tolist() == [1, 2, 9, 2, 2, 7]
     assert len(merged.classification) == len(merged.points)
+
+
+@pytest.mark.parametrize("operation", ["remove", "keep", "crop", "remove_all"])
+def test_point_selection_preserves_time_series(operation):
+    cloud = _tile(0, [1, 2, 9])
+    times = ["2026-01-01", "2026-01-02"]
+    temperatures = np.arange(6, dtype=np.int32).reshape(2, 3)
+    vectors = np.arange(18, dtype=np.float32).reshape(2, 3, 3)
+    cloud.time_series = [
+        TimeSeries("temp", times=times, values=temperatures, association="sample"),
+        TimeSeries("wind", times=times, values=vectors, dim=3, association="vertex"),
+        TimeSeries("mean", times=times, values=[10, 20], association="geometry"),
+    ]
+    original_sample = cloud.time_series[0]
+    kept = [1, 2]
+    if operation == "remove":
+        selected = cloud.remove_points([0])
+    elif operation == "keep":
+        selected = cloud.keep_points(kept)
+    elif operation == "crop":
+        selected = cloud.crop(Bounds(1, -1, 2, 1))
+        assert len(cloud) == 3
+    else:
+        kept = []
+        selected = cloud.remove_points([0, 1, 2])
+
+    restored = exchange.loads(exchange.dumps(selected))
+    np.testing.assert_array_equal(restored.points[:, 0], kept)
+    sample, vertex, geometry = restored.time_series
+    np.testing.assert_array_equal(sample.times, original_sample.times)
+    np.testing.assert_array_equal(sample.values, temperatures[:, kept])
+    np.testing.assert_array_equal(vertex.values, vectors[:, kept])
+    np.testing.assert_array_equal(geometry.values, [[10], [20]])
+    np.testing.assert_array_equal(original_sample.values, temperatures)
+
+
+def test_remove_points_rejects_misaligned_series_before_mutating_cloud():
+    cloud = _tile(0, [1, 2, 9])
+    cloud.time_series = [
+        TimeSeries(
+            "temp", times=["2026-01-01"], values=[[1, 2, 3]], association="sample"
+        ),
+        TimeSeries("wind", times=["2026-01-01"], values=[[4, 5]], association="vertex"),
+    ]
+    with pytest.raises(ValueError, match="2 elements for 3 points"):
+        cloud.remove_points([0])
+
+    np.testing.assert_array_equal(cloud.points[:, 0], [0, 1, 2])
+    np.testing.assert_array_equal(cloud.classification, [1, 2, 9])
+    np.testing.assert_array_equal(cloud.time_series[0].values, [[1, 2, 3]])

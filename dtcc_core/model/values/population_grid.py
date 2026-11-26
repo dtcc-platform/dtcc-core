@@ -26,6 +26,9 @@ class PopulationGrid(Raster):
     file format. Call :meth:`to_raster` first; the plain ``Raster`` keeps
     ``data``, ``georef``, ``crs`` and ``nodata`` but drops ``year``,
     ``variable``, ``requested_bounds`` and ``area_boundaries``.
+    :meth:`export` makes that conversion itself, so a Dataset package holds a
+    plain ``Raster``; its Dataset context still records the requested year
+    and variable.
 
     Attributes
     ----------
@@ -77,6 +80,16 @@ class PopulationGrid(Raster):
         else:
             data[np.isnan(data)] = nodata
         return Raster(data=data, georef=self.georef, nodata=nodata, crs=self.crs)
+
+    def export(self, *args, **kwargs):
+        """Export a Dataset package of :meth:`to_raster`, keeping the Dataset context.
+
+        Accepts the same arguments as :meth:`Model.export`. The package holds a
+        plain ``Raster``, so loading it returns a ``Raster``.
+        """
+        raster = self.to_raster()
+        raster.dataset_context = self.dataset_context
+        return raster.export(*args, **kwargs)
 
     def plot(
         self,

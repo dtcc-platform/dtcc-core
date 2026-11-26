@@ -1,6 +1,6 @@
 # DTCC Model: exchange contract and implementation status
 
-Status: unified Protobuf wire version **6** and standard schema **0.9.0** implemented
+Status: unified Protobuf wire version **7** and standard schema **0.9.0** implemented
 for the bounded model contract in [dtcc-core #85](https://github.com/dtcc-platform/dtcc-core/issues/85).
 Current contract reconciled on 12 September 2026; historical phase-1 evidence is
 labeled separately below.
@@ -38,19 +38,19 @@ the current implementation, not whether a requirement is optional.
 
 | Requirement | Status | Evidence or remaining gap |
 | --- | --- | --- |
-| Public types and their existing serialization support are inventoried. | Implemented | The complete native/schema inventory classifies all 36 exported Model subclasses: 27 supported concrete roots, six root-only result wrappers, two unsupported results and abstract Geometry. The test matrix checks this public boundary. |
+| Public types and their existing serialization support are inventoried. | Implemented | The complete native/schema inventory classifies all 37 exported Model subclasses: 28 supported concrete roots, six root-only result wrappers, two unsupported results and abstract Geometry. The test matrix checks this public boundary. |
 | Public workflows use native typed DTCC models, including semantic collections, with explicit save/export boundaries. | Implemented | Existing model classes, Dataset results, and `Model.export()` provide this workflow; exchange completeness is assessed separately below. |
-| Every type admitted to canonical Protobuf exchange preserves all facts needed for interpretation and computation. | Partial | The unified codec covers the 27 concrete native types listed in the inventory, including geometry, rasters and semantic collections. Seven root-only result wrappers (the six exported ones and RasterTileCollection) are admitted through a transient Object that restores the concrete type; two results (DatasetCollection, DatasetValue) are explicitly not admitted; none is silently downcast. Intrinsic grid domains, including zero-area domains, survive refresh and exchange. Global-frame semantics, undeclared domain concepts and downstream integration remain limited by the documented scope. |
-| Canonical artifacts identify their schema version and concrete root type; readers validate compatibility without dataset-name-to-decoder mappings. | Implemented | ModelFile declares format, wire version 6, concrete root and semantic schema. Readers accept only the current wire version and default to schema 0.9.0 for new roots. |
+| Every type admitted to canonical Protobuf exchange preserves all facts needed for interpretation and computation. | Partial | The unified codec covers the 28 concrete native types listed in the inventory, including geometry, rasters and semantic collections. Seven root-only result wrappers (the six exported ones and RasterTileCollection) are admitted through a transient Object that restores the concrete type; two results (DatasetCollection, DatasetValue) are explicitly not admitted; none is silently downcast. Intrinsic grid domains, including zero-area domains, survive refresh and exchange. Global-frame semantics, undeclared domain concepts and downstream integration remain limited by the documented scope. |
+| Canonical artifacts identify their schema version and concrete root type; readers validate compatibility without dataset-name-to-decoder mappings. | Implemented | ModelFile declares format, wire version 7, concrete root and semantic schema. Readers accept only the current wire version and default to schema 0.9.0 for new roots. |
 | Concrete nested types, containment and other required relationships survive exchange. | Partial | All admitted Object kinds, including SensorCollection, VehicleCollection and DeSO, preserve type when nested. IDs, containment and named references are checked. Domain meanings beyond declared schema rules remain open. |
 | Geometry, topology, coordinate precision, CRS, transforms, markers and classifications survive exchange. | Partial | Arrays, Raster georeferencing, Bounds and transforms have explicit native storage. Derived caches are omitted and ordinary Grid domains are preserved. Zero-area intrinsic-grid domains, raw-envelope aggregation edge cases and global transform composition remain qualified in the spatial contract. |
-| Numerical values preserve dtype, shape, units, components, missingness and association, and relevant temporal/scenario/other axes. | Partial | Field/Raster arrays preserve dtype, shape and numerical values. Explicit vertex/edge/face/cell/sample/geometry associations are checked. General temporal/scenario axes remain missing. |
-| Attributes preserve the types and meanings required by platform data across consumers. | Partial | Wire 6 uses a typed value union for null, booleans, arbitrary-precision decimal integers, finite doubles, strings, lists and maps. The schema 0.9.0 browser run exercises these meanings; production consumer and C++ certification remain separate. |
-| Intrinsic model facts remain authoritative in the model; Dataset Context is attached in memory and snapshotted in the package manifest. | Partial | Wire 6 stores supported intrinsic facts in the payload; v3 packages snapshot and restore root Context including health/warnings. Nested Context is rejected pending a per-entity provenance association. |
+| Numerical values preserve dtype, shape, units, components, missingness and association, and relevant temporal/scenario/other axes. | Partial | Field/Raster/TimeSeries arrays preserve dtype, shape and numerical values. TimeSeries preserves UTC nanosecond timestamps and role. Explicit vertex/edge/face/cell/sample/geometry associations are checked. General scenario axes remain missing. |
+| Attributes preserve the types and meanings required by platform data across consumers. | Partial | Wire 7 uses a typed value union for null, booleans, arbitrary-precision decimal integers, finite doubles, strings, lists and maps. The schema 0.9.0 browser run exercises these meanings; production consumer and C++ certification remain separate. |
+| Intrinsic model facts remain authoritative in the model; Dataset Context is attached in memory and snapshotted in the package manifest. | Partial | Wire 7 stores supported intrinsic facts in the payload; v3 packages snapshot and restore root Context including health/warnings. Nested Context is rejected pending a per-entity provenance association. |
 | Every semantic Dataset Package includes a canonical Protobuf model artifact; supplemental artifacts have explicit roles and relationships. | Partial | `Model.export(canonical=True)` guarantees the canonical artifact plus explicitly related supplements. Default artifact-only v2 packages remain pending canonical package adoption and consumer changes. |
 | Package creation, reading and validation preserve the realization and context, verify integrity, and keep manifest summaries consistent with the canonical model. | Partial | V3 local readers reconstruct the model/Context and verify paths, hashes, sizes, model type/version and root CRS. Bounds summaries remain unset pending global transform semantics; remote consumers are not migrated. |
 | Admission and exchange reject invalid required data and unsupported representations clearly; documented partial imports expose health/warnings. | Partial | The shared codec checks connectivity, field association, IDs and type/version; packages verify their independent boundary. Caches are omitted and descendant bounds can be explicitly refreshed. Strict CityJSON admits the 12 documented exterior feature types. Permissive CityJSON and other external adapters do not inherit a complete strict semantic contract. |
-| Evolution has explicit reader compatibility, writer migration and retirement rules. | Implemented for this break | The user explicitly retired old formats without backward compatibility. Only the unified version 6 is read/written. Unknown fields are rejected before reconstruction can lose them. Downstream consumers must adopt dtcc.proto; none are silently migrated. |
+| Evolution has explicit reader compatibility, writer migration and retirement rules. | Implemented for this break | The user explicitly retired old formats without backward compatibility. Only the unified version 7 is read/written. Unknown fields are rejected before reconstruction can lose them. Downstream consumers must adopt dtcc.proto; none are silently migrated. |
 
 Current implementation evidence is in the public-type inventory and linked workflow
 contracts; the phase-1 checks below are historical. Relevant implementation paths include
@@ -173,11 +173,68 @@ canonical package path meets the declared local v3 boundary. Default artifact-on
 v2 packages and downstream consumers have not all adopted this broader package
 requirement; there is no retained legacy native model codec.
 
+### Python equality
+
+`==` on two model instances returns one bool. Every `Model` subclass except
+`DatasetValue`, plus `SemanticRegion`, `GeometryRepresentation` and `RasterTile`,
+uses one shared comparator (`model/_equality.py`). `Model.__init_subclass__`
+installs it before the dataclass decorator runs, so behavior does not depend on
+the Python version's generated `__eq__`. The policy is:
+
+- **Same concrete type.** A Mesh never equals a PointCloud or a Mesh subclass.
+  Object IDs are compared, so independently created Objects differ by default.
+- **Exact values.** No tolerance. Compare numerically with `np.allclose` or
+  `np.testing` when rounding matters.
+- **Arrays need identical shape and dtype.** NumPy broadcasting does not apply:
+  a `(1,)` array differs from `(1, 1)`, and `int32` faces differ from `int64`
+  faces. Array subclasses count as different types. Scalars compare by value,
+  as in Python (`1 == 1.0`).
+- **Native exchange keeps values, shape and numeric type.** It writes arrays in
+  little-endian byte order and reloads them as plain `ndarray`s, and it rejects
+  dtypes the wire format does not support, such as complex and `float16`. A model
+  holding plain native-endian arrays of supported dtypes compares equal after a
+  save and reload. One holding
+  big-endian arrays or array subclasses such as `memmap` or `MaskedArray` does
+  not, because the reloaded representation differs. `VolumeGrid.z_levels` that
+  are not a `MaskedArray` are the exception, since they compare in float64.
+- **Missing equals missing.** NaN (and NaT in date arrays) equals NaN in the
+  same array position, including record-array fields, and in scalars such as
+  `Raster.nodata`. The real and imaginary parts of a complex value are compared
+  separately, so a NaN in one part does not hide a difference in the other.
+- **Masks are compared.** Masked arrays are equal when their masks match and
+  their unmasked values are equal. Values under a mask are ignored.
+- **Nested values** (lists, tuples, mappings, object arrays, child models) are
+  compared recursively with the same rules; a list never equals a tuple, while
+  a namedtuple equals a plain tuple of the same values.
+- **Bounds caches are ignored.** `_bounds` on Geometry and Object is declared
+  `compare=False`. It holds a coordinate-derived cache or, for an Object, a
+  local override set through `bounds`, so two Cities with different
+  user-set bounds still compare equal. Grid and VolumeGrid domains are
+  intrinsic and are compared; an unset domain compares as its default from the
+  cell counts and any `z_levels`, without being set.
+- **Layer boundaries compare in float64.** Real one-dimensional
+  `VolumeGrid.z_levels` that float64 holds exactly and that are not a
+  `MaskedArray` compare by their float64 values, whatever dtype they were
+  assigned in. Other assigned values compare
+  under the rules above. `None` differs from explicit levels, even when the
+  spacing is the same.
+- **Only dataclass fields.** Dataset Context, schema declarations and other
+  instance attributes are not compared. Fields declared `compare=False` are
+  skipped.
+
+Models stay unhashable. `DatasetValue` compares as the value it wraps: it
+equals another `DatasetValue` or a raw value with equal contents, also inside
+nested containers. With a NumPy array as the left operand, NumPy compares
+element by element and returns an array. A subclass may define its own
+`__eq__`; its subclasses inherit that instead. `@dataclass(eq=False)` does not
+remove the shared comparator. Cyclic containers and payload objects whose own
+`==` does not return a bool (such as pandas objects) are not supported.
+
 ### Format evolution and retirement
 
 The user explicitly chose a breaking replacement on 11 September 2026. The sole
-`dtcc.proto` defines ModelFile version 6; old dtcc.proto payloads and experimental
-wire versions 1–5 are rejected, including with semantic validation bypassed.
+`dtcc.proto` defines ModelFile version 7; old dtcc.proto payloads and experimental
+wire versions 1–6 are rejected, including with semantic validation bypassed.
 Model file suffixes are `.dtcc`; the old `.pb`/`.pb2` handlers have been removed.
 External dataset selectors called `format="pb"` still mean Protobuf output, now
 using ModelFile. Third-party Protobuf formats such as GTFS are unrelated.

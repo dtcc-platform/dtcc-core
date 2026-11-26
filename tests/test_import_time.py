@@ -25,6 +25,7 @@ FORBIDDEN_EAGER_IMPORTS = [
     "fiona",
     "geopandas",
     "laspy",
+    "pandas",
     "rasterio",
     "rasterstats",
     "scipy",

@@ -37,6 +37,7 @@ from dtcc_core.model import (
     Building,
     GeometryType,
     PointCloud,
+    PopulationGrid,
     Surface,
     Transform,
     exchange,
@@ -611,6 +612,14 @@ CASES = [
         },
     ),
     Case(
+        "population_grid",
+        sources={
+            "dtcc_core.io.data.download_population_grid": (
+                lambda **_: PRODUCTS["population_grid", None]("populated", None)
+            )
+        },
+    ),
+    Case(
         "settlement_class",
         sources={
             "dtcc_core.io.data.download_settlement_class": (
@@ -756,6 +765,11 @@ def _read(package, path):
 
 
 def _assert_same_model(result, restored):
+    if isinstance(result, PopulationGrid):
+        # Its package holds the plain Raster that PopulationGrid.export writes.
+        raster = result.to_raster()
+        raster.dataset_context = result.dataset_context
+        result = raster
     assert type(restored) is type(result)
     assert restored.dataset_context == result.dataset_context
     assert exchange.dumps(restored) == exchange.dumps(result)

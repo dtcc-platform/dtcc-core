@@ -35,6 +35,7 @@ and fails when this page differs.
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
 | `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: tile collections have no web artifact; use the raster product for imagery |
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
+| `population_grid` | - | `PopulationGrid` | yes | `png`, `tif` | none | none |
 | `printable_city_tiles` | - | `Object` | yes | `geojson` | none | none |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
 | `satellite_imagery` | - | `Raster` | yes | `png`, `tif` | none | none |
@@ -131,6 +132,8 @@ A package is a directory or a `.dtccpkg` archive with:
   samples. GeoJSON can substantially increase package size, export time and
   parsing cost; the overhead depends on the data. Leave out `format=` when no
   map view is needed.
+  Attached time series remain in `artifacts/model.dtcc`; the GeoJSON map view
+  omits them and leaves the source model unchanged.
 - A printable city tiles package always includes multiple artifacts with role
   `derived`, including `artifacts/preview.geojson`, `artifacts/layout.json`,
   `artifacts/base_tile.stl` and one STL per city tile.

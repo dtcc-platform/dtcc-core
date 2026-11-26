@@ -81,6 +81,21 @@ class PopulationGridDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.PopulationGrid"
+    # Packages hold the grid as a plain Raster (PopulationGrid.export).
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "persons per cell"},
+            },
+            "exclusions": [],
+        }
+    ]
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("scb", role="source_provider"),
@@ -164,7 +179,7 @@ class PopulationGridDataset(DatasetDescriptor):
         "preferred_geometry": "raster",
         "alternate_geometry": "polygons",
         "default_crs": "EPSG:3006",
-        "unit": "persons per cell",
+        "value_units": "persons per cell",
     }
     presentation_warnings = [
         "Privacy adjustments mean sex and age bands may not sum exactly to the total.",

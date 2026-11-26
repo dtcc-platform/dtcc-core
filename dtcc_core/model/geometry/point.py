@@ -29,7 +29,7 @@ class Point(Geometry):
 
     def _summary_items(self):
         items = [("x", self.x), ("y", self.y), ("z", self.z)]
-        if self.fields or self.regions:
+        if self.fields or self.time_series or self.regions:
             items += super()._summary_items()
         if self.transform.srs:
             items.append(("srs", self.transform.srs))
@@ -43,6 +43,7 @@ class Point(Geometry):
         return (
             type(self) is Point
             and not self.fields
+            and not self.time_series
             and not self.regions
             and not self.transform.srs
             and np.array_equal(self.transform.affine, np.eye(4))

@@ -97,3 +97,41 @@ def test_raster_empty_axes_and_canonical_single_channel_shape(shape):
     expected = source.data
     np.testing.assert_array_equal(restored.data, expected)
     assert restored.data.dtype == source.data.dtype
+
+
+def test_field_and_raster_round_trips_compare_equal():
+    field = Field(
+        name="t", unit="K", values=np.array([1.0, np.nan]), association="sample"
+    )
+    restored = Field()
+    restored.from_proto(field.to_proto().SerializeToString())
+    assert (restored == field) is True
+
+    raster = Raster(
+        data=np.array([[1.0, np.nan], [3.0, 4.0]]),
+        georef=Affine(2.0, 0.0, 10.0, 0.0, -2.0, 20.0),
+        nodata=np.nan,
+        crs="EPSG:3006",
+    )
+    restored = Raster()
+    restored.from_proto(raster.to_proto().SerializeToString())
+    assert (restored == raster) is True
+    restored.georef = Affine.identity()
+    assert (restored == raster) is False
+
+
+def test_dataset_value_compares_wrapped_and_raw_values():
+    from dtcc_core.model import DatasetValue
+
+    array = np.array([1.0, np.nan])
+    wrapped = DatasetValue(array)
+    assert (wrapped == DatasetValue(array.copy())) is True
+    assert (wrapped == array.copy()) is True
+    assert (wrapped == np.array([1.0, 2.0])) is False
+    assert (wrapped == np.array([1, 2])) is False
+    assert (DatasetValue({"a": [1, 2]}) == {"a": [1, 2]}) is True
+    assert (DatasetValue({"a": [1, 2]}) == DatasetValue({"a": [1, 3]})) is False
+    assert (DatasetValue(3) == 3) is True
+    assert (DatasetValue(None) == DatasetValue(None)) is True
+    with pytest.raises(TypeError):
+        hash(wrapped)
