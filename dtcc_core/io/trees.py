@@ -12,6 +12,11 @@ from .vector_utils import (
 )
 
 
+def _is_geographic(crs: str) -> bool:
+    """Return True if ``crs`` is a geographic (degree) CRS."""
+    return pyproj.CRS.from_user_input(crs).is_geographic
+
+
 def save_trees(
     trees: list[Tree], filepath: str, as_circles: bool = False, output_crs=None
 ):
@@ -26,8 +31,9 @@ def save_trees(
         Path to the output file.
     as_circles : bool, default False
         If True, save trees as circular polygons representing crown radius.
-        The circles are built in the trees' projected CRS, where the crown
-        radius is in metres, and then reprojected to the output CRS.
+        The circles are built in a projected CRS, where the crown radius is
+        in metres: the trees' own CRS, or the output CRS if the trees' CRS is
+        geographic.
         If False, save trees as point geometries.
     output_crs : str, optional
         Output coordinate reference system (e.g., "EPSG:4326").
@@ -39,8 +45,9 @@ def save_trees(
     Raises
     ------
     ValueError
-        If ``as_circles`` is True and the trees' CRS is geographic, since the
-        crown radius in metres cannot be applied to degree coordinates.
+        If ``as_circles`` is True and both the trees' CRS and the output CRS
+        are geographic, since the crown radius in metres cannot be applied to
+        degree coordinates.
     """
     driver = get_vector_driver(filepath)
 
@@ -51,11 +58,16 @@ def save_trees(
     output_crs = determine_io_crs(
         source_crs, output_crs, output_filepath=filepath, context="trees"
     )
-    if as_circles and pyproj.CRS.from_user_input(source_crs).is_geographic:
-        raise ValueError(
-            f"Cannot save trees as circles from geographic CRS {source_crs}: "
-            "the crown radius is in metres, so the trees need a projected CRS"
-        )
+    # CRS to buffer crown circles in, so that the radius is in metres
+    buffer_crs = source_crs
+    if as_circles and _is_geographic(source_crs):
+        if _is_geographic(output_crs):
+            raise ValueError(
+                f"Cannot save trees as circles from {source_crs} to "
+                f"{output_crs}: the crown radius is in metres, so the trees "
+                "or the output need a projected CRS"
+            )
+        buffer_crs = output_crs
 
     schema = {
         "geometry": "Point",
@@ -77,13 +89,14 @@ def save_trees(
             radius = tree.crown_radius
             if radius is None:
                 radius = 0
-            # Buffer in the projected source CRS, where the radius is in metres
-            tree_geometry = point.buffer(radius) if as_circles else point
+            context = f"tree {tree.id}"
             tree_geometry = safe_reproject_geometry(
-                tree_geometry,
-                source_crs,
-                output_crs,
-                error_context=f"tree {tree.id}",
+                point, source_crs, buffer_crs, error_context=context
+            )
+            if as_circles:
+                tree_geometry = tree_geometry.buffer(radius)
+            tree_geometry = safe_reproject_geometry(
+                tree_geometry, buffer_crs, output_crs, error_context=context
             )
             dst.write(
                 {

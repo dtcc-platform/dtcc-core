@@ -59,13 +59,32 @@ def test_gpkg_circle_radius_is_metres(tmp_path):
     assert maxy - miny == pytest.approx(4.0, abs=1e-6)
 
 
-def test_circle_from_geographic_source_is_rejected(tmp_path):
-    """A geographic source CRS has no metre unit to buffer the crown in."""
-    tree = _tree(srs="EPSG:4326")
-    tree.position = np.array([12.0, 57.7, 10.0])
+def _wgs84_tree(radius=2.0):
+    to_wgs84 = pyproj.Transformer.from_crs("EPSG:3006", "EPSG:4326", always_xy=True)
+    lon, lat = to_wgs84.transform(319900.0, 6397900.0)
+    tree = _tree(radius=radius, srs="EPSG:4326")
+    tree.position = np.array([lon, lat, 10.0])
+    return tree
 
+
+def test_circle_from_geographic_source_to_projected_output(tmp_path):
+    """Trees in degrees get metre circles when the output CRS is projected."""
+    path = tmp_path / "circles.gpkg"
+    save_trees([_wgs84_tree(radius=2.0)], str(path), True, output_crs="EPSG:3006")
+
+    [(circle, _)] = _read(path)
+    minx, miny, maxx, maxy = circle.bounds
+    assert maxx - minx == pytest.approx(4.0, abs=0.01)
+    assert maxy - miny == pytest.approx(4.0, abs=0.01)
+    assert circle.centroid.x == pytest.approx(319900.0, abs=0.01)
+    assert circle.centroid.y == pytest.approx(6397900.0, abs=0.01)
+
+
+@pytest.mark.parametrize("suffix", [".geojson", ".gpkg"])
+def test_circle_with_no_projected_crs_is_rejected(tmp_path, suffix):
+    """With degrees in and out, there is no metre CRS to buffer the crown in."""
     with pytest.raises(ValueError, match="projected"):
-        save_trees([tree], str(tmp_path / "circles.gpkg"), as_circles=True)
+        save_trees([_wgs84_tree()], str(tmp_path / f"c{suffix}"), as_circles=True)
 
 
 @pytest.mark.parametrize("suffix", [".geojson", ".gpkg"])
