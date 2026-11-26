@@ -16,8 +16,8 @@ When using `plot(field=...)` directly on that model, select a snapshot Object an
 representation first to avoid combining samples from different times.
 
 `Model.plot()` lazily uses Matplotlib and returns a 3D axes, or a 2D axes for a
-standalone RGB/RGBA Raster or a single-band Raster whose dataset declares a
-value range. Objects recurse through their children, so a City
+standalone RGB/RGBA Raster, a class map, or a single-band Raster whose dataset
+declares a value range. Objects recurse through their children, so a City
 includes building parts, terrain, vegetation,
 furniture, transport, sensor and vehicle locations, and numerical domains.
 Existing specialized plots on SensorCollection, VehicleCollection, RoadNetwork
@@ -51,6 +51,75 @@ by magnitude, not drawn as arrows. A shared colour scale requires matching names
 units and component counts. Empty/missing selections fail clearly. Numerical
 arrays are never replaced or interpolated into the model.
 
+## Time series
+
+`TimeSeries.plot()` draws values against UTC time on a 2D Matplotlib axes.
+It uses the DTCC theme and returns the axes for customization or saving:
+
+```python
+from dtcc_core.model import TimeSeries
+
+temperature = TimeSeries(
+    name="Temperature",
+    unit="°C",
+    times=["2026-01-01T00:00Z", "2026-01-01T01:00Z", "2026-01-01T03:00Z"],
+    values=[4.0, 5.5, 3.0],
+    role="observed",
+)
+ax = temperature.plot(theme="light", show=False)
+ax.figure.savefig("temperature.png", dpi=150)
+```
+
+The method accepts `ax=None`, and keyword-only `elements=None`, `component=None`,
+`title=None`, `theme="dark"`, `show=True`, plus Matplotlib line-style keywords.
+The default title is the series name. The value axis includes the name and unit;
+legend labels include the role when present. Dates use UTC regardless of the
+local timezone. Matplotlib's floating-point date coordinates do not provide
+nanosecond visual precision, even though the model stores nanoseconds.
+
+For scalar values `(T, N)`, each element gets one curve. For vector values
+`(T, N, dim)`, each element/component pair gets a curve. Element indices and
+component indices are zero-based and nonnegative. `elements` accepts one integer
+or a sequence of distinct indices, preserving the requested order. It defaults
+to all elements. `component` accepts an integer, `"magnitude"` (Euclidean norm),
+or None (all components). For scalars, component 0 is the original value and
+`"magnitude"` is its absolute value. Labels identify elements and components.
+
+```python
+# For a vector-valued TimeSeries named velocity:
+velocity.plot(elements=[0, 3], component=1)
+velocity.plot(elements=0, component="magnitude")
+
+# Overlay series with compatible units on the same axes.
+ax = observed.plot(elements=0, label="Observed", show=False)
+predicted.plot(elements=0, ax=ax, label="Predicted", linestyle="--",
+               title="Observed and predicted")
+```
+
+Line keywords such as `color` (or `c`), `linewidth`, `linestyle`, `marker`, and
+`label` apply to every curve produced by that call. Supplied axes must be ordinary
+2D rectilinear axes. Overlays retain existing curves and refresh the legend;
+the latest call sets the title, axis labels, and theme. The caller is responsible
+for compatible units when overlaying. `show=False` suppresses display.
+
+NaN and infinite values break lines without changing the stored values. Actual
+timestamps determine spacing; plotting does not interpolate or resample data.
+Single-timestamp series get a marker unless explicitly overridden. Empty series,
+empty element selections, or selections with no finite values raise `ValueError`.
+
+Each call permits at most **20 curves** and **1,000,000 plotted values** (timestamps
+times curves, including missing values). Larger selections raise `ValueError`;
+no curves or samples are silently dropped. Select fewer elements/components,
+filter the time range with `between()` (start inclusive, end exclusive), or
+explicitly aggregate with `resample()`:
+
+```python
+temperature.between("2026-01-01", "2026-02-01").resample("1h").plot()
+```
+
+Resampling changes the data shown: its default mean can smooth peaks. Choose an
+aggregation such as `how="max"` when appropriate for the quantity being inspected.
+
 ## What is drawn
 
 - Surface/MultiSurface: polygon faces. A surface with holes is drawn as ring
@@ -67,10 +136,18 @@ arrays are never replaced or interpolated into the model.
   are RGBA. Large images use nearest-neighbour sampling within `max_elements`,
   retaining the full image footprint. Other multiband layouts and image rasters
   attached to Objects are not supported by the 3D preview.
+- Class map: a single-band Raster of whole-number codes from a dataset whose
+  view hints declare `value_type: "categorical"` and `class_colors` (such as
+  `settlement_class`) is drawn as a 2D map with one fixed colour per class, a
+  legend with the class names, and the dataset's credit line. No data is
+  transparent; other codes are grey and listed as "other value". Rasters with
+  decimal values, such as after interpolation, and supplied 3D axes get the
+  scalar preview.
 - Standalone single-band Raster from a dataset whose context declares a
-  `value_range` view hint (such as `imperviousness`): a flat 2D map coloured
-  over that range, with NaN cells left blank, the dataset headline as title and
-  the hint's `unit` on the colorbar. Large rasters are sampled as for images.
+  `value_range` view hint (such as `imperviousness` or `built_up`): a flat 2D
+  map coloured over that range, with NaN cells left blank, the dataset headline
+  as title and the `value_units` hint on the colorbar. Large rasters are
+  sampled as for images.
   A supplied 3D `ax` keeps the 3D preview, so the raster can share a scene
   with other models.
 - Tree/RoadNetwork without attached geometry: intrinsic location/graph fallback.
@@ -110,3 +187,49 @@ ax.figure.savefig('flagship-preview.png', dpi=150)
 This convenience supports quick inspection from Python. Full scene visualization,
 interactive editing, time-dependent simulation views and model exploration remain
 DTCC Twin responsibilities.
+
+## Filled XY face maps
+
+A standalone triangular Mesh can fill scalar face values directly:
+
+```python
+ax = mesh.plot(
+    projection="xy", field="temperature", show=False,
+    context_mask=context_faces, vmin=270., vmax=310.,
+    title="Surface temperature", coordinate_unit="m", scale_bar=True,
+)
+ax.figure.savefig("temperature.png", dpi=150)
+```
+
+`context_mask` is a boolean array in face order. Context faces are neutral and
+excluded from the colour range. Their XY triangle union is outlined
+without shared internal edges, including holes and nonconforming joins. Core assigns no meaning to mesh markers or field names. `face_mask`
+can select a subset of field faces; by default all non-context faces are used.
+Explicit masks must be disjoint, correctly sized, and select at least one field
+face. Omitted faces are not displayed. Empty marker arrays require no special
+handling because markers are not used by this renderer.
+
+Each coloured triangle receives its own scalar value without interpolation.
+Field type, association, counts and mesh connectivity must be valid throughout
+the input. Values must be finite on field faces. Field and context faces must
+have finite transformed XY coordinates and nondegenerate XY triangles.
+These checks use the masks before display sampling. When both are supplied,
+`vmin` and `vmax` must be finite and strictly increasing. Automatic
+constant-field ranges are expanded, and all-zero fields are labelled. The colourbar includes the
+field name and unit. `cmap` accepts a Matplotlib colormap; the default uses Core
+colours. `ax` accepts a Matplotlib 2D axes; `show=False` suppresses display.
+
+Maps preserve XY coordinates after the mesh's geometry-local affine. Projective
+matrices are unsupported. No reprojection or unit conversion is performed.
+Axis labels default to X and Y; `coordinate_unit` explicitly declares their
+unit, and `xlabel`/`ylabel` override their text. Use metre labels only for
+known metric coordinates. `scale_bar=True` requires `coordinate_unit` and
+measures distance in those same display coordinates. The declared CRS is shown
+without inferring units from it. `title` overrides the default field-name title.
+
+The global `max_elements` budget includes field triangles, neutral triangles
+and perimeter segments. Large maps sample triangles deterministically, then
+use any remaining budget for full-union perimeter segments. A note identifies
+sampling and potentially incomplete outlines. Colour limits use all selected
+field values, including faces omitted from the bounded display. Default 3D
+previews, raster previews and specialized model plots retain their behavior.

@@ -1,6 +1,7 @@
 from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Any
 
 import numpy as np
 
@@ -141,6 +142,11 @@ UNKNOWN_LANDUSE_COLOR = "#54545A"
 MAX_LEGEND_CLASSES = 14
 
 
+# Attributes that hold one value per surface, in surface order, such as the
+# original Urban Atlas code and class of each polygon.
+SURFACE_ATTRIBUTES = ("ua_code", "ua_class", "fua_name")
+
+
 @dataclass(repr=False)
 class Landuse(Object):
     """
@@ -154,6 +160,8 @@ class Landuse(Object):
     landuses : List[LanduseClasses]
         A list of land use classes describing how the land is used.
     """
+
+    web_geojson = True
 
     landuses: list[LanduseClasses] = field(default_factory=list)
 
@@ -185,6 +193,74 @@ class Landuse(Object):
         if geom is None:
             return []
         return geom.surfaces
+
+    def to_geojson(self, crs: str | None = None) -> dict[str, Any]:
+        """Return the land use polygons as a GeoJSON FeatureCollection.
+
+        Each surface of the ``MULTISURFACE`` geometry with at least three
+        vertices becomes one ``Polygon`` feature with its holes kept. Its
+        properties are ``landuse``, the :class:`LanduseClasses` name (``null``
+        when ``landuses`` does not hold one class per surface), and each
+        attribute named in ``SURFACE_ATTRIBUTES`` that holds one value per
+        surface. The other attributes form the collection ``metadata``.
+        Positions are two-dimensional because land use has no height.
+
+        Parameters
+        ----------
+        crs : str, optional
+            None keeps native coordinates and names the source CRS in a ``crs``
+            member; ``"EPSG:4326"`` gives RFC 7946 longitude/latitude.
+
+        Returns
+        -------
+        dict
+            The FeatureCollection.
+        """
+        from ...io.geojson import (
+            exported_coordinates,
+            feature_collection,
+            polygon_rings,
+            positions,
+            resolve_source_crs,
+        )
+
+        model = exported_coordinates(self)
+        geometry = model.get_geometry(GeometryType.MULTISURFACE)
+        surfaces = [] if geometry is None else list(geometry.surfaces)
+        geometries = [] if geometry is None else [geometry, *surfaces]
+        source_crs = resolve_source_crs(model, geometries)
+        count = len(surfaces)
+        aligned = {
+            key: value
+            for key, value in model.attributes.items()
+            if key in SURFACE_ATTRIBUTES
+            and isinstance(value, (list, tuple))
+            and len(value) == count
+        }
+        classes = model.landuses if len(model.landuses) == count else None
+        features = []
+        for index, surface in enumerate(surfaces):
+            if len(surface.vertices) < 3:
+                continue
+            rings = polygon_rings(
+                positions(surface.vertices[:, :2], source_crs, crs),
+                [positions(hole[:, :2], source_crs, crs) for hole in surface.holes],
+            )
+            properties = {"landuse": None if classes is None else classes[index].name}
+            properties.update({key: value[index] for key, value in aligned.items()})
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": rings},
+                    "properties": properties,
+                }
+            )
+        metadata = {
+            key: value for key, value in model.attributes.items() if key not in aligned
+        }
+        return feature_collection(
+            features, source_crs=source_crs, crs=crs, metadata=metadata or None
+        )
 
     def plot(
         self,

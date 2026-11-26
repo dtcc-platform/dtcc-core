@@ -1,3 +1,6 @@
+# Every pull request requests the team; its round robin picks one maintainer.
+*                             @dtcc-platform/core-maintainers
+
 # Sensitive paths need a second human (AGENTS.md, "Approval and merge").
 /.github/workflows/           @dtcc-platform/core-maintainers
 /.github/CODEOWNERS           @dtcc-platform/core-maintainers

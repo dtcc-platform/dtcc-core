@@ -1,16 +1,18 @@
-"""Animate live buses over Gothenburg streets around Poseidon."""
+"""Animate live buses over Gothenburg streets around Chalmers Johanneberg."""
 
 import dtcc_core as dtcc
 
-# Center coordinates (Poseidon statue in Gothenburg)
-x0 = 319995.962899
-y0 = 6399009.716755
+# Chalmers Johanneberg centre in EPSG:3006
+center_x = 319970.0
+center_y = 6397910.0
 
 # Domain size
 L = 2000.0
 
 # Define bounds
-bounds = dtcc.Bounds(x0 - 0.5 * L, y0 - 0.5 * L, x0 + 0.5 * L, y0 + 0.5 * L)
+bounds = dtcc.Bounds(
+    center_x - 0.5 * L, center_y - 0.5 * L, center_x + 0.5 * L, center_y + 0.5 * L
+)
 
 # Fetch the road network once
 roads = dtcc.datasets.roads(bounds=bounds)

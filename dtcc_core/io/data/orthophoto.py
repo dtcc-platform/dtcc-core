@@ -40,7 +40,7 @@ _IDENTIFIER = re.compile(r"[a-z0-9_-]+")
 class OrthophotoClientError(RuntimeError):
     """Failure talking to the tile server.
 
-    ``failure_class`` is one of ``"timeout"``, ``"connection"``,
+    ``failure_class`` is one of ``"timeout"``, ``"connection"``, ``"tls"``,
     ``"http_4xx"``, ``"http_5xx"``, ``"invalid_payload"`` or
     ``"configuration"`` (the server has no LM credentials). ``message`` and
     ``detail`` are truncated to ``MAX_DETAIL_CHARS`` characters.
@@ -428,6 +428,11 @@ def _raise_transport_error(error, fail, status_code=None):
     if isinstance(error, requests.Timeout) or is_read_timeout(error):
         failure_class = "timeout"
         message = f"Request timed out ({NETWORK_HINT}): {error}"
+    # SSLError subclasses ConnectionError, but a certificate or TLS failure is
+    # not a transient outage.
+    elif isinstance(error, requests.exceptions.SSLError):
+        failure_class = "tls"
+        message = f"TLS handshake failed: {error}"
     elif isinstance(
         error, (requests.ConnectionError, requests.exceptions.ChunkedEncodingError)
     ):

@@ -22,7 +22,7 @@ def mesh(
     This operation does not certify closure, manifoldness or geometric validity.
 
     As with semantic MultiSurface meshing, cleaning, welding/snapping, nested
-    transforms and attached field transfer are unsupported and fail explicitly.
+    transforms and transfer of fields or time series raise NotImplementedError.
     ``triangle_size`` and ``mesher`` have the same meaning as on MultiSurface.mesh.
     """
     return _mesh_surface_collection(solid, triangle_size, weld, snap, clean, mesher)

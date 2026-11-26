@@ -48,4 +48,6 @@ a Ruff rule or a test instead of a line here.
 - Say what you could not verify; uncertainty alone is not a finding.
 - End with the finding count, or "no issues".
 - On a re-review, start from the commits added since your last review and
-  review them the same way.
+  review them the same way. If they include a merge of `develop`, review the
+  PR's full diff instead: a conflict resolution can keep the branch's side,
+  which changes the full diff without showing in the new commits.

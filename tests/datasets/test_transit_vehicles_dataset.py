@@ -1,5 +1,6 @@
 import importlib
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -11,6 +12,7 @@ from dtcc_core.datasets.transit_vehicles import (
     TransitVehiclesDataset,
 )
 from dtcc_core.datasets.transport.base import TransportProviderResult, VehicleRecord
+from dtcc_core.model import exchange
 from dtcc_core.model.geometry import Point
 from dtcc_core.model.object import Object, VehicleCollection
 
@@ -172,6 +174,138 @@ def test_dataset_builds_vehicle_collection(monkeypatch):
     }
     assert vehicle.get_geometry("location").x == pytest.approx(18.0)
     assert vehicle.get_geometry("location").y == pytest.approx(59.3)
+
+
+def test_vehicle_collection_canonical_round_trip(
+    monkeypatch, no_network, canonical_round_trip
+):
+    def fake_fetch(**kwargs):
+        return TransportProviderResult(
+            records=[
+                VehicleRecord(
+                    vehicle_id="vehicle-1",
+                    lon=18.0,
+                    lat=59.3,
+                    provider="trafiklab",
+                    mode="bus",
+                    route_id="1",
+                    line="1",
+                    speed=7.5,
+                    bearing=90.0,
+                ),
+                VehicleRecord(
+                    vehicle_id="vehicle-2",
+                    lon=18.1,
+                    lat=59.31,
+                    provider="trafiklab",
+                    mode="bus",
+                    route_id="2",
+                    line="2",
+                ),
+            ],
+            metadata={"provider": "trafiklab", "operators": ["sl"]},
+        )
+
+    module = importlib.import_module("dtcc_core.datasets.transit_vehicles")
+    monkeypatch.setattr(module, "fetch_trafiklab_gtfs_vehicles", fake_fetch)
+
+    result = datasets.transit_vehicles(
+        bounds=(17.9, 59.2, 18.2, 59.4),
+        crs="EPSG:4326",
+        provider="trafiklab",
+        modes=("bus",),
+    )
+    exchange.validate(result)
+
+    restored = canonical_round_trip("transit_vehicles", result)
+
+    def by_id(collection):
+        return {v.attributes["vehicle_id"]: v for v in collection.vehicles()}
+
+    expected, actual = by_id(result), by_id(restored)
+    assert set(actual) == set(expected) == {"vehicle-1", "vehicle-2"}
+    for vehicle_id, vehicle in expected.items():
+        got = actual[vehicle_id]
+        assert got.attributes == vehicle.attributes
+        want_fields = vehicle.get_geometry("location").fields
+        got_fields = got.get_geometry("location").fields
+        assert [f.name for f in got_fields] == [f.name for f in want_fields]
+        for want, have in zip(want_fields, got_fields, strict=True):
+            assert have.unit == want.unit
+            assert have.association == "sample"
+            np.testing.assert_array_equal(have.values, want.values)
+    assert actual["vehicle-2"].get_geometry("location").fields == []
+
+
+def test_vehicle_collection_canonical_geojson_round_trip(
+    monkeypatch, no_network, tmp_path
+):
+    import json
+
+    from dtcc_core.datasets import load_model_package
+
+    calls = []
+
+    def fake_fetch(**kwargs):
+        calls.append(kwargs)
+        return TransportProviderResult(
+            records=[
+                VehicleRecord(
+                    vehicle_id="vehicle-1",
+                    lon=18.0,
+                    lat=59.3,
+                    provider="trafiklab",
+                    mode="bus",
+                    line="1",
+                    speed=7.5,
+                    bearing=90.0,
+                ),
+                VehicleRecord(
+                    vehicle_id="vehicle-2",
+                    lon=18.1,
+                    lat=59.31,
+                    provider="trafiklab",
+                    mode="bus",
+                    line="2",
+                ),
+            ],
+            metadata={"provider": "trafiklab", "operators": ["sl"]},
+        )
+
+    module = importlib.import_module("dtcc_core.datasets.transit_vehicles")
+    monkeypatch.setattr(module, "fetch_trafiklab_gtfs_vehicles", fake_fetch)
+
+    result = datasets.transit_vehicles(
+        bounds=(17.9, 59.2, 18.2, 59.4),
+        crs="EPSG:4326",
+        provider="trafiklab",
+        modes=("bus",),
+    )
+    assert len(calls) == 1
+
+    package = result.export(tmp_path / "p", canonical=True, format="geojson")
+    restored = load_model_package(package.path)
+    again = restored.export(tmp_path / "q", canonical=True, format="geojson")
+    assert len(calls) == 1
+
+    canonical, derived = package.artifacts
+    assert canonical.path == "artifacts/model.dtcc"
+    assert derived.path.endswith(".geojson")
+    assert derived.role == "derived"
+    assert derived.derived_from == "artifacts/model.dtcc"
+    assert derived.crs == "EPSG:4326"
+    assert derived.bounds == pytest.approx([18.0, 59.3, 0.0, 18.1, 59.31, 0.0])
+    payload = json.loads((package.path / derived.path).read_text())
+    assert payload == json.loads((again.path / again.artifacts[1].path).read_text())
+    assert "crs" not in payload
+    features = {f["id"]: f for f in payload["features"]}
+    assert features["vehicle-1"]["geometry"]["coordinates"] == pytest.approx(
+        [18.0, 59.3, 0.0], abs=1e-9
+    )
+    assert features["vehicle-1"]["properties"]["speed"] == 7.5
+    assert features["vehicle-1"]["properties"]["speed_unit"] == "m/s"
+    assert features["vehicle-2"]["properties"]["speed"] is None
+    assert features["vehicle-2"]["properties"]["bearing_unit"] == "degrees"
 
 
 def test_shortcut_sets_default_mode(monkeypatch):
@@ -489,3 +623,115 @@ def test_missing_trafiklab_key_strict_raises(monkeypatch):
             modes=("bus",),
             strict_live=True,
         )
+
+
+@pytest.mark.parametrize("fetch", ["_fetch_realtime_payload", "_fetch_route_metadata"])
+def test_trafiklab_request_errors_do_not_expose_the_api_key(
+    fetch, tmp_path, monkeypatch
+):
+    import requests
+
+    module = importlib.import_module("dtcc_core.datasets.transport.trafiklab_gtfs")
+    monkeypatch.setattr(
+        module, "_cached_routes_path", lambda operator, feed: tmp_path / "routes.csv"
+    )
+
+    def get(url, params=None, timeout=None):
+        prepared = requests.Request("GET", url, params=params).prepare()
+        response = requests.Response()
+        response.status_code = 403
+        response.url = prepared.url
+        response.reason = "Forbidden"
+        return response
+
+    monkeypatch.setattr(requests, "get", get)
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        getattr(module, fetch)(
+            requests, operator="sl", feed="sl", api_key="s3cr3t-key", timeout_s=1.0
+        )
+
+    assert exc.value.status_code == 403
+    assert "s3cr3t-key" not in str(exc.value)
+    assert "key=REDACTED" in str(exc.value)
+    assert exc.value.__cause__ is None
+    assert exc.value.__suppress_context__
+
+
+def test_trafiklab_certificate_failure_is_not_transient(tmp_path, monkeypatch):
+    import requests
+
+    from tests.datasets.live.live_policy import is_transient_live_failure
+
+    module = importlib.import_module("dtcc_core.datasets.transport.trafiklab_gtfs")
+
+    def get(url, params=None, timeout=None):
+        raise requests.exceptions.SSLError("certificate verify failed")
+
+    monkeypatch.setattr(requests, "get", get)
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        module._fetch_realtime_payload(
+            requests, operator="sl", feed="sl", api_key="key", timeout_s=1.0
+        )
+
+    assert exc.value.failure_class == "tls"
+    assert not exc.value.is_transient
+    assert not is_transient_live_failure(exc.value)
+
+
+def _vasttrafik_fetches(module, requests, secret):
+    """Call each Västtrafik request helper with ``secret`` as its credential."""
+    return {
+        "token": lambda: module._fetch_token(
+            requests, authentication_key=secret, timeout_s=1.0
+        ),
+        "positions": lambda: module._fetch_positions(
+            requests,
+            token=secret,
+            bounds_wgs84=(11.9, 57.6, 12.1, 57.8),
+            requested_modes=("bus",),
+            timeout_s=1.0,
+        ),
+    }
+
+
+@pytest.mark.parametrize("fetch", ["token", "positions"])
+def test_vasttrafik_request_errors_do_not_expose_the_credential(fetch):
+    import traceback
+
+    import requests
+
+    module = importlib.import_module("dtcc_core.datasets.transport.vasttrafik")
+    # requests rejects a header value with a newline before sending anything,
+    # and its error message repeats the value.
+    secret = "fake\ns3cr3t-credential"
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        _vasttrafik_fetches(module, requests, secret)[fetch]()
+
+    rendered = "".join(traceback.format_exception(exc.value))
+    assert "s3cr3t-credential" not in rendered
+    assert "InvalidHeader" in str(exc.value)
+    assert exc.value.__cause__ is None
+    assert exc.value.__suppress_context__
+
+
+def test_vasttrafik_strict_failure_does_not_expose_the_key(monkeypatch):
+    import traceback
+
+    monkeypatch.delenv("VASTTRAFIK_AUTHENTICATION_KEY", raising=False)
+    module = importlib.import_module("dtcc_core.datasets.transport.vasttrafik")
+
+    with pytest.raises(DatasetUpstreamError) as exc:
+        module.fetch_vasttrafik_vehicles(
+            dataset_name="transit_vehicles",
+            bounds_wgs84=(11.9, 57.6, 12.1, 57.8),
+            requested_modes=("bus",),
+            authentication_key="fake\ns3cr3t-credential",
+            timeout_s=1.0,
+            include_unknown_modes=False,
+            strict_live=True,
+        )
+
+    assert "s3cr3t-credential" not in "".join(traceback.format_exception(exc.value))

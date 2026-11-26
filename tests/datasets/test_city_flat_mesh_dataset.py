@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import ANY, Mock, patch
 
+import numpy as np
+import pytest
+
 import dtcc_core.datasets as datasets
 from dtcc_core.datasets import get_dataset
 from dtcc_core.datasets.city_flat_mesh import CityFlatMeshArgs, CityFlatMeshDataset
+from dtcc_core.model import Mesh
 
 
 def test_city_flat_mesh_registered_name():
@@ -168,3 +172,55 @@ def test_city_flat_mesh_context_documents_subdomain_lineage_and_limits():
     assert manifest.presentation.limitations
     assert manifest.request.parameters["max_mesh_size"] is None
     assert manifest.request.parameters["stage_audit_enabled"] is True
+
+
+def _flat_mesh():
+    mesh = Mesh(
+        vertices=np.array(
+            [
+                [320000.0, 6399000.0, 0.0],
+                [320100.0, 6399000.0, 0.0],
+                [320100.0, 6399100.0, 0.0],
+                [320000.0, 6399100.0, 0.0],
+            ]
+        ),
+        faces=np.array([[0, 1, 2], [0, 2, 3]]),
+        markers=np.array([0, 1]),
+    )
+    mesh.transform.srs = "EPSG:3006"
+    return mesh
+
+
+@pytest.mark.usefixtures("no_network")
+@patch("dtcc_core.datasets.city_flat_mesh.prepare_city_from_bounds")
+@patch("dtcc_core.datasets.city_flat_mesh.dtcc_core.builder.build_city_flat_mesh")
+def test_centered_flat_mesh_exports_the_same_geojson_as_the_uncentered_one(
+    mock_build_city_flat_mesh,
+    mock_prepare_city_from_bounds,
+):
+    mock_prepare_city_from_bounds.return_value = Mock(name="city")
+    mock_build_city_flat_mesh.side_effect = lambda *args, **kwargs: _flat_mesh()
+
+    plain = CityFlatMeshDataset().build(CityFlatMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0)))
+    centered = CityFlatMeshDataset().build(
+        CityFlatMeshArgs(bounds=(0.0, 0.0, 1.0, 1.0), center_on_origin=True)
+    )
+
+    assert mock_prepare_city_from_bounds.call_count == 2
+    assert np.array_equal(plain.transform.affine, np.eye(4))
+    assert not np.array_equal(centered.transform.affine, np.eye(4))
+    before = centered.vertices.copy()
+
+    expected = plain.to_geojson(crs="EPSG:4326")
+    found = centered.to_geojson(crs="EPSG:4326")
+
+    assert [f["properties"] for f in found["features"]] == [
+        f["properties"] for f in expected["features"]
+    ]
+    np.testing.assert_allclose(
+        [f["geometry"]["coordinates"] for f in found["features"]],
+        [f["geometry"]["coordinates"] for f in expected["features"]],
+        rtol=0,
+        atol=1e-9,
+    )
+    np.testing.assert_array_equal(centered.vertices, before)

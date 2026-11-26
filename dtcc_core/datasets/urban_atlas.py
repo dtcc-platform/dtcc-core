@@ -47,6 +47,16 @@ class UrbanAtlasDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "landuse"
     python_return_type = "dtcc_core.model.Landuse"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["geojson"],
+            "constraints": {},
+            "options": {},
+            "exclusions": [],
+        },
+    ]
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("copernicus-land", role="source_provider"),

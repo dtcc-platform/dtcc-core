@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .._equality import model_equal
+
 
 @dataclass
 class SemanticRegion:
@@ -32,6 +34,9 @@ class SemanticRegion:
                 ("parent", self.parent),
             ],
         )
+
+    # Not a Model subclass, so it installs the shared model equality itself.
+    __eq__ = model_equal
 
     semantic_type: str
     indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))

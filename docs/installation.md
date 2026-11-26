@@ -37,8 +37,9 @@ a plain `uv sync` omits the extra and removes the wrapper.
 
 Volume meshing uses
 [`dtcc-tetgen-wrapper`](https://github.com/dtcc-platform/dtcc-tetgen-wrapper).
-Its build downloads and verifies the upstream TetGen sources, so a fresh build
-needs internet access and a C++ compiler. Core pins the wrapper dependency in
+Its build compiles TetGen from the source archive bundled with the wrapper,
+after checking the archive's SHA-256 hash, so a fresh build needs a C++
+compiler. Core pins the wrapper dependency in
 `pyproject.toml` and `uv.lock`.
 
 TetGen and its wrapper use the AGPL license. See the wrapper's documentation and

@@ -45,7 +45,7 @@ def _las_pointcloud_info(path: [str | Path]) -> dict:
 
 def _csv_pointcloud_info(path: [str | Path]) -> dict:
     try:
-        pts = np.loadtxt(path, delimiter=",")
+        pts = np.loadtxt(path, delimiter=",", ndmin=2)
     except ValueError:
         raise ValueError(f"File {path} is not a valid CSV pointcloud file")
     info = {}

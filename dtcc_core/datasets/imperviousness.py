@@ -47,6 +47,20 @@ class ImperviousnessDataset(DatasetDescriptor):
     data_category = "raw"
     result_kind = "raster"
     python_return_type = "dtcc_core.model.Raster"
+    export_capabilities = [
+        {
+            "product": None,
+            "canonical": True,
+            "web_formats": ["png", "tif"],
+            "constraints": {},
+            "options": {
+                "colormap": {"formats": ["png"], "default": "viridis"},
+                "value_range": {"formats": ["png"], "default": "valid min/max"},
+                "unit": {"formats": ["png", "tif"], "default": "percent"},
+            },
+            "exclusions": [],
+        }
+    ]
     default_crs = "EPSG:3006"
     provider = [
         provider_entry("copernicus-land", role="source_provider"),
@@ -159,7 +173,7 @@ class ImperviousnessDataset(DatasetDescriptor):
         "preferred_geometry": "raster",
         "default_crs": "EPSG:3006",
         "value_range": [0, 100],
-        "unit": "percent",
+        "value_units": "percent",
     }
     presentation_warnings = [
         "Copernicus attribution and the DOI of the requested year must accompany redistributed data.",

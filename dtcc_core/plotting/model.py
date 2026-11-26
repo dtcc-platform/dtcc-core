@@ -138,6 +138,10 @@ def _grid_points(g, association, ids):
         nz = g.depth + (not cell)
         j, i, k = np.unravel_index(ids, (ny, nx, nz))  # native coordinates() order
         z = b.zmin + (k + (0.5 if cell else 0)) * b.depth / max(g.depth, 1)
+        if g.z_levels is not None:
+            g._validate_z_levels()
+            levels = np.asarray(g.z_levels, dtype=float)
+            z = (0.5 * (levels[:-1] + levels[1:]) if cell else levels)[k]
     else:
         j, i = np.unravel_index(ids, (ny, nx))
         z = np.full(len(ids), b.zmin)
@@ -214,14 +218,44 @@ def _scalar_hints(raster):
     value_range = hints.get("value_range")
     if not (isinstance(value_range, (list, tuple)) and len(value_range) == 2):
         return None
-    return value_range, hints.get("unit"), getattr(presentation, "headline", None)
+    return (
+        value_range,
+        hints.get("value_units"),
+        getattr(presentation, "headline", None),
+    )
 
 
-def _plot_image_raster(raster, *, ax, max_elements, theme, show, scalar=None):
+def _sample_pixels(data, max_elements):
+    """Evenly spaced pixels of ``data``, at most ``max_elements``; and whether sampled."""
+    height, width = data.shape[:2]
+    if height * width <= max_elements:
+        return data, False
+    rows = max(
+        1, min(height, max_elements, int(np.sqrt(max_elements * height / width)))
+    )
+    cols = min(width, max_elements // rows)
+    row_ids = ((np.arange(rows) + 0.5) * height / rows).astype(np.intp)
+    col_ids = ((np.arange(cols) + 0.5) * width / cols).astype(np.intp)
+    return data[row_ids[:, None], col_ids], True
+
+
+def _plot_image_raster(
+    raster,
+    *,
+    ax,
+    max_elements,
+    theme,
+    show,
+    title="Raster preview",
+    pixels=None,
+    scalar=None,
+):
     """Preview raster pixels in their georeferenced 2D frame.
 
-    RGB/RGBA pixels are drawn as colours. With ``scalar`` (value range, unit,
-    title), a single band is drawn with a colormap and a colorbar.
+    RGB/RGBA pixels are drawn as colours. ``pixels``, when given, is an
+    ``(rgba, sampled)`` pair already sampled from ``raster`` and drawn in its
+    place. With ``scalar`` (value range, unit), a single band is drawn with a
+    colormap and a colorbar.
     """
     from matplotlib.transforms import Affine2D
 
@@ -229,16 +263,9 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show, scalar=None):
     height, width = raster.data.shape[:2]
     if not height or not width:
         raise ValueError("No image pixels to preview")
-    data = raster.data
-    sampled = height * width > max_elements
-    if sampled:
-        rows = max(
-            1, min(height, max_elements, int(np.sqrt(max_elements * height / width)))
-        )
-        cols = min(width, max_elements // rows)
-        row_ids = ((np.arange(rows) + 0.5) * height / rows).astype(np.intp)
-        col_ids = ((np.arange(cols) + 0.5) * width / cols).astype(np.intp)
-        data = data[row_ids[:, None], col_ids]
+    if pixels is None:
+        pixels = _sample_pixels(raster.data, max_elements)
+    data, sampled = pixels
     if ax is None:
         _, ax = plt.subplots(figsize=(11, 8))
     elif getattr(ax, "name", None) != "rectilinear":
@@ -247,7 +274,7 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show, scalar=None):
     transform = Affine2D.from_values(t.a, t.d, t.b, t.e, t.c, t.f)
     color = {}
     if scalar is not None:
-        (vmin, vmax), unit, title = scalar
+        (vmin, vmax), unit = scalar
         data = np.ma.masked_invalid(np.asarray(data, dtype=float))
         color = {"cmap": resolve_colormap(), "vmin": vmin, "vmax": vmax}
     artist = ax.imshow(
@@ -264,7 +291,7 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show, scalar=None):
         ax,
         theme=theme,
         equal_aspect=True,
-        title=(scalar[2] if scalar and scalar[2] else "Raster preview"),
+        title=title,
         xlabel="X",
         ylabel="Y",
     )
@@ -287,7 +314,144 @@ def _plot_image_raster(raster, *, ax, max_elements, theme, show, scalar=None):
     return ax
 
 
-def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, show):
+# Cells of a class raster whose value is not a declared class.
+_OTHER_CLASS_COLOR = "#8C8C8C"
+
+
+def _class_hints(raster):
+    """Class names and colours for a raster of whole-number class codes, or None.
+
+    The raster's dataset must declare categorical values with class colours.
+    Rasters with decimal values, such as after interpolation or arithmetic,
+    get None and the scalar preview, which shows their values.
+    """
+    context = getattr(raster, "dataset_context", None)
+    hints = getattr(getattr(context, "presentation", None), "view_hints", None)
+    if (
+        raster.data.ndim != 2
+        or raster.data.size == 0
+        or not np.issubdtype(raster.data.dtype, np.integer)
+        or not isinstance(hints, dict)
+        or hints.get("value_type") != "categorical"
+        or not isinstance(hints.get("class_colors"), dict)
+    ):
+        return None
+    return hints
+
+
+def _class_image(codes, colors, nodata):
+    """RGBA image of class ``codes``, and whether any code is not a class.
+
+    No data is transparent; codes without a colour are grey.
+    """
+    from matplotlib.colors import to_rgba
+
+    image = np.zeros((*codes.shape, 4))
+    other = np.ones(codes.shape, dtype=bool)
+    if nodata is not None:
+        other &= codes != nodata
+    for code, color in colors.items():
+        match = codes == int(code)
+        image[match] = to_rgba(color)
+        other &= ~match
+    image[other] = to_rgba(_OTHER_CLASS_COLOR)
+    return image, bool(other.any())
+
+
+def _plot_class_raster(raster, hints, *, ax, max_elements, theme, show):
+    """Preview a categorical raster with one fixed colour per class and a legend.
+
+    Colours, names and the credit line come from the dataset's view hints, so
+    every plot of the dataset uses the same colours. No data is transparent.
+    Other codes are grey and listed in the legend as "other value".
+    """
+    from matplotlib.patches import Patch
+
+    plt = require_matplotlib("raster previews")
+    colors = hints["class_colors"]
+    names = hints.get("classes") or {}
+    codes, sampled = _sample_pixels(raster.data, max_elements)
+    image, has_other = _class_image(codes, colors, raster.nodata)
+
+    context = raster.dataset_context
+    title = context.identity.title
+    epoch = context.request.parameters.get("epoch")
+    if epoch is not None:
+        title = f"{title}, {epoch}"
+    own_figure = ax is None
+    if own_figure:
+        fig, ax = plt.subplots(figsize=(11, 8))
+        fig.subplots_adjust(right=0.72)
+    ax = _plot_image_raster(
+        raster,
+        ax=ax,
+        max_elements=max_elements,
+        theme=theme,
+        show=False,
+        title=title,
+        pixels=(image, sampled),
+    )
+
+    text_color = get_theme(theme)["text"]
+    handles = [
+        Patch(
+            facecolor=color,
+            edgecolor=text_color,
+            linewidth=0.4,
+            label=names.get(code, code),
+        )
+        for code, color in colors.items()
+    ]
+    if has_other:
+        handles.append(
+            Patch(
+                facecolor=_OTHER_CLASS_COLOR,
+                edgecolor=text_color,
+                linewidth=0.4,
+                label="other value",
+            )
+        )
+    # Beside the map on a figure made here; inside supplied axes, whose
+    # figure layout is the caller's.
+    placement = (
+        {"loc": "upper left", "bbox_to_anchor": (1.02, 1.0), "frameon": False}
+        if own_figure
+        else {"loc": "best", "frameon": True, "facecolor": get_theme(theme)["axes"]}
+    )
+    legend = ax.legend(
+        handles=handles, title=hints.get("legend_title"), fontsize=9, **placement
+    )
+    for text in [*legend.get_texts(), legend.get_title()]:
+        text.set_color(text_color)
+    if hints.get("attribution"):
+        ax.text(
+            1.0,
+            -0.08,
+            hints["attribution"],
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8,
+            color=get_theme(theme)["muted"],
+        )
+    if show:
+        plt.show()
+    return ax
+
+
+def _plot_model(
+    root,
+    *,
+    ax,
+    lod,
+    representation,
+    field,
+    max_elements,
+    theme,
+    show,
+    projection=None,
+    map_options=None,
+):
     if (
         isinstance(max_elements, bool)
         or not isinstance(max_elements, int)
@@ -301,6 +465,28 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
     ]:
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f"{name} must be a nonempty string")
+    if projection not in (None, "xy"):
+        raise ValueError("projection must be None or 'xy'")
+    if projection == "xy":
+        if lod is not None or representation is not None:
+            raise ValueError(
+                "XY face maps require a standalone Mesh without Object selectors"
+            )
+        from .face_map import _plot_face_map
+
+        return _plot_face_map(
+            root,
+            ax=ax,
+            field=field,
+            max_elements=max_elements,
+            theme=theme,
+            show=show,
+            **(map_options or {}),
+        )
+    if map_options and any(
+        value is not None and value is not False for value in map_options.values()
+    ):
+        raise ValueError("Face-map options require projection='xy'")
     plt = require_matplotlib("model previews")
     from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 
@@ -333,6 +519,17 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
         return _plot_image_raster(
             root, ax=ax, max_elements=max_elements, theme=theme, show=show
         )
+    hints = (
+        _class_hints(root)
+        if isinstance(root, Raster)
+        and field is None
+        and getattr(ax, "name", None) != "3d"
+        else None
+    )
+    if hints is not None:
+        return _plot_class_raster(
+            root, hints, ax=ax, max_elements=max_elements, theme=theme, show=show
+        )
     # A supplied 3D axes keeps the 3D preview, so the raster can share a scene.
     if (
         isinstance(root, Raster)
@@ -342,13 +539,15 @@ def _plot_model(root, *, ax, lod, representation, field, max_elements, theme, sh
     ):
         scalar = _scalar_hints(root)
         if scalar is not None:
+            value_range, unit, headline = scalar
             return _plot_image_raster(
                 root,
                 ax=ax,
                 max_elements=max_elements,
                 theme=theme,
                 show=show,
-                scalar=scalar,
+                title=headline or "Raster preview",
+                scalar=(value_range, unit),
             )
     limit = max_elements
     polygons, polygon_colors, lines, line_colors, points, point_colors = (
