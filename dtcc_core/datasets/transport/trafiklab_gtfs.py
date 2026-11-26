@@ -219,9 +219,11 @@ def _fetch_realtime_payload(
         response.raise_for_status()
         return response.content
     except requests.RequestException as exc:
+        # The request URL carries the API key, so the original exception is not
+        # chained: tracebacks would print it. The message keeps a redacted copy.
         raise DatasetDescriptor.build_upstream_error(
             "transit_vehicles", "fetch_gtfs_realtime", url, exc
-        ) from exc
+        ) from None
 
 
 def _fetch_route_metadata(
@@ -241,9 +243,11 @@ def _fetch_route_metadata(
         response = requests.get(url, params={"key": api_key}, timeout=timeout_s)
         response.raise_for_status()
     except requests.RequestException as exc:
+        # The request URL carries the API key, so the original exception is not
+        # chained: tracebacks would print it. The message keeps a redacted copy.
         raise DatasetDescriptor.build_upstream_error(
             "transit_vehicles", "fetch_gtfs_static", url, exc
-        ) from exc
+        ) from None
 
     try:
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:

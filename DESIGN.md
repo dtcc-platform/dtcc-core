@@ -46,6 +46,11 @@ Derived formats supplement canonical data. Dataset Context belongs on the
 in-memory result and in the Package manifest, except facts intrinsic to model
 interpretation, which belong in the model itself.
 
+Ordinary mesh and GeoJSON exports write their documented subset and omit
+unsupported attachments such as time series. Save as `.dtcc` to preserve
+temporal data. Strict exchange, including `CityJSON(strict=True)`, rejects
+data it cannot faithfully represent before writing.
+
 ### Object-first workflows
 
 Datasets, builders and simulations return native model objects, not generic

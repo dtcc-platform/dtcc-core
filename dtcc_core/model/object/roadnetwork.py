@@ -192,6 +192,9 @@ class RoadNetwork(Object):
         from ``space_syntax_radius_unit``; the other measures are
         dimensionless.
 
+        Attached time series are omitted without changing the source model.
+        Save as .dtcc to preserve them.
+
         Parameters
         ----------
         crs : str, optional

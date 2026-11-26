@@ -17,6 +17,10 @@ from dtcc_core.datasets.ocean import OceanDataset, OceanDatasetArgs
 from dtcc_core.datasets.weather import WeatherDataset, WeatherDatasetArgs
 from dtcc_core.model.geometry import Point
 from dtcc_core.model.object import SensorCollection
+from tests.datasets.live.live_policy import (
+    is_transient_live_failure,
+    transient_skip_reason,
+)
 
 SEED = 42
 JITTER_M = 10_000.0
@@ -170,7 +174,7 @@ def _unwrap_structural_case(case: CaseResult) -> SensorCollection:
     """Turn a stored case result into a structural-test outcome."""
     if case.status == "skip":
         assert case.error is not None
-        pytest.skip(str(case.error))
+        pytest.skip(transient_skip_reason(case.error, "SMHI"))
     if case.status == "fail":
         assert case.error is not None
         raise case.error
@@ -180,7 +184,7 @@ def _unwrap_structural_case(case: CaseResult) -> SensorCollection:
 
 def _case_result_from_exception(exc: BaseException) -> CaseResult:
     """Classify live-case exceptions according to live QA failure policy."""
-    if isinstance(exc, DatasetUpstreamError) and exc.is_transient:
+    if is_transient_live_failure(exc):
         return CaseResult(status="skip", error=exc)
     return CaseResult(status="fail", error=exc)
 

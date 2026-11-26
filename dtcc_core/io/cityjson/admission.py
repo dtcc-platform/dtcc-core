@@ -502,6 +502,11 @@ def validate_export(city):
                     raise NotImplementedError(
                         "Stored Surface normals have no explicit CityJSON mapping"
                     )
+                if item.time_series:
+                    raise NotImplementedError(
+                        "Time series require an explicit strict CityJSON mapping; "
+                        "save the model as .dtcc."
+                    )
                 if item.fields or (item is not geometry and item.regions):
                     raise NotImplementedError(
                         "Nested fields/regions require an explicit CityJSON mapping"

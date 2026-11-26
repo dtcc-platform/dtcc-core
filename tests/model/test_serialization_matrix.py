@@ -44,7 +44,7 @@ GEOMETRIES = (
     "MultiLineString",
     "Solid",
 )
-VALUES = ("Bounds", "Transform", "Field", "Raster")
+VALUES = ("Bounds", "Transform", "Field", "Raster", "TimeSeries")
 # Root-only Dataset wrappers exchanged through a transient Object.
 ROOT_WRAPPERS = (
     "BuildingCollection",
@@ -80,7 +80,7 @@ def test_every_public_model_has_a_serialization_classification():
 @pytest.mark.parametrize("name", SUPPORTED)
 def test_minimal_model_round_trips_bytes_and_protobuf_json(name):
     source = getattr(model, name)()
-    if name == "Field":
+    if name in ("Field", "TimeSeries"):
         source.association = "sample"
     if name == "Solid":
         source = model.Solid(
