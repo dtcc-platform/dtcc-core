@@ -343,6 +343,63 @@ def test_edge_counts_detect_reversal_with_roundoff_at_projected_northings():
     assert model.segment_passages()[0] == {(0, "street", 1): 1, (0, "street", -1): 1}
 
 
+@pytest.mark.parametrize("network", [False, True])
+@pytest.mark.parametrize("returns", [False, True])
+def test_edge_counts_ignore_roundoff_in_stationary_samples(network, returns):
+    y = 6_400_000.0
+    model = PeopleSimulation(attributes={"view_bounds": [-1, y - 1, 2000, y + 1]})
+    if network:
+        model.add_child(
+            RoadNetwork(
+                vertices=np.array([[0, y], [1000, y]]),
+                edges=np.array([[0, 1]]),
+                attributes={"id": ["street"]},
+            )
+        )
+    if returns:
+        samples = [
+            [0, 0, y, 0],
+            [10, 1000, y, 0],
+            [20, 1000, np.nextafter(y, np.inf), 0],
+            [30, 0, y, 0],
+        ]
+    else:
+        samples = [[0, 0, y, 0], [10, 10, y, 0], [20, np.nextafter(10.0, 0), y, 0]]
+    path = TimedPath("walk", "work", samples, edge_ids=("street",) * (len(samples) - 1))
+    model.add_child(Person(paths=(path,)))
+    expected = {(0, "street", 1): 1}
+    if returns:
+        expected[0, "street", -1] = 1
+    assert model.segment_passages()[0] == expected
+
+
+def test_edge_counts_remember_direction_across_perpendicular_step():
+    model = PeopleSimulation(attributes={"view_bounds": [-1, -1, 10, 10]})
+    model.add_child(
+        RoadNetwork(vertices=np.array([[0, 0], [5, 0]]), edges=np.array([[0, 1]]))
+    )
+    path = TimedPath(
+        "walk",
+        "work",
+        [[0, 0, 0, 0], [1, 5, 0, 0], [2, 5, 1, 0], [3, 0, 1, 0]],
+        edge_ids=("0", "0", "0"),
+    )
+    model.add_child(Person(paths=(path,)))
+    assert model.segment_passages()[0] == {(0, "0", 1): 1, (0, "0", -1): 1}
+
+
+@pytest.mark.parametrize("repeat_start", [False, True])
+def test_inferred_loop_orientation_ignores_repeated_vertices(repeat_start):
+    xy = [[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]
+    if repeat_start:
+        xy.insert(0, xy[0])
+    samples = np.column_stack((np.arange(len(xy)), xy, np.zeros(len(xy))))
+    model = PeopleSimulation(attributes={"view_bounds": [-1, -1, 10, 10]})
+    path = TimedPath("walk", "work", samples, edge_ids=("loop",) * (len(xy) - 1))
+    model.add_child(Person(paths=(path,)))
+    assert model.segment_passages()[0] == {(0, "loop", -1): 1}
+
+
 @pytest.mark.parametrize(("first", "last", "second"), [(15, 5, 15), (5, 15, 10)])
 def test_passage_along_screenline_counts_the_first_entry(first, last, second):
     model = PeopleSimulation()
@@ -397,6 +454,25 @@ def test_exchange_and_geojson_reject_invalid_playback_geometry(attributes, error
         exchange.dumps(model)
     with pytest.raises(ValueError, match=error):
         model.to_geojson()
+
+
+def test_screenline_rejects_coordinates_beyond_float_range():
+    start, end = [10**400, 0], [0, 10]
+    model = PeopleSimulation(
+        transform=Transform(srs="EPSG:3006"),
+        attributes={
+            "view_bounds": [0, 0, 20, 20],
+            "screenline": {
+                "name": "line",
+                "start": start,
+                "end": end,
+                "bin_seconds": 60,
+            },
+        },
+    )
+    for check in (lambda: model.passages(start, end), lambda: exchange.dumps(model)):
+        with pytest.raises(ValueError, match="Screenline.*finite XY"):
+            check()
 
 
 @pytest.mark.parametrize("dtype", [np.float64, np.int64])

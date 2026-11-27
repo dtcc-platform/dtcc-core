@@ -69,6 +69,7 @@ def _edge_runs(paths):
 
 def _edge_line(xy, *, inferred=False):
     """Orient open edges lexicographically and preserve the network order of loops."""
+    xy = xy[np.r_[True, np.any(xy[1:] != xy[:-1], axis=1)]]
     start, end = tuple(xy[0]), tuple(xy[-1])
     if start > end or (
         inferred
@@ -76,7 +77,7 @@ def _edge_line(xy, *, inferred=False):
         and tuple(map(tuple, xy[::-1])) < tuple(map(tuple, xy))
     ):
         xy = xy[::-1]
-    return LineString(xy[np.r_[True, np.any(xy[1:] != xy[:-1], axis=1)]])
+    return LineString(xy)
 
 
 def _edge_traversals(samples, line=None):
@@ -84,7 +85,7 @@ def _edge_traversals(samples, line=None):
     xy = samples[:, 1:3]
     steps = np.diff(xy, axis=0)
     lengths = np.linalg.norm(steps, axis=1)
-    moving = np.flatnonzero(lengths)
+    moving = np.flatnonzero(lengths > 1e-6)
     if not len(moving):
         return
     unit = steps[moving] / lengths[moving, None]
@@ -99,9 +100,9 @@ def _edge_traversals(samples, line=None):
     start = 0
     direction = signs[0]
     for k, i in enumerate(moving[1:], 1):
-        before, after = signs[k - 1 : k + 1]
-        if before and after:
-            reversing = before != after
+        after = signs[k]
+        if direction and after:
+            reversing = direction != after
         else:
             # Compare the sine of the turn angle independently of step length.
             u, v = unit[k - 1 : k + 1]
@@ -116,7 +117,10 @@ def _edge_traversals(samples, line=None):
 
 
 def _screenline_endpoints(start, end):
-    a, b = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+    try:
+        a, b = _numeric_array(start), _numeric_array(end)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError("Screenline requires distinct finite XY endpoints") from error
     if a.shape != (2,) or b.shape != (2,):
         raise ValueError("Screenline requires distinct finite XY endpoints")
     direction = b - a
@@ -433,8 +437,7 @@ class PeopleSimulation(Object):
         bin_seconds = line.get("bin_seconds")
         if type(bin_seconds) is not int or bin_seconds <= 0:
             raise ValueError("Screenline bin_seconds must be a positive integer")
-        start, end = (_numeric_array(line.get(key)) for key in ("start", "end"))
-        _screenline_endpoints(start, end)
+        _screenline_endpoints(line.get("start"), line.get("end"))
         return line
 
     def _buildings(self):
@@ -605,6 +608,7 @@ class PeopleSimulation(Object):
         Direction is positive toward the larger lexicographic XY endpoint,
         or along the network geometry on a loop. Without matching network
         geometry, the longest observed traversal supplies the edge reference.
+        A disjoint partial traversal may use the order of its own endpoints.
         """
         if not isinstance(bin_seconds, int) or bin_seconds <= 0:
             raise ValueError("bin_seconds must be a positive integer")
