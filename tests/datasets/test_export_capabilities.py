@@ -36,6 +36,8 @@ VIOLATION_MESSAGES = {
     "crs_resolvable": "source CRS",
 }
 REASON_3D = "3D-only product: no map-placed or RFC 7946 web form"
+# Products whose package holds a plainer model than the Dataset returns.
+RESTORED_AS = {"population_grid": "Raster"}
 REASON_TILES = (
     "tile collections have no web artifact; use the raster product for imagery"
 )
@@ -71,7 +73,7 @@ def _derived(package):
 
 
 def test_every_builtin_dataset_declares_each_product():
-    assert len(BUILTINS) == 29
+    assert len(BUILTINS) == 30
     for name, dataset in BUILTINS.items():
         product = dataset.describe()["args_schema"]["properties"].get("product")
         expected = product["enum"] if product else [None]
@@ -132,7 +134,7 @@ def test_canonical_matches_the_populated_fixture(name, entry, tmp_path):
             _export(model, tmp_path, "pkg")
         return
     restored = load_model_package(_export(model, tmp_path, "pkg").path)
-    assert type(restored) is type(model)
+    assert type(restored).__name__ == RESTORED_AS.get(name, type(model).__name__)
 
 
 @pytest.mark.parametrize(
@@ -169,6 +171,7 @@ def test_empty_print_assembly_refuses_image_exports(fmt, tmp_path):
         ("terrain_surface_mesh", "raster"),
         ("trees", "raster"),
         ("built_up", None),
+        ("population_grid", None),
         ("settlement_class", None),
     ],
 )

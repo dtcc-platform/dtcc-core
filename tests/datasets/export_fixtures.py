@@ -41,6 +41,7 @@ from dtcc_core.model import (
     Object,
     Point,
     PointCloud,
+    PopulationGrid,
     Raster,
     RoadNetwork,
     SensorCollection,
@@ -283,6 +284,24 @@ def _height_raster(variant, directory):
     return Raster(data=data, georef=GEOREF, crs="EPSG:3006", nodata=np.nan)
 
 
+def _population_grid(variant, directory):
+    """Persons per 1 km cell, with an empty cell and one outside Sweden."""
+    if variant == "empty":
+        return PopulationGrid()
+    data = np.array([[0.0, 120.0], [3400.0, np.nan]], dtype=np.float32)
+    if variant == "all_invalid":
+        data[:] = np.nan
+    elif variant != "populated":
+        _unknown(variant)
+    return PopulationGrid(
+        data=data,
+        georef=Affine(1000.0, 0.0, X0, 0.0, -1000.0, Y0),
+        crs="EPSG:3006",
+        nodata=np.nan,
+        year=2024,
+    )
+
+
 def _built_up_raster(variant, directory):
     """Built-up square metres per 100 m cell, including nodata."""
     if variant == "empty":
@@ -420,6 +439,7 @@ PRODUCTS = {
     ("building_footprints", None): _footprints,
     ("buildings", None): _buildings,
     ("built_up", None): _built_up_raster,
+    ("population_grid", None): _population_grid,
     ("city", None): _city,
     ("terrain_surface_mesh", "mesh"): _mesh,
     ("terrain_surface_mesh", "raster"): _height_raster,

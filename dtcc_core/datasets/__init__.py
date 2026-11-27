@@ -53,6 +53,7 @@ from .transit_vehicles import (
     FerriesDataset,
 )
 from .deso import DeSODataset
+from .population_grid import PopulationGridDataset
 from .built_up import BuiltUpDataset
 from .settlement_class import SettlementClassDataset
 from .smoke import SmokeDataset
@@ -97,6 +98,7 @@ trains = get_dataset("trains")
 metros = get_dataset("metros")
 ferries = get_dataset("ferries")
 deso = get_dataset("deso")
+population_grid = get_dataset("population_grid")
 built_up = get_dataset("built_up")
 settlement_class = get_dataset("settlement_class")
 smoke = get_dataset("smoke")

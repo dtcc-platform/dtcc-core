@@ -36,6 +36,7 @@ require network access.
 | [dataset_roads.py](dataset_roads.py) | OpenStreetMap road network | `roads.plot(column="highway")` |
 | [dataset_space_syntax.py](dataset_space_syntax.py) | Road-network space syntax | `roads.plot(column="space_syntax_integration")` |
 | [dataset_deso.py](dataset_deso.py) | DeSO population, cars, and employment context | `deso.plot(column="population_total")` |
+| [dataset_population_grid.py](dataset_population_grid.py) | SCB registered population per 1 km cell | `population.plot()` |
 | [dataset_built_up.py](dataset_built_up.py) | GHSL built-up area in 1975 and 2020 over 4 km of central Gothenburg | `built_up_1975.plot()` / `built_up_2020.plot()` |
 | [dataset_settlement_class.py](dataset_settlement_class.py) | GHSL settlement class in 1975 and 2020 over 50 km around Gothenburg | `settlement_1975.plot()` / `settlement_2020.plot()` |
 | [dataset_satellite_imagery.py](dataset_satellite_imagery.py) | Sentinel-2 true-colour image from Digital Earth Sweden | `imagery.plot()` |

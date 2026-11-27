@@ -14,6 +14,7 @@ DATASET_DEMOS = (
     "dataset_deso.py",
     "dataset_hydrology.py",
     "dataset_ocean.py",
+    "dataset_population_grid.py",
     "dataset_roads.py",
     "dataset_settlement_class.py",
     "dataset_satellite_imagery.py",

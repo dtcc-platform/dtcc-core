@@ -35,6 +35,7 @@ and fails when this page differs.
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
 | `orthophoto` | `tiles` | `RasterTileCollection` | yes | none | none | geojson, png, tif: tile collections have no web artifact; use the raster product for imagery |
 | `point_cloud` | - | `PointCloud` | yes | none | none | geojson, png, tif: 3D-only product: no map-placed or RFC 7946 web form |
+| `population_grid` | - | `PopulationGrid` | yes | `png`, `tif` | none | none |
 | `printable_city_tiles` | - | `Object` | yes | `geojson` | none | none |
 | `roads` | - | `RoadNetwork` | yes | `geojson` | none | none |
 | `satellite_imagery` | - | `Raster` | yes | `png`, `tif` | none | none |

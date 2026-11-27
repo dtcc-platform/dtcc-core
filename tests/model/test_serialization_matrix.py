@@ -60,6 +60,7 @@ UNEXPORTED_WRAPPERS = ("RasterTileCollection",)
 UNSUPPORTED = (
     "DatasetCollection",
     "DatasetValue",
+    "PopulationGrid",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 
