@@ -392,3 +392,157 @@ def test_missing_deso_controls_remain_distinct_from_zero(monkeypatch, tmp_path):
         ["observed", "suppressed", "absent"], ["population"], year=2019
     )
     np.testing.assert_equal(controls[0].values[:, 0], [0, np.nan, np.nan])
+
+
+def test_deso_rejects_suffixed_region_for_historical_statistics(monkeypatch):
+    from unittest.mock import Mock
+
+    post = Mock()
+    monkeypatch.setattr(deso_data.requests, "post", post)
+    code = "1480C1010_DeSO2025"
+    with pytest.raises(ValueError, match="2025 code.*2019"):
+        download_deso_statistics([code], ["population"], year=2019)
+    with pytest.raises(ValueError, match="2025 code.*2019"):
+        deso_data.fetch_deso_control_table([code], 2019, "population")
+    post.assert_not_called()
+
+
+def test_historical_deso_defaults_to_matching_year_and_validates_before_wfs(
+    monkeypatch,
+):
+    from unittest.mock import Mock
+
+    gdf = gpd.GeoDataFrame(
+        {"desokod": ["inside"]},
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])],
+        crs="EPSG:3006",
+    )
+    boundaries = Mock(return_value=gdf)
+    statistics = Mock(return_value=[])
+    monkeypatch.setattr(deso_data, "download_deso_geodataframe", boundaries)
+    monkeypatch.setattr(deso_data, "download_deso_statistics", statistics)
+    bounds = Bounds(0, 0, 1, 1)
+    for topic, year in (("employment", 2024), ("cars", None)):
+        with pytest.raises(ValueError, match="2018 geometry"):
+            deso_data.download_deso(
+                bounds, year=2018, statistics=[topic], statistics_year=year
+            )
+    boundaries.assert_not_called()
+    import dtcc_core.datasets as datasets
+
+    result = datasets.deso(
+        bounds=bounds.tuple, year=2018, statistics=["population", "employment"]
+    )
+    assert result.attributes["statistics_years"] == {
+        "population": 2023,
+        "employment": 2023,
+    }
+    assert result.attributes["statistics_year"] == 2023
+    statistics.assert_called_once_with(
+        codes=["inside"],
+        statistics=["population", "employment"],
+        year=2023,
+        source="SCB",
+    )
+
+
+def test_deso_download_batches_categories_and_reuses_field_cache(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    posted = []
+
+    def post(url, *, json, headers, timeout):
+        selections = {
+            item["code"]: item["selection"]["values"] for item in json["query"]
+        }
+        posted.append(selections)
+        dimension = "Alder" if "Alder" in selections else "Hushallstyp"
+        assert selections["Region"] == ["second_DeSO2025", "first_DeSO2025"]
+        cols = [
+            {"code": dimension, "type": "d"},
+            {"code": "Region", "type": "d"},
+            {"code": "measure", "type": "c"},
+        ]
+        rows = [
+            {"key": [category, region], "values": [str(100 * i + k)]}
+            for i, region in enumerate(selections["Region"])
+            for k, category in enumerate(selections[dimension])
+        ]
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"columns": cols, "data": rows[::-1]},
+        )
+
+    monkeypatch.setattr(deso_data.requests, "post", post)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
+    args = (["second", "first_DeSO2025", "second"], ["age", "household_types"])
+    fields = {field.name: field for field in download_deso_statistics(*args, year=2025)}
+    assert len(posted) == 2
+    assert posted[0]["Alder"] == list(deso_data.DESO_AGE_BANDS)
+    assert posted[1]["Hushallstyp"] == list(deso_data.DESO_HOUSEHOLD_TYPES)
+    assert "0–4 år" in fields["age_0_4"].description
+    assert fields["age_0_4"].values[:, 0].tolist() == [0, 100, 0]
+    assert fields["age_80_plus"].values[:, 0].tolist() == [16, 116, 16]
+    assert fields["household_types_OVRIGA"].values[:, 0].tolist() == [4, 104, 4]
+    again = download_deso_statistics(*args, year=2025)
+    assert len(posted) == 2
+    assert again[-1].values.tolist() == fields["household_types_OVRIGA"].values.tolist()
+
+
+def test_deso_control_archive_chunks_a_country_scale_request(monkeypatch):
+    from types import SimpleNamespace
+
+    def post(url, *, json, headers, timeout):
+        selection = {
+            item["code"]: item["selection"]["values"] for item in json["query"]
+        }
+        assert (
+            len(selection["Region"]) * len(selection["Alder"])
+            <= deso_data.SCB_MAX_VALUES
+        )
+        rows = [{"key": [selection["Region"][0], "totalt"], "values": ["10"]}]
+        return SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"data": rows}
+        )
+
+    monkeypatch.setattr(deso_data.requests, "post", post)
+    codes = [f"zone{i}" for i in range(6160)]
+    archive = deso_data.fetch_deso_control_table(codes, 2025, "population")
+    assert len(archive["batches"]) == 2
+    assert archive["response"]["data"] == [
+        row for batch in archive["batches"] for row in batch["response"]["data"]
+    ]
+    assert archive["request"]["query"][0]["selection"]["values"] == [
+        value
+        for batch in archive["batches"]
+        for value in batch["request"]["query"][0]["selection"]["values"]
+    ]
+
+
+def test_deso_control_archive_validates_topic_empty_regions_and_http_errors(
+    monkeypatch,
+):
+    from unittest.mock import Mock
+
+    post = Mock(side_effect=deso_data.requests.exceptions.Timeout("timed out"))
+    monkeypatch.setattr(deso_data.requests, "post", post)
+    with pytest.raises(ValueError, match="control topic"):
+        deso_data.fetch_deso_control_table(["zone"], 2019, "employment")
+    assert deso_data.fetch_deso_control_table([], 2019, "population")["response"] == {
+        "data": []
+    }
+    post.assert_not_called()
+    with pytest.raises(RuntimeError, match="population.*2019"):
+        deso_data.fetch_deso_control_table(["zone"], 2019, "population")
+
+
+def test_deso_does_not_cache_responses_without_data_rows(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    post = Mock()
+    post.return_value.json.return_value = {"error": "No result"}
+    monkeypatch.setattr(deso_data.requests, "post", post)
+    monkeypatch.setattr(deso_data, "cache_dir", tmp_path)
+    with pytest.raises(ValueError, match="SCB.*data rows"):
+        download_deso_statistics(["zone"], ["population"], year=2019)
+    assert not list(tmp_path.rglob("*.npy"))

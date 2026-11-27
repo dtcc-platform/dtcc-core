@@ -29,7 +29,7 @@ class DeSOArgs(DatasetBaseArgs):
     )
     statistics_year: int | None = Field(
         None,
-        description="Reference year for attached statistics; defaults to latest supported.",
+        description="Reference year for statistics; defaults to the latest year that fits the geometry vintage.",
     )
     format: Literal["pb", "geojson", "gpkg"] | None = Field(
         None,
@@ -92,7 +92,7 @@ class DeSODataset(DatasetDescriptor):
     license = "Requires review: verify SCB source terms before redistribution."
     collection_period = (
         "Geometry vintages supported by this dataset are 2018 and 2025. Optional "
-        "statistics use the latest supported SCB API year per topic unless "
+        "statistics use the latest SCB API year compatible with the geometry for each topic unless "
         "statistics_year is provided."
     )
     data_types = ["vector", "administrative_areas", "statistics"]
@@ -120,8 +120,8 @@ class DeSODataset(DatasetDescriptor):
     ]
     presentation_headline = "Swedish DeSO Areas"
     presentation_summary = (
-        "Administrative/statistical area polygons that can carry population, "
-        "household, car, or employment attributes from SCB."
+        "Statistical area polygons that can carry population totals and age bands, "
+        "household totals and types, car counts, and employment counts from SCB."
     )
     presentation_narrative = [
         {
@@ -141,9 +141,8 @@ class DeSODataset(DatasetDescriptor):
         {
             "heading": "Limitations",
             "body": (
-                "Geometry vintage and statistics year can differ. Statistics may be "
-                "unavailable for some topic/year combinations and should not be "
-                "downscaled without a separate method."
+                "Statistics through 2023 use the 2018 geometry. Statistics from 2024 "
+                "use the 2025 geometry. Some topics are unavailable in some years."
             ),
         },
     ]
@@ -166,6 +165,14 @@ class DeSODataset(DatasetDescriptor):
                 "meaning": "households by DeSO area when requested",
             },
             {
+                "label": "age_*",
+                "meaning": "persons by age band when requested",
+            },
+            {
+                "label": "household_types_*",
+                "meaning": "households by type when requested",
+            },
+            {
                 "label": "cars_total/cars_in_traffic",
                 "meaning": "passenger-car counts when requested",
             },
@@ -184,7 +191,7 @@ class DeSODataset(DatasetDescriptor):
     presentation_warnings = [
         "SCB source and redistribution terms require review before publishing packages.",
         "Statistics describe entire DeSO areas and are not building-level observations.",
-        "Geometry vintage and statistics year may differ unless explicitly reviewed for the use case.",
+        "Use DeSO 2018 geometry for statistics through 2023 and DeSO 2025 geometry from 2024.",
     ]
     presentation_limitations = [
         "Statistics are attached only for requested topics and supported years.",
