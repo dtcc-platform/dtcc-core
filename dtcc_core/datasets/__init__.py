@@ -53,6 +53,8 @@ from .transit_vehicles import (
     FerriesDataset,
 )
 from .deso import DeSODataset
+from .urban_atlas import UrbanAtlasDataset
+from .imperviousness import ImperviousnessDataset
 from .built_up import BuiltUpDataset
 from .settlement_class import SettlementClassDataset
 from .smoke import SmokeDataset
@@ -97,6 +99,8 @@ trains = get_dataset("trains")
 metros = get_dataset("metros")
 ferries = get_dataset("ferries")
 deso = get_dataset("deso")
+urban_atlas = get_dataset("urban_atlas")
+imperviousness = get_dataset("imperviousness")
 built_up = get_dataset("built_up")
 settlement_class = get_dataset("settlement_class")
 smoke = get_dataset("smoke")

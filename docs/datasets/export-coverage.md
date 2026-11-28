@@ -30,6 +30,7 @@ and fails when this page differs.
 | `deso` | - | `DeSO` | yes | `geojson` | none | none |
 | `ferries` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `hydrology` | - | `SensorCollection` | yes | `geojson` | none | none |
+| `imperviousness` | - | `Raster` | yes | `png`, `tif` | none | none |
 | `metros` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `ocean` | - | `SensorCollection` | yes | `geojson` | none | none |
 | `orthophoto` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
@@ -50,6 +51,7 @@ and fails when this page differs.
 | `transit_vehicles` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `trees` | `trees` | `TreeCollection` | yes | `geojson` | none | none |
 | `trees` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
+| `urban_atlas` | - | `Landuse` | yes | `geojson` | none | none |
 | `weather` | - | `SensorCollection` | yes | `geojson` | none | none |
 
 - **Product**: the `product` argument; `-` for a Dataset with one product.

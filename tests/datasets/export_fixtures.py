@@ -34,6 +34,7 @@ from dtcc_core.model import (
     FieldSlice,
     FootprintCollection,
     GeometryType,
+    Landuse,
     LineString,
     Mesh,
     MultiLineString,
@@ -52,6 +53,7 @@ from dtcc_core.model import (
     VehicleCollection,
     VolumeMesh,
 )
+from dtcc_core.model.object.landuse import LanduseClasses
 from dtcc_core.model.values.raster_tiles import RasterTile, RasterTileCollection
 
 BOUNDS = (319000.0, 6399000.0, 320000.0, 6400000.0)
@@ -147,6 +149,33 @@ def _deso(variant, directory):
     deso.add_child(area)
     deso.attach_field(_sample("population", "persons", 1200.0))
     return deso
+
+
+def _landuse(variant, directory):
+    """Two Urban Atlas polygons with their surface-aligned codes and classes."""
+    if variant == "empty":
+        return Landuse()
+    if variant != "populated":
+        _unknown(variant)
+    landuse = Landuse(
+        landuses=[LanduseClasses.HEAVY_URBAN, LanduseClasses.GRASS],
+        attributes={
+            "ua_code": ["11100", "14100"],
+            "ua_class": ["Continuous urban fabric", "Green urban areas"],
+            "fua_name": ["Göteborg", "Göteborg"],
+            "year": 2012,
+        },
+    )
+    landuse.add_geometry(
+        MultiSurface(
+            surfaces=[
+                Surface(vertices=_square(X0, Y0)),
+                Surface(vertices=_square(X0 + 50.0, Y0)),
+            ]
+        ),
+        GeometryType.MULTISURFACE,
+    )
+    return landuse
 
 
 def _footprints(variant, directory):
@@ -281,6 +310,23 @@ def _height_raster(variant, directory):
     elif variant != "populated":
         _unknown(variant)
     return Raster(data=data, georef=GEOREF, crs="EPSG:3006", nodata=np.nan)
+
+
+def _imperviousness_raster(variant, directory):
+    """Sealed percent per 10 m cell, including sea (NaN)."""
+    if variant == "empty":
+        return Raster()
+    data = np.array([[0.0, 45.0], [100.0, np.nan]], dtype=np.float32)
+    if variant == "all_invalid":
+        data[:] = np.nan
+    elif variant != "populated":
+        _unknown(variant)
+    return Raster(
+        data=data,
+        georef=Affine(10.0, 0.0, X0, 0.0, -10.0, Y0),
+        crs="EPSG:3006",
+        nodata=np.nan,
+    )
 
 
 def _built_up_raster(variant, directory):
@@ -420,6 +466,7 @@ PRODUCTS = {
     ("building_footprints", None): _footprints,
     ("buildings", None): _buildings,
     ("built_up", None): _built_up_raster,
+    ("imperviousness", None): _imperviousness_raster,
     ("city", None): _city,
     ("terrain_surface_mesh", "mesh"): _mesh,
     ("terrain_surface_mesh", "raster"): _height_raster,
@@ -437,6 +484,7 @@ PRODUCTS = {
     ("space_syntax", None): _roads,
     **{(name, None): _vehicles for name in TRANSIT},
     ("deso", None): _deso,
+    ("urban_atlas", None): _landuse,
     ("smoke", "field"): _smoke("field"),
     ("smoke", "slice"): _smoke("slice"),
     ("smoke", "streamlines"): _smoke("streamlines"),

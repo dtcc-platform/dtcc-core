@@ -71,7 +71,7 @@ def _derived(package):
 
 
 def test_every_builtin_dataset_declares_each_product():
-    assert len(BUILTINS) == 29
+    assert len(BUILTINS) == 31
     for name, dataset in BUILTINS.items():
         product = dataset.describe()["args_schema"]["properties"].get("product")
         expected = product["enum"] if product else [None]
@@ -169,6 +169,7 @@ def test_empty_print_assembly_refuses_image_exports(fmt, tmp_path):
         ("terrain_surface_mesh", "raster"),
         ("trees", "raster"),
         ("built_up", None),
+        ("imperviousness", None),
         ("settlement_class", None),
     ],
 )

@@ -1042,7 +1042,9 @@ class DatasetDescriptor(ABC):
         status_code = None
 
         if requests is not None:
-            if isinstance(exc, requests.Timeout):
+            from dtcc_core.io.data.timeouts import is_read_timeout
+
+            if isinstance(exc, requests.Timeout) or is_read_timeout(exc):
                 failure_class = "timeout"
             # SSLError subclasses ConnectionError, but a certificate or TLS
             # failure is not a transient outage.
