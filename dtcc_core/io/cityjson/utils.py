@@ -6,7 +6,7 @@ from tqdm import tqdm
 from ...model import Building, City, Mesh, MultiSurface, Solid, Surface
 from ...model.object.building import BuildingPart
 from ...model.object.object import GeometryType
-from ..logging import warning
+from ..logging import debug, warning
 
 
 def tin_geom_to_mesh(tin_geom_pair: tuple, verts) -> Mesh:
@@ -353,8 +353,56 @@ def build_dtcc_building(cj_obj, uuid, cj_building, verts, parent_city, lod=2):
     return building
 
 
+def _polygons(geometry):
+    """Return the polygons of a surface or Solid geometry in assignment order."""
+    boundaries = geometry.get("boundaries")
+    if geometry.get("type") == "Solid":
+        return [polygon for shell in boundaries for polygon in shell]
+    return list(boundaries)
+
+
+def _is_horizontal(polygon, vertices):
+    """Return whether the outer ring of a polygon lies at one height."""
+    return len({vertices[index][2] for index in polygon[0]}) == 1
+
+
+def _is_blanket_wall_labelling(geometry, vertices):
+    """Return whether the semantics label every surface as an unclassified wall.
+
+    The pattern is one bare ``{"type": "WallSurface"}`` entity per surface,
+    every surface assigned once, and at least one horizontal surface among
+    them. A horizontal wall is the roof or ground cap of an unclassified
+    building, so these labels carry no classification. Wall-only geometry
+    and labels with attributes, shared entities or gaps do not match.
+    """
+    semantics = geometry.get("semantics")
+    if not isinstance(semantics, dict) or set(semantics) != {"surfaces", "values"}:
+        return False
+    surfaces, values = semantics["surfaces"], semantics["values"]
+    if not isinstance(surfaces, list) or not isinstance(values, list) or not surfaces:
+        return False
+    if any(surface != {"type": "WallSurface"} for surface in surfaces):
+        return False
+    try:
+        polygons = _polygons(geometry)
+        if geometry.get("type") == "Solid":
+            values = [value for shell in values for value in shell]
+        if len(values) != len(polygons) or sorted(
+            value if type(value) is int else -1 for value in values
+        ) != list(range(len(surfaces))):
+            return False
+        return any(_is_horizontal(polygon, vertices) for polygon in polygons)
+    except (TypeError, IndexError, KeyError):
+        # Malformed geometry is reported by the regular reader.
+        return False
+
+
 def _build_permissive_geometry(geometry, vertices, where):
-    """Read supported geometry, warning when unsupported content is omitted."""
+    """Read supported geometry, warning when unsupported content is omitted.
+
+    Semantics that label every surface as an unclassified wall are dropped, so
+    such geometry loads without semantic regions.
+    """
     if not isinstance(geometry, dict):
         raise ValueError(f"{where}: geometry must be an object")
     semantics = geometry.get("semantics")
@@ -368,6 +416,9 @@ def _build_permissive_geometry(geometry, vertices, where):
         and len(semantics["surfaces"]) == 1
     ):
         geometry = {**geometry, "semantics": {**semantics, "values": [0]}}
+    if _is_blanket_wall_labelling(geometry, vertices):
+        debug(f"{where}: ignoring WallSurface labels on every surface")
+        geometry = {key: value for key, value in geometry.items() if key != "semantics"}
     try:
         return build_geometry(geometry, vertices)
     except NotImplementedError as error:

@@ -95,8 +95,12 @@ unsupported semantics. Strict import rejects all these cases. Permissive import
 also accepts the nested single-footprint semantic assignment emitted by the
 legacy writer; strict input still requires a flat MultiSurface assignment array.
 Default and strict export preserve fractional LoD labels and CompositeSurface
-representations. Unclassified building LoD0 geometry is exported without invented
-WallSurface semantics.
+representations. Unclassified building geometry is exported without invented
+WallSurface semantics at every LoD; in default (non-strict) export, a
+`CityJSONConfig` with an explicit `semantic_types["surface"]` or
+`labels_unclassified_surfaces=True` still labels it above LoD0. Permissive import drops semantics that give every surface its
+own bare WallSurface entity when at least one surface is horizontal, so such
+files load without semantic regions.
 Writers emit CityJSON 2.0 string LoD labels and flat MultiSurface semantic
 assignment arrays. This does not certify other permissive content or implement
 additional unsupported feature kinds. Other external format adapters and default artifact-only packages
