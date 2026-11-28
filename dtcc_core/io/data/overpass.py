@@ -3,6 +3,9 @@
 import json
 import os
 import re
+import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import geopandas as gpd
 import requests
@@ -27,9 +30,11 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # Where we store local cache metadata
 CACHE_METADATA_FILE = os.path.join(BASE_CACHE_DIR, "cache_metadata.json")
 
+# Each entry is a separate server. Do not add DNS aliases of a listed server
+# (overpass.kumi.systems points at overpass.private.coffee): failing over to
+# the same server only adds waiting.
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ]
 ROAD_CACHE_VERSION = 4
@@ -39,13 +44,51 @@ OVERPASS_SOURCE_ENDPOINT_COLUMN = "source_endpoint"
 OVERPASS_CONNECT_TIMEOUT_SECONDS = float(
     os.environ.get("DTCC_OVERPASS_CONNECT_TIMEOUT", "8")
 )
-OVERPASS_READ_TIMEOUT_SECONDS = float(
-    os.environ.get("DTCC_OVERPASS_READ_TIMEOUT", "30")
+# A fixed read timeout set through the environment. When unset, the read
+# timeout follows each query's own [timeout:N] (see _overpass_read_timeout).
+_READ_TIMEOUT_ENV = os.environ.get("DTCC_OVERPASS_READ_TIMEOUT")
+OVERPASS_READ_TIMEOUT_SECONDS = float(_READ_TIMEOUT_ENV) if _READ_TIMEOUT_ENV else None
+# Extra seconds on top of the query's server timeout for waiting in the
+# server's queue and transferring the response.
+OVERPASS_QUEUE_ALLOWANCE_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_QUEUE_ALLOWANCE", "60")
 )
-OVERPASS_RETRIES = int(os.environ.get("DTCC_OVERPASS_RETRIES", "1"))
+# Overpass applies this server timeout when a query sets no [timeout:N].
+OVERPASS_DEFAULT_QUERY_TIMEOUT_SECONDS = 180
+# How many more times to ask the same server after a quick 429 or 5xx answer.
+OVERPASS_RETRIES = max(0, int(os.environ.get("DTCC_OVERPASS_RETRIES", "2")))
+# An error answer that arrives within this many seconds counts as quick. A
+# slower error, or a timeout, moves on to the next endpoint without retrying,
+# so a struggling server is not waited on several times.
+OVERPASS_QUICK_FAILURE_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_QUICK_FAILURE", "10")
+)
+OVERPASS_RETRY_STATUSES = (429, 500, 502, 503, 504)
+# Wait before the first retry; it doubles before each later one.
+OVERPASS_RETRY_BACKOFF_SECONDS = 1.0
+# The longest Retry-After wait honoured before a retry. A server asking for a
+# longer pause is not retried; the next endpoint is tried instead.
+OVERPASS_RETRY_AFTER_CAP_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_RETRY_AFTER_CAP", "10")
+)
+# A query may take one full read timeout plus this many seconds across all
+# endpoints, retries and waits, before the failover gives up.
+OVERPASS_FAILOVER_ALLOWANCE_SECONDS = float(
+    os.environ.get("DTCC_OVERPASS_FAILOVER_ALLOWANCE", "60")
+)
 OVERPASS_SERVER_TIMEOUT_SECONDS = int(
     os.environ.get("DTCC_OVERPASS_SERVER_TIMEOUT", "25")
 )
+# The settings statement that starts an Overpass QL query, such as
+# "[out:json][timeout:25];", after any leading whitespace and comments.
+# Possessive repeats keep a failed match linear in the query length.
+_QL_SPACE = r"(?:\s|/\*.*?\*/|//[^\n]*+(?:\n|\Z))*+"
+_QUERY_SETTINGS_PATTERN = re.compile(
+    rf"\A{_QL_SPACE}((?:\[[^\]]*+\]{_QL_SPACE})++);", re.DOTALL
+)
+# Time left that is worth sending a request in; with less, the failover stops.
+_MIN_REQUEST_SECONDS = 1.0
+_QUERY_TIMEOUT_PATTERN = re.compile(r"\[\s*timeout\s*:\s*(\d+)\s*\]")
 OVERPASS_USER_AGENT = os.environ.get(
     "DTCC_OVERPASS_USER_AGENT",
     "dtcc-core/0.9.8 (https://github.com/dtcc-platform/dtcc-core)",
@@ -53,19 +96,21 @@ OVERPASS_USER_AGENT = os.environ.get(
 
 
 def create_retry_session(
-    retries=OVERPASS_RETRIES,
+    retries=0,
     backoff_factor=1.0,
-    status_forcelist=(429, 500, 502, 503, 504),
+    status_forcelist=OVERPASS_RETRY_STATUSES,
 ):
     """
-    Create a requests session with automatic retry and exponential backoff.
+    Create a requests session for Overpass, optionally retrying HTTP errors.
 
     Parameters
     ----------
     retries
-        Number of retry attempts for transient HTTP status responses. Connect
-        and read failures are not retried here; endpoint failover handles those
-        so DNS/connect issues do not block for minutes.
+        Number of retry attempts for transient HTTP status responses. The
+        default is 0 because query_overpass_with_failover retries quick
+        failures itself. Connect and read failures are never retried here;
+        endpoint failover handles those so DNS/connect issues do not block
+        for minutes.
     backoff_factor
         Multiplier for exponential backoff (1.0 = 1s, 2s, 4s, 8s, 16s)
     status_forcelist
@@ -95,15 +140,130 @@ def create_retry_session(
     return session
 
 
+def _overpass_read_timeout(query):
+    """
+    Return how long to wait for an Overpass response to ``query``, in seconds.
+
+    The server may spend up to the query's ``[timeout:N]`` working, after
+    waiting for a free slot, so the client waits that long plus
+    ``OVERPASS_QUEUE_ALLOWANCE_SECONDS``. ``[timeout:N]`` is read only from the
+    settings statement that starts the query, after any whitespace and
+    comments, as Overpass reads it. A query without one gets the server
+    default of 180 s. ``DTCC_OVERPASS_READ_TIMEOUT`` replaces the result with
+    a fixed value.
+    """
+    if OVERPASS_READ_TIMEOUT_SECONDS is not None:
+        return OVERPASS_READ_TIMEOUT_SECONDS
+    settings = _QUERY_SETTINGS_PATTERN.match(query)
+    match = settings and _QUERY_TIMEOUT_PATTERN.search(settings.group(1))
+    server_timeout = (
+        int(match.group(1)) if match else OVERPASS_DEFAULT_QUERY_TIMEOUT_SECONDS
+    )
+    return server_timeout + OVERPASS_QUEUE_ALLOWANCE_SECONDS
+
+
+def _retry_after_seconds(response):
+    """
+    Return the wait a ``Retry-After`` header asks for, in seconds, or None.
+
+    The header holds either a whole number of seconds or an HTTP date; a date
+    without a zone, as in the obsolete asctime form, is UTC. A missing or
+    unreadable header gives None; a date in the past gives 0.
+    """
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdigit():
+        return float(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
+
+
+def _quick_retry_delay(response, elapsed, attempt):
+    """
+    Return the wait before asking the same endpoint again, and an error note.
+
+    The wait is None when the answer should move on to the next endpoint: it
+    is not a 429 or 5xx, it took ``OVERPASS_QUICK_FAILURE_SECONDS`` or longer,
+    or its ``Retry-After`` asks for more than
+    ``OVERPASS_RETRY_AFTER_CAP_SECONDS``. Otherwise it is the exponential
+    backoff for ``attempt``, or the ``Retry-After`` wait when that is longer.
+    """
+    if (
+        response.status_code not in OVERPASS_RETRY_STATUSES
+        or elapsed >= OVERPASS_QUICK_FAILURE_SECONDS
+    ):
+        return None, ""
+    delay = OVERPASS_RETRY_BACKOFF_SECONDS * 2**attempt
+    retry_after = _retry_after_seconds(response)
+    if retry_after is None:
+        return delay, ""
+    if retry_after > OVERPASS_RETRY_AFTER_CAP_SECONDS:
+        return None, f" (asked to retry after {retry_after:g}s)"
+    return max(delay, retry_after), ""
+
+
+def _ask_endpoint(session, endpoint, query, request_timeout, attempt):
+    """
+    Send ``query`` to ``endpoint`` once.
+
+    Returns ``(data, None, None)`` for a usable answer, otherwise
+    ``(None, error, delay)``, where ``delay`` is the wait before asking the
+    same endpoint again, or None to move on (see :func:`_quick_retry_delay`).
+    """
+    started = time.monotonic()
+    try:
+        resp = session.post(endpoint, data={"data": query}, timeout=request_timeout)
+    except requests.exceptions.RequestException as e:
+        debug(f"Endpoint {endpoint} failed: {e}")
+        return None, str(e), None
+    elapsed = time.monotonic() - started
+    if resp.status_code == 200:
+        try:
+            data = resp.json()
+        except ValueError as e:
+            debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
+            return None, f"invalid JSON from {endpoint}: {e}", None
+        debug(f"Overpass query successful via {endpoint}")
+        data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
+        return data, None, None
+    debug(
+        f"Endpoint {endpoint} returned status {resp.status_code} after {elapsed:.1f}s"
+    )
+    delay, note = _quick_retry_delay(resp, elapsed, attempt)
+    return None, f"HTTP {resp.status_code}{note}", delay
+
+
 def query_overpass_with_failover(
     query,
     timeout=None,
     connect_timeout=OVERPASS_CONNECT_TIMEOUT_SECONDS,
-    read_timeout=OVERPASS_READ_TIMEOUT_SECONDS,
+    read_timeout=None,
 ):
     """
     Query Overpass API with automatic failover between endpoints.
-    Tries each endpoint with retries before moving to the next.
+
+    Each endpoint is asked up to ``1 + OVERPASS_RETRIES`` times. A 429 or 5xx
+    answer that arrives within ``OVERPASS_QUICK_FAILURE_SECONDS`` is retried on
+    the same endpoint after a short backoff, or after the answer's
+    ``Retry-After`` wait when that is longer and at most
+    ``OVERPASS_RETRY_AFTER_CAP_SECONDS``; a longer requested wait moves on to
+    the next endpoint. A slower error, a timeout, a connection failure or
+    invalid JSON also moves on.
+
+    The whole call is limited to the read timeout plus
+    ``OVERPASS_FAILOVER_ALLOWANCE_SECONDS``: each request's connect and read
+    timeouts are cut to the time left, no request starts with less than a
+    second left, a retry whose wait would leave less than that is skipped, and
+    endpoints not reached in time are listed in the error. The read timeout
+    limits each wait for data, not a whole slowly streamed answer, so a call
+    can run a little past the limit.
 
     Parameters
     ----------
@@ -115,7 +275,9 @@ def query_overpass_with_failover(
     connect_timeout
         Timeout for DNS/TCP/TLS connection setup in seconds.
     read_timeout
-        Timeout while waiting for the Overpass response in seconds.
+        Timeout while waiting for the Overpass response in seconds. When
+        None, it follows the query's ``[timeout:N]``; see
+        :func:`_overpass_read_timeout`.
 
     Returns
     -------
@@ -129,41 +291,59 @@ def query_overpass_with_failover(
     """
     if timeout is not None:
         read_timeout = timeout
+    if read_timeout is None:
+        read_timeout = _overpass_read_timeout(query)
 
-    request_timeout = (connect_timeout, read_timeout)
+    time_limit = read_timeout + OVERPASS_FAILOVER_ALLOWANCE_SECONDS
+    deadline = time.monotonic() + time_limit
     last_error = None
     # Each endpoint's error, so callers can tell a broken query from busy mirrors.
     errors = []
+    not_tried = []
     for endpoint in OVERPASS_ENDPOINTS:
-        try:
-            info(
-                "Trying Overpass endpoint "
-                f"{endpoint} (connect={connect_timeout:g}s, read={read_timeout:g}s)"
+        if deadline - time.monotonic() < _MIN_REQUEST_SECONDS:
+            not_tried.append(endpoint)
+            continue
+        info(
+            "Trying Overpass endpoint "
+            f"{endpoint} (connect={connect_timeout:g}s, read={read_timeout:g}s)"
+        )
+        session = create_retry_session()
+        delay = None
+        for attempt in range(OVERPASS_RETRIES + 1):
+            if attempt > 0:
+                if time.monotonic() + delay + _MIN_REQUEST_SECONDS > deadline:
+                    info(
+                        f"Not retrying {endpoint}: waiting {delay:g}s would pass "
+                        f"the {time_limit:g}s time limit"
+                    )
+                    break
+                info(f"Retrying {endpoint} in {delay:g}s after {last_error}")
+                time.sleep(delay)
+            # A sleep can overrun slightly; never send a timeout below the minimum.
+            remaining = max(deadline - time.monotonic(), _MIN_REQUEST_SECONDS)
+            request_timeout = (
+                min(connect_timeout, remaining),
+                min(read_timeout, remaining),
             )
-            session = create_retry_session()
-            resp = session.post(endpoint, data={"data": query}, timeout=request_timeout)
-            if resp.status_code == 200:
-                debug(f"Overpass query successful via {endpoint}")
-                data = resp.json()
-                data[OVERPASS_ENDPOINT_METADATA_KEY] = endpoint
+            data, last_error, delay = _ask_endpoint(
+                session, endpoint, query, request_timeout, attempt
+            )
+            if data is not None:
                 return data
-            else:
-                debug(f"Endpoint {endpoint} returned status {resp.status_code}")
-                last_error = f"HTTP {resp.status_code}"
-                errors.append((endpoint, last_error))
-        except ValueError as e:
-            debug(f"Endpoint {endpoint} returned invalid JSON: {e}")
-            last_error = f"invalid JSON from {endpoint}: {e}"
-            errors.append((endpoint, last_error))
-        except requests.exceptions.RequestException as e:
-            debug(f"Endpoint {endpoint} failed: {e}")
-            last_error = str(e)
-            errors.append((endpoint, last_error))
+            if delay is None:
+                break
+        errors.append((endpoint, last_error))
 
     by_endpoint = "\n".join(f"- {endpoint}: {problem}" for endpoint, problem in errors)
+    skipped = (
+        f"\nNot tried within the {time_limit:g}s time limit: {', '.join(not_tried)}"
+        if not_tried
+        else ""
+    )
     error(
         f"All Overpass endpoints failed. Last error: {last_error}\n"
-        f"Errors by endpoint:\n{by_endpoint}"
+        f"Errors by endpoint:\n{by_endpoint}{skipped}"
     )
     raise RuntimeError(f"All Overpass endpoints failed: {last_error}")
 

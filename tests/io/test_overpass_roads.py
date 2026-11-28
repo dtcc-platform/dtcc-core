@@ -1,3 +1,6 @@
+import time
+from urllib.parse import urlparse
+
 import pytest
 
 from dtcc_core.io.data import overpass, wrapper
@@ -62,6 +65,343 @@ def test_overpass_uses_bounded_connect_and_read_timeouts(monkeypatch):
 
     assert data["elements"] == []
     assert timeouts == [(2.5, 7.5)]
+
+
+def _slow_server_session(seconds_to_answer, timeouts):
+    """Fake session whose server answers after ``seconds_to_answer``."""
+    import requests
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"elements": []}
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            timeouts.append(timeout)
+            if timeout[1] < seconds_to_answer:
+                raise requests.exceptions.ReadTimeout("Read timed out.")
+            return Response()
+
+    return Session()
+
+
+def test_overpass_waits_for_a_server_slower_than_30_seconds(monkeypatch):
+    timeouts = []
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", None)
+    monkeypatch.setattr(
+        overpass, "create_retry_session", lambda: _slow_server_session(43, timeouts)
+    )
+
+    data = overpass.query_overpass_with_failover(
+        f"[out:json][timeout:{overpass.OVERPASS_SERVER_TIMEOUT_SECONDS}];node(1);out;"
+    )
+
+    assert data["elements"] == []
+    assert len(timeouts) == 1
+
+
+@pytest.mark.parametrize(
+    "query, server_timeout",
+    [
+        ("[out:json][timeout:25];node(1);out;", 25),
+        ("[out:json] [ timeout : 120 ];node(1);out;", 120),
+        ("[out:json];node(1);out;", 180),  # Overpass server default
+        # Overpass reads settings only from the statement that starts the query.
+        ("/* formerly [timeout:1] */ [out:json][timeout:120];node(1);out;", 120),
+        ("// was [timeout:1]\n[out:json][timeout:120];node(1);out;", 120),
+        ("\n    [out:json][timeout:25];\n    node(1);out;", 25),
+        ('[out:json];node["note"="[timeout:5]"];out;', 180),
+        ("[out:json] /* long query */ [timeout:600];node(1);out;", 600),
+    ],
+)
+def test_overpass_read_timeout_follows_query_timeout(
+    monkeypatch, query, server_timeout
+):
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", None)
+    monkeypatch.setattr(overpass, "OVERPASS_QUEUE_ALLOWANCE_SECONDS", 60.0)
+
+    assert overpass._overpass_read_timeout(query) == server_timeout + 60.0
+
+
+def test_overpass_read_timeout_of_a_query_without_settings_is_quick(monkeypatch):
+    # Leading whitespace with no settings statement must not make the match
+    # backtrack through every way of splitting the whitespace.
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", None)
+    monkeypatch.setattr(overpass, "OVERPASS_QUEUE_ALLOWANCE_SECONDS", 60.0)
+    query = "\n" + "  \n" * 200 + "node(1);out;"
+
+    started = time.perf_counter()
+    assert overpass._overpass_read_timeout(query) == 180 + 60.0
+    assert time.perf_counter() - started < 1.0
+
+
+def test_overpass_read_timeout_environment_override_is_kept(monkeypatch):
+    timeouts = []
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", ["endpoint-1"])
+    monkeypatch.setattr(overpass, "OVERPASS_READ_TIMEOUT_SECONDS", 12.0)
+    monkeypatch.setattr(
+        overpass, "create_retry_session", lambda: _slow_server_session(0, timeouts)
+    )
+
+    overpass.query_overpass_with_failover("[out:json][timeout:25];node(1);out;")
+
+    assert timeouts == [(overpass.OVERPASS_CONNECT_TIMEOUT_SECONDS, 12.0)]
+
+
+def test_overpass_endpoints_are_distinct_servers():
+    hosts = [urlparse(endpoint).hostname for endpoint in overpass.OVERPASS_ENDPOINTS]
+
+    assert len(hosts) == len(set(hosts))
+    # DNS alias of overpass.private.coffee.
+    assert "overpass.kumi.systems" not in hosts
+
+
+class _FakeClock:
+    """Stands in for the ``time`` module so tests never really wait."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _scripted_session(clock, answers, posts):
+    """Fake session that answers each endpoint from a script.
+
+    ``answers`` maps an endpoint to a list of ``(status, seconds)`` pairs,
+    ``(status, seconds, headers)`` triples, or ``"timeout"`` for a read timeout
+    that uses the whole read timeout, taken in order.
+    """
+    import requests
+
+    class Response:
+        def __init__(self, status_code, headers):
+            self.status_code = status_code
+            self.headers = headers
+
+        def json(self):
+            return {"elements": []}
+
+    class Session:
+        def post(self, endpoint, data, timeout):
+            posts.append(endpoint)
+            answer = answers[endpoint].pop(0)
+            if answer == "timeout":
+                clock.now += timeout[1]
+                raise requests.exceptions.ReadTimeout("Read timed out.")
+            status, seconds, *headers = answer
+            clock.now += seconds
+            return Response(status, headers[0] if headers else {})
+
+    return Session()
+
+
+def _install_scripted_session(monkeypatch, answers):
+    clock = _FakeClock()
+    posts = []
+    monkeypatch.setattr(overpass, "OVERPASS_ENDPOINTS", list(answers))
+    monkeypatch.setattr(overpass, "OVERPASS_RETRIES", 2)
+    monkeypatch.setattr(overpass, "OVERPASS_QUICK_FAILURE_SECONDS", 10.0)
+    monkeypatch.setattr(overpass, "time", clock)
+    monkeypatch.setattr(
+        overpass,
+        "create_retry_session",
+        lambda: _scripted_session(clock, answers, posts),
+    )
+    return clock, posts
+
+
+def test_overpass_retries_a_quick_502_on_the_same_endpoint(monkeypatch):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [(502, 0.3), (200, 42.8)], "endpoint-2": []},
+    )
+
+    data = overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-1"
+    assert posts == ["endpoint-1", "endpoint-1"]
+    assert clock.sleeps == [1.0]
+
+
+@pytest.mark.parametrize(
+    "first_answer",
+    [(504, 80.0), "timeout"],
+    ids=["slow 504", "read timeout"],
+)
+def test_overpass_moves_on_after_a_slow_failure(monkeypatch, first_answer):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [first_answer], "endpoint-2": [(200, 1.0)]},
+    )
+
+    data = overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-2"
+    assert posts == ["endpoint-1", "endpoint-2"]
+    assert clock.sleeps == []
+
+
+def test_overpass_gives_up_after_the_retry_limit(monkeypatch):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [(502, 0.3)] * 3, "endpoint-2": [(429, 0.2)] * 3},
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP 429"):
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert posts == ["endpoint-1"] * 3 + ["endpoint-2"] * 3
+    assert clock.sleeps == [1.0, 2.0, 1.0, 2.0]
+
+
+def test_overpass_honours_a_short_retry_after(monkeypatch):
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {
+            "endpoint-1": [(429, 0.2, {"Retry-After": "5"}), (200, 3.0)],
+            "endpoint-2": [],
+        },
+    )
+
+    data = overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert data[overpass.OVERPASS_ENDPOINT_METADATA_KEY] == "endpoint-1"
+    assert posts == ["endpoint-1", "endpoint-1"]
+    assert clock.sleeps == [5.0]
+
+
+def test_overpass_moves_on_when_retry_after_exceeds_the_cap(monkeypatch):
+    monkeypatch.setattr(overpass, "OVERPASS_RETRY_AFTER_CAP_SECONDS", 10.0)
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {
+            "endpoint-1": [(503, 0.2, {"Retry-After": "120"})],
+            "endpoint-2": [(502, 0.2)] * 3,
+        },
+    )
+
+    with pytest.raises(RuntimeError) as info:
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert posts == ["endpoint-1"] + ["endpoint-2"] * 3
+    assert clock.sleeps == [1.0, 2.0]
+    assert "- endpoint-1: HTTP 503 (asked to retry after 120s)" in str(info.value)
+
+
+@pytest.mark.parametrize(
+    "header, expected",
+    [
+        ("7", 7.0),
+        ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),  # a date in the past
+        ("soon", None),
+        ("\u00b2", None),  # a digit that float() does not accept
+        ("Sun Nov  6 08:49:37 1994", 0.0),  # obsolete asctime form, in UTC
+        (None, None),
+    ],
+)
+def test_overpass_reads_retry_after_seconds_and_dates(header, expected):
+    class Response:
+        headers = {} if header is None else {"Retry-After": header}
+
+    assert overpass._retry_after_seconds(Response()) == expected
+
+
+def test_overpass_retry_after_date_in_the_future_is_a_wait():
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+
+    class Response:
+        headers = {
+            "Retry-After": format_datetime(
+                datetime.now(UTC) + timedelta(seconds=30), usegmt=True
+            )
+        }
+
+    assert 25.0 < overpass._retry_after_seconds(Response()) <= 30.0
+
+
+def test_overpass_stops_at_the_total_time_limit(monkeypatch):
+    monkeypatch.setattr(overpass, "OVERPASS_FAILOVER_ALLOWANCE_SECONDS", 60.0)
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": [(504, 80.0)], "endpoint-2": ["timeout"]},
+    )
+
+    with pytest.raises(RuntimeError, match="Read timed out"):
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    # Read timeout 85 s plus 60 s: the second endpoint gets the 65 s left.
+    assert posts == ["endpoint-1", "endpoint-2"]
+    assert clock.now == pytest.approx(145.0)
+
+
+def test_overpass_lists_endpoints_not_reached_in_time(monkeypatch):
+    monkeypatch.setattr(overpass, "OVERPASS_FAILOVER_ALLOWANCE_SECONDS", 60.0)
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {
+            "endpoint-1": ["timeout"],
+            "endpoint-2": ["timeout"],
+            "endpoint-3": [(200, 1.0)],
+        },
+    )
+
+    with pytest.raises(RuntimeError) as info:
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert posts == ["endpoint-1", "endpoint-2"]
+    assert "Not tried within the 145s time limit: endpoint-3" in str(info.value)
+
+
+def test_overpass_does_not_start_a_request_with_under_a_second_left(monkeypatch):
+    # An 85.5 s limit: the first endpoint's 85 s read timeout leaves 0.5 s.
+    monkeypatch.setattr(overpass, "OVERPASS_FAILOVER_ALLOWANCE_SECONDS", 0.5)
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {"endpoint-1": ["timeout"], "endpoint-2": [(200, 0.1)]},
+    )
+
+    with pytest.raises(RuntimeError) as info:
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    assert posts == ["endpoint-1"]
+    assert "Not tried within the 85.5s time limit: endpoint-2" in str(info.value)
+
+
+def test_overpass_skips_a_retry_that_would_pass_the_time_limit(monkeypatch):
+    # A 45 s limit: the 85 s read timeout minus 40 s.
+    monkeypatch.setattr(overpass, "OVERPASS_FAILOVER_ALLOWANCE_SECONDS", -40.0)
+    clock, posts = _install_scripted_session(
+        monkeypatch,
+        {
+            "endpoint-1": [(504, 9.0)] * 3,
+            "endpoint-2": [(502, 9.0, {"Retry-After": "10"}), (200, 1.0)],
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP 502"):
+        overpass.query_overpass_with_failover("[out:json][timeout:25];")
+
+    # The first endpoint uses 9 + 1 + 9 + 2 + 9 = 30 s. The second answers at
+    # 39 s, and its 10 s Retry-After wait would end at 49 s, past the limit.
+    assert posts == ["endpoint-1"] * 3 + ["endpoint-2"]
+    assert clock.sleeps == [1.0, 2.0]
+
+
+def test_overpass_session_leaves_retries_to_the_failover_loop():
+    session = overpass.create_retry_session()
+
+    assert session.get_adapter("https://example.org").max_retries.total == 0
 
 
 def test_overpass_retry_session_sets_user_agent():

@@ -266,6 +266,7 @@ def test_overpass_client_message_is_classified_by_every_endpoint(
 
     class Response:
         status_code = first_status
+        headers = {}
 
     class Session:
         def post(self, endpoint, data, timeout):
