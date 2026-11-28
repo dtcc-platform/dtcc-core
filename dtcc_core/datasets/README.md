@@ -174,6 +174,7 @@ Current Built-In Datasets
 | `calibration_grid` | synthetic | `CalibrationGrid` | `geojson` | Synthetic evenly spaced line grid for table-projector alignment. |
 | `air_quality` | raw | `SensorCollection` | `pb` | SMHI datavardluft station observations with phenomenon metadata, units, UTC timestamps, stale-value flags, and getData fallback provenance. |
 | `weather` | raw | `SensorCollection` | `pb` | SMHI metobs latest-hour station observations with units, timestamps, quality codes, and parameter metadata. |
+| `weather_history` | raw | `TimeSeriesCollection` | Python objects | SMHI nearest common station or Open-Meteo ERA5 history at a tuple, Point, or Bounds center; default CRS is EPSG:3006. See [historical weather](../../docs/datasets/weather-history.md). |
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI HydroObs latest-day station observations with catchment metadata, units, value timestamps, and quality codes. |
 | `ocean` | raw | `SensorCollection` | `pb` | SMHI OcObs latest-hour station/platform observations with units, period timestamps, quality codes, and parameter metadata. |
 | `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, age band, household count and type, car, and employment statistics. Match statistics through 2023 to the 2018 boundaries and statistics from 2024 to the 2025 boundaries. |

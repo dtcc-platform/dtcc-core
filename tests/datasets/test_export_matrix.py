@@ -17,8 +17,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qsl, urlsplit
 
 import geopandas as gpd
+import httpx2
 import numpy as np
 import pytest
 from affine import Affine
@@ -147,6 +149,35 @@ def _json(*parts):
 
 def _parameter(url):
     return url.split("/parameter/")[1].split("/")[0]
+
+
+def _history_send(request, **kwargs):
+    url = urlsplit(str(request.url))
+    assert request.method == "GET"
+    assert url.scheme == "https" and url.netloc == "archive-api.open-meteo.com"
+    assert url.path == "/v1/archive"
+    params = dict(parse_qsl(url.query))
+    body = json.dumps(
+        {
+            "longitude": float(params["longitude"]),
+            "latitude": float(params["latitude"]),
+            "elevation": 10,
+            "utc_offset_seconds": 0,
+            "hourly_units": {
+                "time": "unixtime",
+                "temperature_2m": "°C",
+                "wind_speed_10m": "m/s",
+                "wind_direction_10m": "°",
+            },
+            "hourly": {
+                "time": [1577836800],
+                "temperature_2m": [4.5],
+                "wind_speed_10m": [3],
+                "wind_direction_10m": [270],
+            },
+        }
+    ).encode()
+    return httpx2.Response(200, content=body, request=request)
 
 
 def _weather(url, params=None, timeout_s=10.0):
@@ -389,7 +420,7 @@ class Case:
     name: str
     product: str | None = None
     label: str = "populated"
-    bounds: tuple = SITE
+    bounds: tuple | None = SITE
     arguments: dict = field(default_factory=dict)
     sources: dict = field(default_factory=dict)
     watch: tuple = ()
@@ -452,6 +483,18 @@ FETCH_TRAFIKLAB = {
 CRS_NONE = {"violates": "crs_resolvable", "label": "no-crs"}
 
 CASES = [
+    Case(
+        "weather_history",
+        bounds=None,
+        arguments={
+            "source": "open_meteo",
+            "location": (X0, Y0),
+            "start": "2020-01-01",
+            "end": "2020-01-01T01:00",
+            "cache_ttl_s": 0,
+        },
+        sources={"httpx2.Client.send": _history_send},
+    ),
     Case("point_cloud", sources=_site(footprints=False)),
     Case(
         "building_footprints",
@@ -730,7 +773,8 @@ def producing(case, tmp_path, monkeypatch):
         producers[case.producer] = stack.enter_context(
             patch.object(dataset, case.producer, wraps=getattr(dataset, case.producer))
         )
-        arguments = {"bounds": case.bounds, **case.arguments}
+        arguments = {"bounds": case.bounds} if case.bounds is not None else {}
+        arguments.update(case.arguments)
         if case.product is not None:
             arguments["product"] = case.product
         result = dataset(**arguments)
@@ -822,6 +866,19 @@ def _assert_web_content(package, fmt):
         with MemoryFile(content) as memory, memory.open() as tiff:
             assert tiff.crs is not None
             assert tiff.width * tiff.height > 0
+
+
+def test_python_only_temporal_collection_refuses_lossy_export(tmp_path, monkeypatch):
+    [case] = _cases(("weather_history", None))
+    with producing(case, tmp_path, monkeypatch) as run:
+        assert len(run.result) == 3
+        run.arm()
+        for fmt in (None, "geojson", "png", "tif"):
+            target = tmp_path / "unsupported.dtccpkg"
+            with pytest.raises(ValueError, match="unsupported"):
+                run.result.export(target, canonical=True, format=fmt)
+            assert not target.exists()
+        run.assert_not_rerun()
 
 
 def test_every_registered_product_has_its_cases():

@@ -62,6 +62,7 @@ UNEXPORTED_WRAPPERS = ("RasterTileCollection",)
 UNSUPPORTED = (
     "DatasetCollection",
     "DatasetValue",
+    "TimeSeriesCollection",
 )
 SUPPORTED = OBJECTS + GEOMETRIES + VALUES
 

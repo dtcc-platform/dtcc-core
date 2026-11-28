@@ -82,6 +82,9 @@ the source solid, roof-coloured footprints, and rebuilt LOD1 parts.
 | [view_cityjson.py](view_cityjson.py) | Inspect the original detailed LOD2 model | bundled, offline |
 | [create_cityjson.py](create_cityjson.py) | Catalogue LOD2 city dataset → CityJSON export | DTCC service |
 | [view_pointcloud.py](view_pointcloud.py) | Inspect raw LiDAR points | DTCC service |
+| [weather_history_availability.py](weather_history_availability.py) | Discover advertised measurement periods near a point | SMHI observations |
+| [weather_history.py](weather_history.py) | Fetch and plot hourly temperature | Open-Meteo ERA5 |
+| [weather_history_comparison.py](weather_history_comparison.py) | Compare hourly temperature, wind speed and wind direction near Stockholm | SMHI observations and Open-Meteo ERA5 |
 
 ## Suggested tour and limitations
 
@@ -119,3 +122,7 @@ child cells and the new interior vertex.
 `dataset_buses.py` needs `VASTTRAFIK_AUTHENTICATION_KEY` and an interactive
 Matplotlib display. It uses `strict_live=True`; missing credentials or provider
 failures raise errors. Close the window or press Ctrl+C to stop.
+
+The historical weather comparison fetches 1–3 January 2020 in UTC and displays
+three shared-time panels. Run `uv run python demos/weather_history_comparison.py`
+from the repository root.

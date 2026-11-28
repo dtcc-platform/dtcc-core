@@ -38,6 +38,7 @@ from .city_volume_mesh import CityVolumeMeshDataset
 from .air_quality import AirQualityDataset
 from .trees import TreesDataset
 from .weather import WeatherDataset
+from .weather_history import WeatherHistoryDataset
 from .hydrology import HydrologyDataset
 from .ocean import OceanDataset
 from .footprints import FootprintsDataset
@@ -85,6 +86,7 @@ city_volume_mesh = get_dataset("city_volume_mesh")
 air_quality = get_dataset("air_quality")
 trees = get_dataset("trees")
 weather = get_dataset("weather")
+weather_history = get_dataset("weather_history")
 hydrology = get_dataset("hydrology")
 ocean = get_dataset("ocean")
 roads = get_dataset("roads")

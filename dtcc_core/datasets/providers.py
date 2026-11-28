@@ -23,6 +23,7 @@ _PROVIDERS: dict[str, ProviderInfo] = {
     "rise": ProviderInfo("rise", "RISE"),
     "scb": ProviderInfo("scb", "SCB"),
     "smhi": ProviderInfo("smhi", "SMHI"),
+    "open-meteo": ProviderInfo("open-meteo", "Open-Meteo"),
     "trafiklab": ProviderInfo("trafiklab", "Trafiklab"),
     "vasttrafik": ProviderInfo("vasttrafik", "Västtrafik"),
 }
@@ -43,6 +44,8 @@ _ALIASES: dict[str, str] = {
     "digital-earth-sweden": "rise",
     "scb": "scb",
     "smhi": "smhi",
+    "openmeteo": "open-meteo",
+    "open-meteo": "open-meteo",
     "trafiklab": "trafiklab",
     "vasttrafik": "vasttrafik",
     "västtrafik": "vasttrafik",

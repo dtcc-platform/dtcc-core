@@ -152,9 +152,17 @@ def audit_dataset(dataset: DatasetDescriptor) -> DatasetQAReport:
         descriptor.get("supported_formats") == []
         and isinstance(serialization, dict)
         and serialization.get("format_parameter") is False
-        and isinstance(exports, list)
-        and exports
-        and all(isinstance(entry, dict) and entry.get("canonical") for entry in exports)
+        and (
+            serialization.get("python_only") is True
+            or (
+                isinstance(exports, list)
+                and exports
+                and all(
+                    isinstance(entry, dict) and entry.get("canonical")
+                    for entry in exports
+                )
+            )
+        )
     ):
         formats_missing_status = "not_applicable"
     _audit_descriptor(dataset_name, descriptor, findings, formats_missing_status)
@@ -367,17 +375,23 @@ def _audit_descriptor(
         )
 
     schema = descriptor.get("args_schema")
-    bounds_property = None
+    spatial_property = None
+    spatial_field = "bounds"
     if isinstance(schema, dict):
         properties = schema.get("properties")
         if isinstance(properties, dict):
-            bounds_property = properties.get("bounds")
+            spatial_field = (
+                "location"
+                if "location" in properties and "bounds" not in properties
+                else "bounds"
+            )
+            spatial_property = properties.get(spatial_field)
     _add_value_finding(
         findings,
         dataset_name,
         "args_schema",
-        "bounds",
-        bounds_property,
+        spatial_field,
+        spatial_property,
     )
 
 
