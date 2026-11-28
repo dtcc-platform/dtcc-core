@@ -46,6 +46,7 @@ require network access.
 | [dataset_buses.py](dataset_buses.py) | Live buses over streets in a 2 km area around Chalmers Johanneberg | `LiveVehiclePlot.run()` |
 | [dataset_transit_vehicles.py](dataset_transit_vehicles.py) | Live bus positions | `vehicles.plot()` |
 | [dataset_trees.py](dataset_trees.py) | Point-cloud-derived trees | `trees.plot()` |
+| [dataset_urban_atlas.py](dataset_urban_atlas.py) | Copernicus Urban Atlas land use classes | `landuse.plot()` |
 | [dataset_terrain_surface_mesh.py](dataset_terrain_surface_mesh.py) | Terrain surface mesh | `terrain.plot()` / `.view()` |
 | [dataset_city_surface_mesh.py](dataset_city_surface_mesh.py) | Joint and isolated LOD2 city surface meshes | `isolated_mesh.plot()` / `.view()` and `merged_mesh.plot()` / `.view()` |
 | [dataset_printable_city_tiles.py](dataset_printable_city_tiles.py) | Four Gothenburg city tiles and the magnetic base | STLs and `layout.json` in `output/gothenburg-stls/` |

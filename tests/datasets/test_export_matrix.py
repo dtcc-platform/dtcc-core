@@ -562,6 +562,14 @@ CASES = [
         check=_has_statistics,
     ),
     Case(
+        "urban_atlas",
+        sources={
+            "dtcc_core.io.data.download_urban_atlas": (
+                lambda **_: PRODUCTS["urban_atlas", None]("populated", None)
+            )
+        },
+    ),
+    Case(
         "calibration_grid",
         bounds=GRID_BOUNDS,
         arguments={"divisions": 2},

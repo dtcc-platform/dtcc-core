@@ -50,6 +50,7 @@ and fails when this page differs.
 | `transit_vehicles` | - | `VehicleCollection` | yes | `geojson` | none | none |
 | `trees` | `trees` | `TreeCollection` | yes | `geojson` | none | none |
 | `trees` | `raster` | `Raster` | yes | `png`, `tif` | none | none |
+| `urban_atlas` | - | `Landuse` | yes | `geojson` | none | none |
 | `weather` | - | `SensorCollection` | yes | `geojson` | none | none |
 
 - **Product**: the `product` argument; `-` for a Dataset with one product.
