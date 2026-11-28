@@ -2,7 +2,9 @@ import hashlib
 import json
 import os
 from collections.abc import Sequence
+from math import prod
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import numpy as np
@@ -38,7 +40,17 @@ except ImportError:
 SCB_DESO_WFS_URL = "https://geodata.scb.se/geoserver/stat/wfs"
 SCB_PXWEB_API_BASE_URL = "https://api.scb.se/OV0104/v1/doris/sv/ssd/START"
 SCB_DESO_SUPPORTED_YEARS = (2018, 2025)
-SCB_DESO_STATISTICS = ("population", "households", "cars", "employment")
+SCB_MAX_VALUES = 110_000
+DESO_AGE_BANDS = ("-4", *(f"{age}-{age + 4}" for age in range(5, 80, 5)), "80-")
+DESO_HOUSEHOLD_TYPES = ("ESUB", "ESMB", "SBUB", "SBMB", "OVRIGA")
+SCB_DESO_STATISTICS = (
+    "population",
+    "households",
+    "cars",
+    "employment",
+    "age",
+    "household_types",
+)
 SCB_CONNECT_TIMEOUT_SECONDS = float(os.environ.get("DTCC_SCB_CONNECT_TIMEOUT", "8"))
 SCB_READ_TIMEOUT_SECONDS = float(os.environ.get("DTCC_SCB_READ_TIMEOUT", "30"))
 SCB_USER_AGENT = os.environ.get(
@@ -55,7 +67,7 @@ SCB_API_REQUEST_HEADERS = {
 _STATISTIC_QUERIES = {
     "population": {
         "url": f"{SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/FolkmDesoAldKon",
-        "year_values": (2024, 2025),
+        "year_values": tuple(range(2018, 2026)),
         "fields": [
             {
                 "name": "population_total",
@@ -71,7 +83,7 @@ _STATISTIC_QUERIES = {
     },
     "households": {
         "url": f"{SCB_PXWEB_API_BASE_URL}/BE/BE0101/BE0101Y/HushallDesoTyp",
-        "year_values": (2024, 2025),
+        "year_values": tuple(range(2018, 2026)),
         "fields": [
             {
                 "name": "households_total",
@@ -133,6 +145,122 @@ _STATISTIC_QUERIES = {
 }
 
 
+def _category_fields(topic, base_field, dimension, codes):
+    fields = []
+    for code in codes:
+        if topic == "age":
+            label = {"-4": "0–4 år", "80-": "80– år"}.get(
+                code, code.replace("-", "–") + " år"
+            )
+            suffix = {"-4": "0_4", "80-": "80_plus"}.get(code, code.replace("-", "_"))
+            name, description = f"age_{suffix}", f"SCB DeSO population aged {label}."
+        else:
+            name = f"{topic}_{code}"
+            description = f"SCB DeSO household count for category {code}."
+        fields.append(
+            {
+                **base_field,
+                "name": name,
+                "description": description,
+                "selections": {**base_field["selections"], dimension: code},
+            }
+        )
+    return fields
+
+
+for _topic, _base, _dimension, _codes in (
+    ("age", "population", "Alder", DESO_AGE_BANDS),
+    ("household_types", "households", "Hushallstyp", DESO_HOUSEHOLD_TYPES),
+):
+    _definition = _STATISTIC_QUERIES[_base]
+    _STATISTIC_QUERIES[_topic] = {
+        **_definition,
+        "fields": _category_fields(
+            _topic, _definition["fields"][0], _dimension, _codes
+        ),
+    }
+
+
+def fetch_deso_control_table(codes: Sequence[str], year: int, topic: str) -> dict:
+    """Return the SCB request and response for population or household controls.
+
+    Large selections retain each raw request and response in `batches`, alongside
+    the combined selection and rows in `request` and `response`.
+    """
+    categories = {"population": "age", "households": "household_types"}
+    if topic not in categories:
+        raise ValueError("DeSO control topic must be 'population' or 'households'.")
+    definition = _STATISTIC_QUERIES[topic]
+    columns = _selection_columns(
+        definition["fields"] + _STATISTIC_QUERIES[categories[topic]]["fields"]
+    )
+    statistic_year = _statistic_year(topic, year)
+    url = definition["url"]
+    regions = list(
+        dict.fromkeys(_scb_deso_region_code(code, statistic_year) for code in codes)
+    )
+    batches = list(_query_scb_batches(url, regions, statistic_year, columns, topic))
+    if len(batches) == 1:
+        return {"url": url, **batches[0]}
+    response = dict(batches[0]["response"]) if batches else {}
+    response["data"] = [row for batch in batches for row in batch["response"]["data"]]
+    archive = {
+        "url": url,
+        "request": _scb_payload(regions, statistic_year, columns),
+        "response": response,
+    }
+    if batches:
+        archive["batches"] = batches
+    return archive
+
+
+def _selection_columns(fields):
+    return {
+        name: list(dict.fromkeys(field["selections"][name] for field in fields))
+        for name in fields[0]["selections"]
+    }
+
+
+def _scb_payload(regions, year, columns):
+    selections = {"Region": regions, **columns, "Tid": [str(year)]}
+    return {
+        "query": [
+            {"code": code, "selection": {"filter": "item", "values": values}}
+            for code, values in selections.items()
+        ],
+        "response": {"format": "JSON"},
+    }
+
+
+def _query_scb_batches(url, regions, year, columns, name):
+    batch_size = SCB_MAX_VALUES // prod(map(len, columns.values()))
+    for start in range(0, len(regions), batch_size):
+        payload = _scb_payload(regions[start : start + batch_size], year, columns)
+        yield {
+            "request": payload,
+            "response": _post_scb_statistic(url, payload, name, year),
+        }
+
+
+def _post_scb_statistic(url, payload, name, year):
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            headers=SCB_API_REQUEST_HEADERS,
+            timeout=_scb_request_timeout(),
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(
+            f"Failed to query SCB DeSO statistic {name} ({year})"
+        ) from exc
+    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        raise ValueError(f"The SCB DeSO {name} response has no data rows")
+    return data
+
+
 def download_deso(
     bounds: Bounds,
     year: int = 2025,
@@ -142,6 +270,9 @@ def download_deso(
     use_cache: bool = True,
 ) -> DeSO:
     """Download DeSO polygons and return a DTCC DeSO object."""
+    if statistics:
+        statistics = _normalize_statistics(statistics)
+        _statistics_years(statistics, statistics_year, geometry_year=year)
     gdf = download_deso_geodataframe(
         bounds=bounds,
         year=year,
@@ -273,12 +404,15 @@ def attach_deso_statistics(
         return deso
 
     topics = _normalize_statistics(statistics)
-    _validate_statistics_geometry(deso)
-    statistics_years = _statistics_years(topics, year)
+    statistics_years = _statistics_years(
+        topics, year, geometry_year=deso.attributes.get("year", 2025)
+    )
+    unique_years = set(statistics_years.values())
+    common_year = next(iter(unique_years)) if len(unique_years) == 1 else None
     fields = download_deso_statistics(
         codes=deso.codes,
         statistics=topics,
-        year=year,
+        year=common_year,
         source=source,
     )
     for field in fields:
@@ -286,9 +420,8 @@ def attach_deso_statistics(
 
     deso.attributes["statistics"] = topics
     deso.attributes["statistics_years"] = statistics_years
-    unique_years = set(statistics_years.values())
-    if year is not None or len(unique_years) == 1:
-        deso.attributes["statistics_year"] = next(iter(unique_years))
+    if common_year is not None:
+        deso.attributes["statistics_year"] = common_year
     else:
         deso.attributes.pop("statistics_year", None)
     deso.attributes["statistics_source"] = "SCB Statistikdatabasen"
@@ -305,7 +438,7 @@ def download_deso_statistics(
     if source != "SCB":
         raise ValueError("Only source='SCB' is supported for DeSO statistics v1.")
     topics = _normalize_statistics(statistics)
-    if not codes:
+    if len(codes) == 0:
         return []
 
     fields = []
@@ -316,87 +449,78 @@ def download_deso_statistics(
         query = _STATISTIC_QUERIES[topic]
         statistics_year = statistics_years[topic]
         query_codes = [_scb_deso_region_code(code, statistics_year) for code in codes]
-
-        for field_spec in query["fields"]:
-            cache_path = _statistics_cache_path(
-                name=field_spec["name"],
+        specs = query["fields"]
+        cache_paths = {
+            spec["name"]: _statistics_cache_path(
+                name=spec["name"],
                 region_codes=query_codes,
                 year=statistics_year,
-                selections=field_spec["selections"],
+                selections=spec["selections"],
             )
-            values = _read_statistics_cache(cache_path, len(query_codes))
-            if values is not None:
-                info(
-                    "Using cached SCB DeSO statistic "
-                    f"{field_spec['name']} ({statistics_year})"
-                )
-            else:
-                info(
-                    "Querying SCB DeSO statistic "
-                    f"{field_spec['name']} ({statistics_year})"
-                )
-                values = _query_scb_statistic(
-                    url=query["url"],
-                    region_codes=query_codes,
-                    year=statistics_year,
-                    selections=field_spec["selections"],
-                    name=field_spec["name"],
-                )
-                _write_statistics_cache(cache_path, values)
-
+            for spec in specs
+        }
+        values = {
+            name: _read_statistics_cache(path, len(query_codes))
+            for name, path in cache_paths.items()
+        }
+        missing = [spec for spec in specs if values[spec["name"]] is None]
+        for name, cached in values.items():
+            if cached is not None:
+                info(f"Using cached SCB DeSO statistic {name} ({statistics_year})")
+        if missing:
+            names = ", ".join(spec["name"] for spec in missing)
+            info(f"Querying SCB DeSO statistics {names} ({statistics_year})")
+            downloaded = _query_scb_statistics(
+                query["url"], query_codes, statistics_year, missing
+            )
+            for name, counts in downloaded.items():
+                _write_statistics_cache(cache_paths[name], counts)
+            values.update(downloaded)
+        for spec in specs:
+            name = spec["name"]
             fields.append(
                 Field(
-                    name=field_spec["name"],
-                    unit=field_spec["unit"],
-                    description=field_spec["description"],
-                    values=np.asarray(values, dtype=float).reshape((-1, 1)),
+                    name=name,
+                    unit=spec["unit"],
+                    description=spec["description"],
+                    values=values[name].reshape((-1, 1)),
                     dim=1,
                 )
             )
     return fields
 
 
-def _query_scb_statistic(
-    url: str,
-    region_codes: Sequence[str],
-    year: int,
-    selections: dict[str, str],
-    name: str | None = None,
-) -> np.ndarray:
-    query = [
-        {
-            "code": "Region",
-            "selection": {"filter": "item", "values": list(region_codes)},
-        }
-    ]
-    for code, value in selections.items():
-        query.append(
-            {
-                "code": code,
-                "selection": {"filter": "item", "values": [value]},
-            }
-        )
-    query.append(
-        {
-            "code": "Tid",
-            "selection": {"filter": "item", "values": [str(year)]},
-        }
-    )
-    payload = {"query": query, "response": {"format": "JSON"}}
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=SCB_API_REQUEST_HEADERS,
-            timeout=_scb_request_timeout(),
-        )
-        response.raise_for_status()
-    except requests.exceptions.RequestException as exc:
-        label = f" {name}" if name else ""
-        raise RuntimeError(
-            f"Failed to query SCB DeSO statistic{label} ({year})"
-        ) from exc
-    return _parse_scb_statistic_response(response.json(), region_codes)
+def _query_scb_statistics(url, region_codes, year, fields):
+    columns = _selection_columns(fields)
+    dimensions = [name for name in columns if name != "ContentsCode"]
+    varying = [name for name in dimensions if len(columns[name]) > 1]
+    names = {
+        tuple(spec["selections"][name] for name in varying): spec["name"]
+        for spec in fields
+    }
+    data = {name: {} for name in names.values()}
+    regions = list(dict.fromkeys(region_codes))
+    for batch in _query_scb_batches(
+        url, regions, year, columns, ", ".join(names.values())
+    ):
+        payload = batch["response"]
+        response_keys = [
+            item["code"] for item in payload.get("columns", []) if item["type"] == "d"
+        ] or ["Region", *dimensions, "Tid"]
+        region_idx = response_keys.index("Region")
+        indices = [response_keys.index(name) for name in varying]
+        last_index = max([region_idx, *indices])
+        for row in payload["data"]:
+            key, values = row.get("key", []), row.get("values", [])
+            if not values or len(key) <= last_index:
+                continue
+            name = names.get(tuple(key[i] for i in indices))
+            if name is not None:
+                data[name][key[region_idx]] = _to_float(values[0])
+    return {
+        name: np.array([counts.get(code, np.nan) for code in region_codes], dtype=float)
+        for name, counts in data.items()
+    }
 
 
 def _scb_request_timeout() -> tuple[float, float]:
@@ -442,24 +566,14 @@ def _read_statistics_cache(path: Path, expected_len: int) -> np.ndarray | None:
 
 def _write_statistics_cache(path: Path, values: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".part")
-    with tmp_path.open("wb") as handle:
-        np.save(handle, np.asarray(values, dtype=float))
-    os.replace(tmp_path, path)
-
-
-def _parse_scb_statistic_response(
-    payload: dict[str, Any],
-    region_codes: Sequence[str],
-) -> np.ndarray:
-    values_by_region = {code: np.nan for code in region_codes}
-    for row in payload.get("data", []):
-        key = row.get("key", [])
-        values = row.get("values", [])
-        if not key or not values:
-            continue
-        values_by_region[key[0]] = _to_float(values[0])
-    return np.asarray([values_by_region[code] for code in region_codes], dtype=float)
+    handle = NamedTemporaryFile(dir=path.parent, suffix=".part", delete=False)
+    tmp_path = Path(handle.name)
+    try:
+        with handle:
+            np.save(handle, np.asarray(values, dtype=float))
+        os.replace(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _normalize_statistics(statistics: Sequence[str]) -> list[str]:
@@ -476,34 +590,53 @@ def _normalize_statistics(statistics: Sequence[str]) -> list[str]:
     return topics
 
 
-def _validate_statistics_geometry(deso: DeSO) -> None:
-    year = deso.attributes.get("year", 2025)
-    if year != 2025:
-        raise ValueError("DeSO statistics v1 currently supports DeSO 2025 only.")
+def _statistics_years(
+    topics: Sequence[str], year: int | None = None, *, geometry_year: int | None = None
+) -> dict[str, int]:
+    return {
+        topic: _statistic_year(topic, year, geometry_year=geometry_year)
+        for topic in topics
+    }
 
 
-def _statistics_years(topics: Sequence[str], year: int | None = None) -> dict[str, int]:
-    return {topic: _statistic_year(topic, year) for topic in topics}
-
-
-def _statistic_year(topic: str, year: int | None = None) -> int:
-    query = _STATISTIC_QUERIES[topic]
-    if year is None:
-        return max(query["year_values"])
-    if year not in query["year_values"]:
-        supported = ", ".join(str(value) for value in query["year_values"])
+def _statistic_year(
+    topic: str, year: int | None = None, *, geometry_year: int | None = None
+) -> int:
+    supported_years = _STATISTIC_QUERIES[topic]["year_values"]
+    if year is not None and year not in supported_years:
+        supported = ", ".join(str(value) for value in supported_years)
         raise ValueError(
             f"Statistic '{topic}' does not support year {year}. "
             f"Supported years: {supported}."
         )
-    return year
+    candidates = supported_years if year is None else (year,)
+    if geometry_year is not None:
+        candidates = [
+            value for value in candidates if _geometry_vintage(value) == geometry_year
+        ]
+        if not candidates:
+            raise ValueError(
+                f"Statistic '{topic}' has no compatible year for DeSO {geometry_year} geometry. "
+                "Statistics through 2023 require DeSO 2018 geometry. "
+                "Statistics from 2024 require DeSO 2025 geometry."
+            )
+    return max(candidates)
+
+
+def _geometry_vintage(year: int) -> int:
+    return 2018 if year <= 2023 else 2025
 
 
 def _scb_deso_region_code(code: str, year: int) -> str:
     code = str(code)
-    if year >= 2024 and "_DeSO2025" not in code:
-        return f"{code}_DeSO2025"
-    return code
+    suffixed = code.endswith("_DeSO2025")
+    if _geometry_vintage(year) == 2018:
+        if suffixed:
+            raise ValueError(
+                f"DeSO 2025 code {code!r} cannot be used for statistics in {year}."
+            )
+        return code
+    return code if suffixed else f"{code}_DeSO2025"
 
 
 def _to_float(value):
@@ -590,6 +723,7 @@ __all__ = [
     "download_deso",
     "download_deso_geodataframe",
     "download_deso_statistics",
+    "fetch_deso_control_table",
     "attach_deso_statistics",
     "filter_deso_geodataframe",
     "deso_from_geodataframe",

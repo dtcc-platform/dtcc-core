@@ -176,7 +176,7 @@ Current Built-In Datasets
 | `weather` | raw | `SensorCollection` | `pb` | SMHI metobs latest-hour station observations with units, timestamps, quality codes, and parameter metadata. |
 | `hydrology` | raw | `SensorCollection` | `pb` | SMHI HydroObs latest-day station observations with catchment metadata, units, value timestamps, and quality codes. |
 | `ocean` | raw | `SensorCollection` | `pb` | SMHI OcObs latest-hour station/platform observations with units, period timestamps, quality codes, and parameter metadata. |
-| `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, household, car, and employment statistics. |
+| `deso` | raw | `DeSO` | `pb`, `geojson`, `gpkg` | SCB DeSO statistical areas for 2018/2025 with optional population, age band, household count and type, car, and employment statistics. Match statistics through 2023 to the 2018 boundaries and statistics from 2024 to the 2025 boundaries. |
 
 Dataset-level `format="geojson"` for `deso`, `calibration_grid`, and
 `smoke` with `product="slice"` or `product="streamlines"` is the model's

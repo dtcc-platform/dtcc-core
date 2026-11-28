@@ -103,6 +103,8 @@ def test_deso_context_documents_scb_vintages_statistics_and_limits():
         "households",
         "cars",
         "employment",
+        "age",
+        "household_types",
     ]
     assert "Requires review" in manifest.metadata.license
     assert "2018 and 2025" in manifest.metadata.collection_period
